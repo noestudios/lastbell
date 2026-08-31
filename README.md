@@ -9,15 +9,17 @@ already use.
 > Not affiliated with Edupoint. It uses **your** credentials to read **your**
 > students' data, and everything runs on hardware you control.
 
-**Status: Phase 1 complete.** Verified live against MCPS
+**Status: Phase 2 complete.** Verified live against MCPS
 (`md-mcps-psv.edupoint.com`, 2026-08-31): `mcpsgradewatch run` sweeps **every
 class** per student (via each class row's own `data-focus` payload, the same
 drill-down the portal UI performs), persists a snapshot keyed on the Edupoint
-assignment GUID, diffs against the previous run, and pushes alerts — score
-changes and missing-flags — through the configured channel. First run is a
-quiet baseline; every field-level change lands in an append-only
-`grade_history`. The time-based rules (ungraded-past-due, deadline look-ahead)
-are Phase 2.
+assignment GUID, diffs against the previous run, and alerts on **score
+changes, missing-flags, work still ungraded past its due date, and deadlines
+entering the look-ahead window**. The time-based rules are status
+*derivations* re-applied each poll, so crossing a time threshold is just
+another persisted status transition — alerted exactly once, no separate dedup
+machinery. First run is a quiet baseline; every field-level change lands in an
+append-only `grade_history`.
 
 ---
 
@@ -96,7 +98,7 @@ and duplicate screen/print row variants fetched once).
 |------:|------------|
 | **0** | ✅ Pass the gate; harden the connector into normalized courses + assignments |
 | **1** | ✅ All-class sweep, persisted snapshots (keyed on the Edupoint assignment GUID), diff + first alert (`run` / `run --loop`) |
-| **2** | Missing, ungraded-past-due, future-deadline look-ahead, score changes |
+| **2** | ✅ Missing, ungraded-past-due, future-deadline look-ahead, score changes (`LOOKAHEAD_DAYS` / `UNGRADED_GRACE_DAYS`) |
 | **3** | Watcher accounts (guardians & students), subscriptions, dashboard, channels |
 | **4** | Daily student summaries, digests, quiet hours, grade-drop thresholds, shared ack |
 | **5** | Publish the preflight as a redacted, general district tool |

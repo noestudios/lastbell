@@ -43,6 +43,9 @@ class Config:
     snapshot_dir: Path
     snapshot_retention_days: int
     notify_channel: str
+    # Phase 2 time-based rules:
+    lookahead_days: int        # alert when a due date enters this window
+    ungraded_grace_days: int   # days past due before "still ungraded" fires
 
     @property
     def base_url(self) -> str:
@@ -68,4 +71,6 @@ def load() -> Config:
         snapshot_dir=Path(_get("MCPSGRADEWATCH_SNAPSHOT_DIR", "data/snapshots")),
         snapshot_retention_days=int(_get("MCPSGRADEWATCH_SNAPSHOT_RETENTION_DAYS", "90")),
         notify_channel=_get("MCPSGRADEWATCH_NOTIFY_CHANNEL", "console"),
+        lookahead_days=int(_get("MCPSGRADEWATCH_LOOKAHEAD_DAYS", "7")),
+        ungraded_grace_days=int(_get("MCPSGRADEWATCH_UNGRADED_GRACE_DAYS", "3")),
     )
