@@ -20,7 +20,12 @@ def _cmd_set_password(args: argparse.Namespace) -> int:
 def _cmd_preflight(args: argparse.Namespace) -> int:
     from . import preflight
 
-    sys.argv = ["mcpsgradewatch preflight"] + (["--show-values"] if args.show_values else [])
+    argv = ["mcpsgradewatch preflight"]
+    if args.show_values:
+        argv.append("--show-values")
+    if args.dump:
+        argv.append("--dump")
+    sys.argv = argv
     preflight.main()
     return 0
 
@@ -63,6 +68,8 @@ def main() -> None:
 
     p_pre = sub.add_parser("preflight", help="district go/no-go check")
     p_pre.add_argument("--show-values", action="store_true")
+    p_pre.add_argument("--dump", action="store_true",
+                       help="save raw portal pages to data/debug/ (local only)")
     p_pre.set_defaults(func=_cmd_preflight)
 
     sub.add_parser("discover", help="list students on the configured credential").set_defaults(func=_cmd_discover)

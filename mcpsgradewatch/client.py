@@ -26,7 +26,15 @@ USER_AGENT = f"mcpsgradewatch/{__version__}"
 
 
 class ParentVueError(RuntimeError):
-    """Base error for portal interactions."""
+    """Base error for portal interactions.
+
+    ``response_text`` carries the server's raw reply (when there was one) so
+    debug tooling can dump it for inspection.
+    """
+
+    def __init__(self, message: str, response_text: str = "") -> None:
+        super().__init__(message)
+        self.response_text = response_text
 
 
 class LoginError(ParentVueError):
@@ -136,15 +144,29 @@ class ParentVueClient:
         r = self.session.get(f"{self.base_url}/PXP2_Gradebook.aspx?AGU={agu}", timeout=30)
         r.raise_for_status()
         html = r.text
+        # Kept so debug tooling (preflight --dump) can save the raw page.
+        self.last_gradebook_html = html
 
         def grab(key: str) -> str:
-            m = re.search(rf'"{key}"\s*:\s*"([^"]*)"', html)
+            # Values may be quoted GUIDs/strings or bare numbers, and key
+            # casing varies across the page's embedded JSON blobs.
+            m = re.search(rf'"{key}"\s*:\s*"([^"]*)"', html, re.IGNORECASE)
+            if m is None:
+                m = re.search(rf'"{key}"\s*:\s*(-?\d+)', html, re.IGNORECASE)
             return m.group(1) if m else ""
+
+        # Optional focus fields the portal JS also passes when present.
+        raw = {}
+        for key in ("markPeriodGU", "GradingPeriodGroup"):
+            val = grab(key)
+            if val:
+                raw[key] = val
 
         return FocusArgs(
             org_year_gu=grab("OrgYearGU"),
             grade_period_gu=grab("gradePeriodGU"),
             school_id=grab("schoolID"),
+            raw=raw,
         )
 
     # ── the gradebook page method ─────────────────────────────────────
@@ -174,11 +196,15 @@ class ParentVueClient:
         if "json" not in r.headers.get("Content-Type", "").lower():
             raise ParentVueError(
                 f"LoadControl({control}) did not return JSON (HTTP {r.status_code}); "
-                "focus parameters are probably missing or invalid."
+                "focus parameters are probably missing or invalid.",
+                response_text=r.text,
             )
         payload = r.json()
         d = payload.get("d", payload)
         html = d.get("html") if isinstance(d, dict) else d
         if not html:
-            raise ParentVueError(f"LoadControl({control}) returned no html fragment.")
+            raise ParentVueError(
+                f"LoadControl({control}) returned no html fragment.",
+                response_text=r.text,
+            )
         return html

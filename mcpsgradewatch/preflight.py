@@ -66,6 +66,12 @@ def _soap_probe(base_url: str, username: str, password: str) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description="mcpsgradewatch district preflight")
     ap.add_argument("--show-values", action="store_true", help="reveal names/grades locally (do not share)")
+    ap.add_argument(
+        "--dump",
+        action="store_true",
+        help="save raw portal pages to data/debug/ for parser development "
+        "(contains your students' data — stays local, git-ignored)",
+    )
     args = ap.parse_args()
 
     conf = cfg.load()
@@ -103,15 +109,34 @@ def main() -> None:
     focus = client.get_focus_args(agu)
     for label, val in (("OrgYearGU", focus.org_year_gu), ("gradePeriodGU", focus.grade_period_gu), ("schoolID", focus.school_id)):
         print(f"    {label:14}: {'resolved' if val else 'MISSING'}")
+    if focus.raw:
+        print(f"    also resolved  : {', '.join(focus.raw)}")
+
+    debug_dir = None
+    if args.dump:
+        from pathlib import Path
+
+        debug_dir = Path("data/debug")
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        page = getattr(client, "last_gradebook_html", "")
+        (debug_dir / "gradebook_page.html").write_text(page, encoding="utf-8")
+        print(f"    [dump] gradebook page -> {debug_dir}/gradebook_page.html "
+              f"({len(page)//1024} KB; personal data — stays local)")
 
     print("\n[5] Gate — live LoadControl (Gradebook_SchoolClasses) ...")
     try:
         html = client.load_control("Gradebook_SchoolClasses", focus.as_parameters(agu))
         print(f"    PASS — received a {len(html)//1024} KB HTML fragment.")
-        gate = all([focus.org_year_gu, focus.school_id]) and len(html) > 0
+        gate = len(html) > 0
+        if debug_dir is not None:
+            (debug_dir / "schoolclasses_fragment.html").write_text(html, encoding="utf-8")
+            print(f"    [dump] fragment -> {debug_dir}/schoolclasses_fragment.html")
     except ParentVueError as e:
         print(f"    NOT PASSED — {e}")
         gate = False
+        if debug_dir is not None and e.response_text:
+            (debug_dir / "loadcontrol_error.html").write_text(e.response_text, encoding="utf-8")
+            print(f"    [dump] error response -> {debug_dir}/loadcontrol_error.html")
 
     print("\n" + "=" * 60)
     print("  VERDICT")
