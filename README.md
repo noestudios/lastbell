@@ -9,18 +9,18 @@ already use.
 > Not affiliated with Edupoint. It uses **your** credentials to read **your**
 > students' data, and everything runs on hardware you control.
 
-**Status: Phase 3 complete.** `mcpsgradewatch run` sweeps **every class** per
+**Status: Phase 4 complete.** `mcpsgradewatch run` sweeps **every class** per
 student (via each class row's own `data-focus` payload, the same drill-down
 the portal UI performs), persists a snapshot keyed on the Edupoint assignment
 GUID, diffs against the previous run, and alerts on **score changes,
-missing-flags, work still ungraded past its due date, and deadlines entering
-the look-ahead window** (the time-based rules are status *derivations*, so a
-crossed threshold is just another persisted transition — alerted exactly
-once). Phase 3 adds the fan-out: **watcher accounts** (guardians *and*
-students), per-watcher **subscriptions** filtered by alert type, **channels**
-(email/SMS-gateway, ntfy, Telegram, Pushover), and a read-only **web
-dashboard**. Data path verified live against MCPS
-(`md-mcps-psv.edupoint.com`, 2026-08-31).
+missing-flags, work still ungraded past its due date, deadlines entering the
+look-ahead window, and course grades dropping past a threshold**. Delivery is
+per-watcher: **subscriptions** filtered by alert type over **channels**
+(email/SMS-gateway, ntfy, Telegram, Pushover), each optionally batched into a
+**daily digest**, held during **quiet hours**, or replaced by a generated
+**daily summary** — plus a web **dashboard** with **shared ack** (one person
+marks an alert handled for the whole household). Data path verified live
+against MCPS (`md-mcps-psv.edupoint.com`, 2026-08-31).
 
 ---
 
@@ -63,6 +63,24 @@ Students are referenced by AGU or any unique name/initials prefix; watchers by
 the name you gave them. With **no** watchers configured, `run` falls back to
 the single global `MCPSGRADEWATCH_NOTIFY_CHANNEL` exactly as before.
 
+And shape *when and how much* each person hears (Phase 4):
+
+```bash
+mcpsgradewatch subscribe Mom jasper --at 17:00      # batch her alerts into a 5pm digest
+mcpsgradewatch subscribe Mom jasper --types daily_summary --at 07:00   # morning report
+mcpsgradewatch watcher quiet-hours Jasper 21:00-07:00   # held overnight, never dropped
+mcpsgradewatch alerts                               # the log, with ack state
+mcpsgradewatch ack 6e383bac --by Mom                # "handled" — for everyone
+mcpsgradewatch flush                                # send due digests/summaries now
+```
+
+In `run --loop`, the portal is polled every `POLL_MINUTES` but the outbox and
+summaries are checked **every minute**, so a 17:00 digest goes out at 17:00 —
+not at the next three-hour poll. Time-based deliveries use the host's local
+clock. An event subscribed both immediately and in a digest is sent once,
+immediately. A summary reports *standing state* (overall marks, missing work,
+what's due soon, unacked alerts); a digest batches the *events* that fired.
+
 ## Configuration & secrets
 
 All non-secret settings live in a **git-ignored `.env`** (`.env.example` is the
@@ -97,11 +115,14 @@ single message listing everything.
 
 The web dashboard (`mcpsgradewatch dashboard`) is for looking things up on
 demand — students, assignments, alert log, grade history, watcher routing —
-never required to get a notification. It's read-only, stdlib-only, and binds
-`127.0.0.1` unless you deliberately widen it; unlike alert payloads it shows
-full names, so the bind address is the access control. Alert payloads stay
-**low-PII** (initials + course + score, never a child's full name — safe for
-an SMS preview on a lock screen).
+never required to get a notification. It's stdlib-only and binds `127.0.0.1`
+unless you deliberately widen it; unlike alert payloads it shows full names,
+so the bind address is the access control. Every page is a read; the one
+write is the **shared ack** button on /alerts (Phase 4): any watcher marking
+an alert handled marks it for the whole household, and summaries stop
+nagging about it. Alert payloads stay **low-PII** (initials + course +
+score, never a child's full name — safe for an SMS preview on a lock
+screen).
 
 ## The Phase 0 gate — PASSED
 
@@ -134,7 +155,7 @@ and duplicate screen/print row variants fetched once).
 | **1** | ✅ All-class sweep, persisted snapshots (keyed on the Edupoint assignment GUID), diff + first alert (`run` / `run --loop`) |
 | **2** | ✅ Missing, ungraded-past-due, future-deadline look-ahead, score changes (`LOOKAHEAD_DAYS` / `UNGRADED_GRACE_DAYS`) |
 | **3** | ✅ Watcher accounts (guardians & students), subscriptions, dashboard, channels |
-| **4** | Daily student summaries, digests, quiet hours, grade-drop thresholds, shared ack |
+| **4** | ✅ Daily student summaries, digests, quiet hours, grade-drop thresholds, shared ack |
 | **5** | Publish the preflight as a redacted, general district tool |
 
 ## Credits

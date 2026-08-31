@@ -117,3 +117,37 @@ def test_watchers_page(populated):
 def test_unknown_path_404s(conn):
     status, _ = _get(conn, "/nope")
     assert status == 404
+
+
+def test_alerts_page_offers_ack_form_and_shows_ack_state(populated):
+    conn = populated
+    watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
+    store.record_alert(conn, "1", Event(
+        type=AlertType.GRADE_CHANGED, student_agu="1", course_title="Math",
+        detail="Math: “Fractions Quiz” graded: 8/10"))
+    status, html = _get(conn, "/alerts")
+    assert "action='/ack'" in html and "<option>Mom</option>" in html
+
+    alert_id = conn.execute("SELECT id FROM alerts").fetchone()["id"]
+    status, target = dashboard._handle_ack(
+        conn, {"alert_id": [alert_id], "watcher": ["Mom"]})
+    assert (status, target) == (303, "/alerts")
+
+    _, html = _get(conn, "/alerts")
+    assert "✓ Mom" in html and "action='/ack'" not in html
+
+
+def test_bad_ack_is_rejected(populated):
+    status, html = dashboard._handle_ack(populated, {"alert_id": ["x"], "watcher": ["Nobody"]})
+    assert status == 400
+
+
+def test_watchers_page_shows_quiet_hours_and_schedule(populated):
+    conn = populated
+    w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
+                             {"email": {"to": "m@x.com"}})
+    watchers.set_quiet_hours(conn, "Mom", "21:00", "07:00")
+    watchers.subscribe(conn, w, "1", ["grade_changed"], ["email"], send_at="17:00")
+    _, html = _get(conn, "/watchers")
+    assert "21:00–07:00" in html
+    assert "daily at 17:00" in html

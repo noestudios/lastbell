@@ -89,7 +89,9 @@ def _cmd_collect(args: argparse.Namespace) -> int:
 
 def _run_once(client, conn, notifier, conf) -> int:
     """One poll: collect -> derive -> diff -> persist -> notify. Returns the event count."""
-    from . import differ, router, store
+    from datetime import datetime
+
+    from . import differ, outbox, router, store
     from .collector import collect_student
 
     total = 0
@@ -104,7 +106,8 @@ def _run_once(client, conn, notifier, conf) -> int:
             lookahead_days=conf.lookahead_days,
         )
         previous = store.load_snapshot(conn, child.agu)
-        events = differ.diff(previous, snapshot)
+        events = differ.diff(previous, snapshot,
+                             grade_drop_points=conf.grade_drop_points)
         store.persist_snapshot(conn, col.student, snapshot)
 
         n_assign = len(snapshot.assignments)
@@ -117,11 +120,22 @@ def _run_once(client, conn, notifier, conf) -> int:
         if events:
             # Phase 3: fan out per subscription; the global channel remains the
             # fallback so a bare install with no watchers still alerts.
+            # Phase 4: a delivery with a digest time or inside quiet hours is
+            # queued to the outbox instead of sent now.
             deliveries, warnings = router.plan(conn, child.agu, events)
             if router.has_subscriptions(conn, child.agu):
-                sent, send_warnings = router.dispatch(deliveries, col.student.initials)
+                now = datetime.now()
+                immediate, queued = [], 0
+                for d in deliveries:
+                    send_after = outbox.compute_send_after(now, d.send_at, d.quiet_hours)
+                    if send_after is None:
+                        immediate.append(d)
+                    else:
+                        queued += outbox.enqueue(conn, d, send_after)
+                sent, send_warnings = router.dispatch(immediate, col.student.initials)
                 warnings += send_warnings
-                print(f"  delivered to {sent} watcher channel(s)")
+                print(f"  delivered to {sent} watcher channel(s)"
+                      + (f", queued {queued} item(s) for later" if queued else ""))
             else:
                 notifier.send(router.subject(col.student.initials, events),
                               "\n".join(f"• {e.detail}" for e in events))
@@ -133,8 +147,31 @@ def _run_once(client, conn, notifier, conf) -> int:
     return total
 
 
+def _tick(conn, conf) -> None:
+    """The between-polls housekeeping: flush due outbox items (digests,
+    quiet-hours holdbacks) and any daily summaries whose time has come."""
+    from . import outbox, summary
+
+    sent, warnings = outbox.flush_due(conn)
+    if sent:
+        print(f"flushed {sent} deferred message(s)")
+    s_sent, s_warnings = summary.send_due(conn, lookahead_days=conf.lookahead_days)
+    if s_sent:
+        print(f"sent {s_sent} daily summar{'ies' if s_sent != 1 else 'y'}")
+    for w in warnings + s_warnings:
+        print(f"warning: {w}", file=sys.stderr)
+
+
+_TICK_SECONDS = 60
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
-    """Phase 1: the watch loop — snapshot, diff against last run, alert."""
+    """The watch loop — snapshot, diff against last run, alert.
+
+    Collection hits the portal every POLL_MINUTES; in --loop mode the outbox
+    and summaries are checked every minute in between, so a 17:00 digest goes
+    out at 17:00, not at the next three-hour poll.
+    """
     import time
 
     from . import notify, store
@@ -146,21 +183,27 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     conn = store.connect(conf.db_path)
     store.ensure_schema(conn)
+    next_poll = 0.0
     try:
         while True:
-            # Fresh client per pass: portal sessions expire well inside a poll
-            # interval, and re-login is one request.
-            client = ParentVueClient(conf.base_url, conf.username, pw)
-            try:
-                _run_once(client, conn, notifier, conf)
-            except Exception as e:
-                if not args.loop:
-                    raise
-                print(f"poll failed (will retry next cycle): {e}", file=sys.stderr)
+            if time.time() >= next_poll:
+                # Fresh client per pass: portal sessions expire well inside a
+                # poll interval, and re-login is one request.
+                client = ParentVueClient(conf.base_url, conf.username, pw)
+                try:
+                    _run_once(client, conn, notifier, conf)
+                except Exception as e:
+                    if not args.loop:
+                        raise
+                    print(f"poll failed (will retry next cycle): {e}", file=sys.stderr)
+                next_poll = time.time() + conf.poll_minutes * 60
+                if args.loop:
+                    print(f"next portal poll in {conf.poll_minutes} min "
+                          f"(outbox/summaries checked every minute)")
+            _tick(conn, conf)
             if not args.loop:
                 return 0
-            print(f"sleeping {conf.poll_minutes} min …")
-            time.sleep(conf.poll_minutes * 60)
+            time.sleep(_TICK_SECONDS)
     finally:
         conn.close()
 
@@ -262,11 +305,99 @@ def _cmd_subscribe(args: argparse.Namespace) -> int:
         student = watchers.resolve_student(conn, args.student)
         types = None if args.types in (None, "all") else args.types.split(",")
         chans = None if args.channels in (None, "all") else args.channels.split(",")
-        added = watchers.subscribe(conn, w, student["id"], types, chans)
+        added = watchers.subscribe(conn, w, student["id"], types, chans,
+                                   send_at=args.at)
         scope = args.types or "all alerts"
         via = args.channels or "all configured channels"
-        print(f"{w.name} ⇒ {student['name']}: {scope} via {via} "
+        when = f" daily at {args.at}" if args.at else ""
+        print(f"{w.name} ⇒ {student['name']}: {scope} via {via}{when} "
               f"({added} new subscription row(s))")
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_quiet_hours(args: argparse.Namespace) -> int:
+    from . import watchers
+
+    conn = _db(cfg.load())
+    try:
+        if args.clear:
+            w = watchers.set_quiet_hours(conn, args.name, None, None)
+            print(f"{w.name}: quiet hours cleared")
+            return 0
+        if not args.window:
+            raise SystemExit("error: give a window like 21:00-07:00, or --clear")
+        start, sep, end = args.window.partition("-")
+        if not sep:
+            raise SystemExit("error: window format is START-END, e.g. 21:00-07:00")
+        w = watchers.set_quiet_hours(conn, args.name, start, end)
+        print(f"{w.name}: quiet from {w.quiet_hours['start']} to {w.quiet_hours['end']} "
+              f"(alerts are held and delivered when the window ends)")
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_alerts(args: argparse.Namespace) -> int:
+    from . import store
+
+    conn = _db(cfg.load())
+    try:
+        rows = store.list_alerts(conn, only_open=args.open, limit=args.limit)
+        if not rows:
+            print("no alerts" + (" awaiting ack" if args.open else " yet"))
+            return 0
+        import json
+
+        for r in rows:
+            try:
+                detail = json.loads(r["body"]).get("detail", "")
+            except Exception:
+                detail = r["body"]
+            ack = f"✓ {r['acked_by_name']}" if r["acked_at"] else "·"
+            print(f"  {r['id'][:8]}  {r['created_at']}  {r['initials'] or r['student_name']:8}"
+                  f"  {ack:12}  {detail}")
+        if not args.open:
+            print("\n(✓ = acknowledged; ack one with: mcpsgradewatch ack <id> --by <watcher>)")
+        return 0
+    finally:
+        conn.close()
+
+
+def _cmd_ack(args: argparse.Namespace) -> int:
+    from . import store, watchers
+
+    conn = _db(cfg.load())
+    try:
+        w = watchers.require_watcher(conn, args.by)
+        for alert_id in args.alert_ids:
+            row = store.ack_alert(conn, alert_id, w.id)
+            print(f"acked {row['id'][:8]} for everyone (by {w.name})")
+        return 0
+    except store.AckError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    finally:
+        conn.close()
+
+
+def _cmd_flush(args: argparse.Namespace) -> int:
+    from . import outbox, summary
+
+    conf = cfg.load()
+    conn = _db(conf)
+    try:
+        sent, warnings = outbox.flush_due(conn)
+        s_sent, s_warnings = summary.send_due(conn, lookahead_days=conf.lookahead_days)
+        for w in warnings + s_warnings:
+            print(f"warning: {w}", file=sys.stderr)
+        remaining = outbox.pending(conn)
+        print(f"sent {sent} deferred message(s) and {s_sent} summar{'ies' if s_sent != 1 else 'y'}; "
+              f"{len(remaining)} item(s) still queued")
+        for r in remaining[:10]:
+            print(f"  → {r['watcher_name']} via {r['channel']} after {r['send_after']}: "
+                  f"{r['detail']}")
         return 0
     finally:
         conn.close()
@@ -302,7 +433,8 @@ def _cmd_subscriptions(args: argparse.Namespace) -> int:
         for s in subs:
             alert = "all alerts" if s.alert_type == "*" else s.alert_type
             via = "all configured channels" if s.channel == "*" else s.channel
-            print(f"  {s.watcher_name} ⇒ {s.student_name}: {alert} via {via}")
+            when = f" daily at {s.send_at}" if s.send_at else ""
+            print(f"  {s.watcher_name} ⇒ {s.student_name}: {alert} via {via}{when}")
         return 0
     finally:
         conn.close()
@@ -364,6 +496,14 @@ def main() -> None:
                       help="CH=ADDR to set; bare CH= to remove")
     p_wc.set_defaults(func=_cmd_watcher_set_channel)
 
+    p_wq = w_sub.add_parser("quiet-hours",
+                            help="hold this watcher's alerts during a daily window")
+    p_wq.add_argument("name")
+    p_wq.add_argument("window", nargs="?", metavar="START-END",
+                      help="e.g. 21:00-07:00 (may cross midnight)")
+    p_wq.add_argument("--clear", action="store_true", help="remove the window")
+    p_wq.set_defaults(func=_cmd_quiet_hours)
+
     p_sub = sub.add_parser("subscribe", help="route a student's alerts to a watcher")
     p_sub.add_argument("watcher", help="watcher name")
     p_sub.add_argument("student", help="student AGU, or a name/initials prefix")
@@ -371,6 +511,10 @@ def main() -> None:
                        help="comma-separated alert types (default: all)")
     p_sub.add_argument("--channels", metavar="C1,C2",
                        help="comma-separated channels (default: all configured)")
+    p_sub.add_argument("--at", metavar="HH:MM",
+                       help="deliver daily at this time instead of immediately: "
+                            "event types batch into a digest; daily_summary "
+                            "generates the standing report (default 07:00)")
     p_sub.set_defaults(func=_cmd_subscribe)
 
     p_uns = sub.add_parser("unsubscribe", help="remove a watcher's subscriptions")
@@ -379,6 +523,22 @@ def main() -> None:
     p_uns.set_defaults(func=_cmd_unsubscribe)
 
     sub.add_parser("subscriptions", help="list who gets what").set_defaults(func=_cmd_subscriptions)
+
+    # Phase 4: alert log + shared ack, and the deferred-delivery outbox
+    p_al = sub.add_parser("alerts", help="list recent alerts and their ack state")
+    p_al.add_argument("--open", action="store_true", help="only unacked alerts")
+    p_al.add_argument("--limit", type=int, default=50)
+    p_al.set_defaults(func=_cmd_alerts)
+
+    p_ack = sub.add_parser("ack", help="acknowledge alert(s) for the whole household")
+    p_ack.add_argument("alert_ids", nargs="+", metavar="ID",
+                       help="alert id (any unique prefix, from `alerts`)")
+    p_ack.add_argument("--by", required=True, metavar="WATCHER",
+                       help="who is acknowledging")
+    p_ack.set_defaults(func=_cmd_ack)
+
+    sub.add_parser("flush", help="send due digests/summaries now; list what's still queued"
+                   ).set_defaults(func=_cmd_flush)
 
     p_dash = sub.add_parser("dashboard", help="serve the read-only web dashboard")
     p_dash.add_argument("--host", help="bind address (default: 127.0.0.1)")

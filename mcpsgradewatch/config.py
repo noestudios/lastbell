@@ -49,6 +49,9 @@ class Config:
     # Phase 3 dashboard: localhost-only unless deliberately opened up.
     dashboard_host: str
     dashboard_port: int
+    # Phase 4: a course-percent drop of at least this many points upgrades the
+    # change to a GRADE_DROP alert (separately subscribable, louder wording).
+    grade_drop_points: float
 
     @property
     def base_url(self) -> str:
@@ -78,4 +81,5 @@ def load() -> Config:
         ungraded_grace_days=int(_get("MCPSGRADEWATCH_UNGRADED_GRACE_DAYS", "3")),
         dashboard_host=_get("MCPSGRADEWATCH_DASHBOARD_HOST", "127.0.0.1"),
         dashboard_port=int(_get("MCPSGRADEWATCH_DASHBOARD_PORT", "8321")),
+        grade_drop_points=float(_get("MCPSGRADEWATCH_GRADE_DROP_POINTS", "5")),
     )
