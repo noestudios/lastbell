@@ -9,7 +9,7 @@ already use.
 > Not affiliated with Edupoint. It uses **your** credentials to read **your**
 > students' data, and everything runs on hardware you control.
 
-**Status: Phase 4 complete.** `mcpsgradewatch run` sweeps **every class** per
+**Status: all roadmap phases complete.** `mcpsgradewatch run` sweeps **every class** per
 student (via each class row's own `data-focus` payload, the same drill-down
 the portal UI performs), persists a snapshot keyed on the Edupoint assignment
 GUID, diffs against the previous run, and alerts on **score changes,
@@ -124,6 +124,37 @@ nagging about it. Alert payloads stay **low-PII** (initials + course +
 score, never a child's full name — safe for an SMS preview on a lock
 screen).
 
+## Will it work for *my* district?
+
+Probably, if your district runs the Synergy PXP2 web portal — and the
+**preflight** (Phase 5) answers definitively, without installing anything else
+or touching a `.env`:
+
+```bash
+# Anonymous: public endpoints only, no credentials sent anywhere
+mcpsgradewatch preflight --district your-host.example --report
+
+# Full: login + data path + this repo's actual parsers against your fragments
+mcpsgradewatch preflight --district your-host.example --username you --report
+```
+
+It checks, in order: the PXP2 login form exists → the legacy SOAP API's status
+(the deprecation code your district returns is kept verbatim — useful
+cross-district data) → web login → students on the credential → the
+`LoadControl` data path → and finally whether the **parsers understand your
+district's fragments**, which is the question that actually decides
+compatibility. Verdicts: `go`, `partial` (data path answers but a parser
+needs a tweak — the most fixable kind of report), `no-go`, `anonymous-ok`.
+Exit codes match (0 go, 1 not yet, 2 couldn't run) so it scripts cleanly.
+
+`--report` prints Markdown that is **redacted by construction** — no student
+names, grades, or usernames can appear in it — ready to paste into a
+[district report issue](.github/ISSUE_TEMPLATE/district-report.md). `--json`
+is for scripts; `--show-values` reveals names locally only, and is never
+included in exported output; `--dump` saves raw fragments to `data/debug/`
+(personal data — stays local, git-ignored) for parser development. It also
+installs standalone as `parentvue-preflight`.
+
 ## The Phase 0 gate — PASSED
 
 The data path was reverse-engineered from the portal's own JavaScript and then
@@ -156,7 +187,7 @@ and duplicate screen/print row variants fetched once).
 | **2** | ✅ Missing, ungraded-past-due, future-deadline look-ahead, score changes (`LOOKAHEAD_DAYS` / `UNGRADED_GRACE_DAYS`) |
 | **3** | ✅ Watcher accounts (guardians & students), subscriptions, dashboard, channels |
 | **4** | ✅ Daily student summaries, digests, quiet hours, grade-drop thresholds, shared ack |
-| **5** | Publish the preflight as a redacted, general district tool |
+| **5** | ✅ Publish the preflight as a redacted, general district tool |
 
 ## Credits
 

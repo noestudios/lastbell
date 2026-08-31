@@ -20,14 +20,15 @@ def _cmd_set_password(args: argparse.Namespace) -> int:
 def _cmd_preflight(args: argparse.Namespace) -> int:
     from . import preflight
 
-    argv = ["mcpsgradewatch preflight"]
-    if args.show_values:
-        argv.append("--show-values")
-    if args.dump:
-        argv.append("--dump")
-    sys.argv = argv
-    preflight.main()
-    return 0
+    argv = []
+    if args.district:
+        argv += ["--district", args.district]
+    if args.username:
+        argv += ["--username", args.username]
+    for flag in ("anonymous", "report", "json", "show_values", "dump"):
+        if getattr(args, flag):
+            argv.append("--" + flag.replace("_", "-"))
+    return preflight.main(argv)
 
 
 def _cmd_discover(args: argparse.Namespace) -> int:
@@ -457,8 +458,18 @@ def main() -> None:
 
     sub.add_parser("set-password", help="store a credential's password in the OS keyring").set_defaults(func=_cmd_set_password)
 
-    p_pre = sub.add_parser("preflight", help="district go/no-go check")
-    p_pre.add_argument("--show-values", action="store_true")
+    p_pre = sub.add_parser("preflight",
+                           help="district go/no-go check (redacted, shareable)")
+    p_pre.add_argument("--district", "-d", help="portal hostname (default: env)")
+    p_pre.add_argument("--username", "-u",
+                       help="login for the full check (omit for anonymous mode)")
+    p_pre.add_argument("--anonymous", action="store_true",
+                       help="probe public endpoints only; send no credentials")
+    p_pre.add_argument("--report", action="store_true",
+                       help="emit a paste-ready Markdown district report")
+    p_pre.add_argument("--json", action="store_true", help="machine-readable output")
+    p_pre.add_argument("--show-values", action="store_true",
+                       help="reveal names/grades locally (never exported)")
     p_pre.add_argument("--dump", action="store_true",
                        help="save raw portal pages to data/debug/ (local only)")
     p_pre.set_defaults(func=_cmd_preflight)
