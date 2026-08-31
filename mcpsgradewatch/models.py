@@ -34,6 +34,24 @@ class AlertType(str, Enum):
     DAILY_SUMMARY = "daily_summary"
 
 
+def parse_percent(raw: str) -> Optional[float]:
+    """``"87.20%"`` -> ``87.2``; None when the text isn't a number."""
+    try:
+        return float(raw.strip().rstrip("%"))
+    except (ValueError, AttributeError):
+        return None
+
+
+def format_percent(raw: str) -> Optional[str]:
+    """Display rule for course percents: always one decimal place ("93.0",
+    "0.0", "51.1"). Applied at *display* time only — the stored value stays
+    the portal's raw string, so the differ never sees a formatting change as
+    a grade change. None when the raw text isn't a number (caller falls back
+    to the raw text or a dash)."""
+    value = parse_percent(raw)
+    return None if value is None else f"{value:.1f}"
+
+
 @dataclass
 class Student:
     agu: str               # dedupe / natural key across credentials

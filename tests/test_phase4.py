@@ -56,6 +56,18 @@ def test_rise_is_never_a_drop():
 def test_unparseable_percent_falls_back_to_grade_changed():
     events = differ.diff(_course_snap("N/A", mark="B"), _course_snap("", mark="C"))
     assert [e.type for e in events] == [AlertType.GRADE_CHANGED]
+    assert "N/A (B)" in events[0].detail   # unparseable text passes through raw
+
+
+def test_percent_display_rule():
+    from mcpsgradewatch.models import format_percent
+
+    assert format_percent("87.20%") == "87.2"
+    assert format_percent("0%") == "0.0"
+    assert format_percent("93") == "93.0"
+    assert format_percent("51.15%") == "51.1"   # single decimal, banker's-adjacent
+    assert format_percent("N/A") is None
+    assert format_percent("") is None
 
 
 # ── shared ack ────────────────────────────────────────────────────────

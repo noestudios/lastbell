@@ -54,7 +54,7 @@ class FakeChannel:
 
 def test_build_lists_standing_state(conn):
     body = summary.build(conn, "1", "J.P.H.", today=TODAY)
-    assert "Math 87.20% (B+)" in body
+    assert "Math 87.2% (B+)" in body
     assert "Missing (1):" in body and "Collage" in body
     assert "Due in the next 7 days (1):" in body and "Fractions Quiz" in body
     assert "Jasper" not in body   # low-PII: initials only, never the name

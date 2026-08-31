@@ -17,7 +17,14 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Optional
 
-from .models import AlertType, Assignment, AssignmentStatus, Snapshot
+from .models import (
+    AlertType,
+    Assignment,
+    AssignmentStatus,
+    Snapshot,
+    format_percent,
+    parse_percent,
+)
 
 
 @dataclass
@@ -161,20 +168,15 @@ def _score(a: Assignment) -> str:
 
 
 def _overall(c) -> str:
-    if c.mark and c.percent:
-        return f"{c.percent} ({c.mark})"
-    return c.percent or c.mark or "n/a"
-
-
-def _parse_percent(text: str) -> Optional[float]:
-    try:
-        return float(text.strip().rstrip("%"))
-    except (ValueError, AttributeError):
-        return None
+    pct = format_percent(c.percent)
+    shown = f"{pct}%" if pct is not None else c.percent
+    if shown and c.mark:
+        return f"{shown} ({c.mark})"
+    return shown or c.mark or "n/a"
 
 
 def _percent_drop(prev, cur) -> Optional[float]:
-    p, c = _parse_percent(prev.percent), _parse_percent(cur.percent)
+    p, c = parse_percent(prev.percent), parse_percent(cur.percent)
     if p is None or c is None or c >= p:
         return None
     return p - c

@@ -62,14 +62,16 @@ def test_overview_lists_students_and_flags(populated):
     assert "Jasper P. Hays" in html
     assert "Math &lt;Adv&gt;" in html          # escaped
     assert "1 missing" in html
-    assert "87.20%" in html
+    assert ">87.2<" in html          # one-decimal display of the raw "87.20%"
 
 
 def test_student_page_shows_assignments(populated):
     status, html = _get(populated, "/student/1")
     assert status == 200
     assert "Fractions Quiz" in html
-    assert "8/10" in html
+    assert "80.0%" in html                    # score as a percentage…
+    assert "title='8/10'" in html             # …raw points on hover
+    assert "87.2% · B+" in html               # course heading, one decimal
     assert "MISSING" in html
 
 
