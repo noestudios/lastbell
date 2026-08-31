@@ -1,0 +1,312 @@
+"""Read-only web dashboard (Phase 3).
+
+The dashboard is for *looking things up on demand* — alerts are always pushed
+out, so nobody has to open this to find out something changed. It's stdlib
+``http.server`` over the same SQLite file the watch loop writes: no framework,
+no build step, no write path (every request is a SELECT).
+
+It binds 127.0.0.1 by default. To share it on your LAN set
+MCPSGRADEWATCH_DASHBOARD_HOST=0.0.0.0 — and know that unlike alert payloads it
+shows full names, so treat the bind address as the access control.
+"""
+from __future__ import annotations
+
+import sqlite3
+from html import escape
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlparse
+
+_STATUS_LABELS = {
+    "graded": ("graded", "ok"),
+    "not_due": ("not due yet", "muted"),
+    "due": ("due", "info"),
+    "missing": ("MISSING", "bad"),
+    "ungraded_past_due": ("ungraded past due", "warn"),
+}
+
+_CSS = """
+:root { color-scheme: light dark; }
+body { font: 15px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+       margin: 0 auto; max-width: 64rem; padding: 1rem 1.25rem 3rem; }
+a { color: #2563eb; text-decoration: none; } a:hover { text-decoration: underline; }
+nav { border-bottom: 1px solid #8884; padding-bottom: .6rem; margin-bottom: 1.2rem; }
+nav a { margin-right: 1.1rem; font-weight: 600; }
+nav .brand { font-weight: 800; margin-right: 1.6rem; }
+h1 { font-size: 1.35rem; } h2 { font-size: 1.1rem; margin-top: 1.8rem; }
+table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; }
+th, td { text-align: left; padding: .3rem .6rem; border-bottom: 1px solid #8883; }
+th { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.badge { display: inline-block; padding: .05rem .5rem; border-radius: 999px;
+         font-size: .78rem; font-weight: 600; white-space: nowrap; }
+.badge.ok    { background: #16a34a22; color: #15803d; }
+.badge.info  { background: #2563eb22; color: #1d4ed8; }
+.badge.muted { background: #8883;     color: inherit; opacity: .7; }
+.badge.warn  { background: #d9770622; color: #b45309; }
+.badge.bad   { background: #dc262622; color: #b91c1c; }
+.cards { display: flex; flex-wrap: wrap; gap: 1rem; }
+.card { border: 1px solid #8884; border-radius: .6rem; padding: .8rem 1rem;
+        min-width: 16rem; flex: 1; }
+.card h3 { margin: 0 0 .2rem; font-size: 1rem; }
+.small { font-size: .85rem; opacity: .75; }
+"""
+
+
+# ── data (all read-only) ──────────────────────────────────────────────
+
+
+def fetch_students(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute("SELECT * FROM students ORDER BY name").fetchall()
+
+
+def fetch_student(conn: sqlite3.Connection, agu: str):
+    return conn.execute("SELECT * FROM students WHERE agu = ?", (agu,)).fetchone()
+
+
+def fetch_courses(conn: sqlite3.Connection, student_id: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM courses WHERE student_id = ? ORDER BY title", (student_id,)
+    ).fetchall()
+
+
+def fetch_assignments(conn: sqlite3.Connection, course_id: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM assignments WHERE course_id = ? "
+        "ORDER BY due_date IS NULL, due_date DESC, name", (course_id,)
+    ).fetchall()
+
+
+def fetch_open_counts(conn: sqlite3.Connection, student_id: str) -> dict:
+    row = conn.execute(
+        "SELECT SUM(a.status = 'missing') AS missing, "
+        "       SUM(a.status = 'ungraded_past_due') AS past_due, "
+        "       SUM(a.status = 'due') AS due "
+        "FROM assignments a JOIN courses c ON c.id = a.course_id "
+        "WHERE c.student_id = ?", (student_id,)
+    ).fetchone()
+    return {k: row[k] or 0 for k in ("missing", "past_due", "due")}
+
+
+def fetch_alerts(conn: sqlite3.Connection, limit: int = 100) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT al.*, st.name AS student_name FROM alerts al "
+        "JOIN students st ON st.id = al.student_id "
+        "ORDER BY al.created_at DESC, al.rowid DESC LIMIT ?", (limit,)
+    ).fetchall()
+
+
+def fetch_history(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT h.*, a.name AS assignment_name, c.title AS course_title, "
+        "       st.name AS student_name "
+        "FROM grade_history h "
+        "JOIN assignments a ON a.id = h.assignment_id "
+        "JOIN courses c ON c.id = a.course_id "
+        "JOIN students st ON st.id = c.student_id "
+        "ORDER BY h.seen_at DESC, h.id DESC LIMIT ?", (limit,)
+    ).fetchall()
+
+
+# ── rendering (pure: rows in, html out) ───────────────────────────────
+
+
+def _page(title: str, body: str) -> str:
+    return (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        f"<title>{escape(title)} · MCPSGradeWatch</title><style>{_CSS}</style></head><body>"
+        "<nav><a class='brand' href='/'>MCPSGradeWatch</a>"
+        "<a href='/'>Students</a><a href='/alerts'>Alerts</a>"
+        "<a href='/history'>History</a><a href='/watchers'>Watchers</a></nav>"
+        f"{body}</body></html>"
+    )
+
+
+def _badge(status: str) -> str:
+    label, klass = _STATUS_LABELS.get(status, (status, "muted"))
+    return f"<span class='badge {klass}'>{escape(label)}</span>"
+
+
+def _score(row) -> str:
+    if row["score"] is None:
+        return "—"
+    if row["points"] is None:
+        return f"{row['score']:g}"
+    return f"{row['score']:g}/{row['points']:g}"
+
+
+def render_overview(students, courses_by_student, counts_by_student) -> str:
+    if not students:
+        return _page("Students",
+                     "<h1>No students yet</h1><p>Run <code>mcpsgradewatch run</code> "
+                     "once to establish a baseline.</p>")
+    cards = []
+    for s in students:
+        courses = courses_by_student.get(s["id"], [])
+        counts = counts_by_student.get(s["id"], {})
+        rows = "".join(
+            f"<tr><td><a href='/student/{escape(s['agu'])}'>{escape(c['title'])}</a></td>"
+            f"<td>{escape(c['teacher'])}</td>"
+            f"<td class='num'>{escape(c['percent'] or '—')}</td>"
+            f"<td>{escape(c['mark'] or '')}</td></tr>"
+            for c in courses)
+        flags = []
+        if counts.get("missing"):
+            flags.append(f"<span class='badge bad'>{counts['missing']} missing</span>")
+        if counts.get("past_due"):
+            flags.append(f"<span class='badge warn'>{counts['past_due']} ungraded past due</span>")
+        if counts.get("due"):
+            flags.append(f"<span class='badge info'>{counts['due']} due soon</span>")
+        cards.append(
+            f"<div class='card'><h3><a href='/student/{escape(s['agu'])}'>"
+            f"{escape(s['name'])}</a></h3>"
+            f"<div class='small'>{escape(s['school'])}</div>"
+            f"<div>{' '.join(flags) or '<span class=small>all clear</span>'}</div>"
+            f"<table><tr><th>Course</th><th>Teacher</th><th>%</th><th>Mark</th></tr>"
+            f"{rows}</table></div>")
+    return _page("Students", "<h1>Students</h1><div class='cards'>" + "".join(cards) + "</div>")
+
+
+def render_student(student, courses_with_assignments) -> str:
+    parts = [f"<h1>{escape(student['name'])}</h1>"
+             f"<p class='small'>{escape(student['school'])} · AGU {escape(student['agu'])}</p>"]
+    for course, assignments in courses_with_assignments:
+        head = escape(course["title"])
+        overall = " · ".join(x for x in (course["percent"], course["mark"]) if x)
+        teacher = f" — {escape(course['teacher'])}" if course["teacher"] else ""
+        parts.append(f"<h2>{head}{teacher}"
+                     f"{f' <span class=badge>{escape(overall)}</span>' if overall else ''}</h2>")
+        if not assignments:
+            parts.append("<p class='small'>No assignments recorded.</p>")
+            continue
+        rows = "".join(
+            f"<tr><td>{escape(a['name'])}</td><td>{escape(a['kind'] or '')}</td>"
+            f"<td>{escape(a['due_date'] or '—')}</td>"
+            f"<td class='num'>{_score(a)}</td><td>{_badge(a['status'])}</td></tr>"
+            for a in assignments)
+        parts.append("<table><tr><th>Assignment</th><th>Type</th><th>Due</th>"
+                     "<th>Score</th><th>Status</th></tr>" + rows + "</table>")
+    return _page(student["name"], "".join(parts))
+
+
+def render_alerts(alerts) -> str:
+    if not alerts:
+        body = "<h1>Alerts</h1><p>No alerts yet — quiet is good.</p>"
+        return _page("Alerts", body)
+    import json as _json
+
+    rows = []
+    for al in alerts:
+        try:
+            detail = _json.loads(al["body"]).get("detail", al["body"])
+        except Exception:
+            detail = al["body"]
+        rows.append(
+            f"<tr><td class='small'>{escape(al['created_at'])}</td>"
+            f"<td>{escape(al['student_name'])}</td>"
+            f"<td>{escape(al['type'].replace('_', ' '))}</td>"
+            f"<td>{escape(detail)}</td></tr>")
+    return _page("Alerts", "<h1>Alerts</h1><table><tr><th>When (UTC)</th><th>Student</th>"
+                 "<th>Type</th><th>Detail</th></tr>" + "".join(rows) + "</table>")
+
+
+def render_history(rows) -> str:
+    if not rows:
+        return _page("History", "<h1>Grade history</h1><p>No changes recorded yet.</p>")
+    body_rows = "".join(
+        f"<tr><td class='small'>{escape(r['seen_at'])}</td>"
+        f"<td>{escape(r['student_name'])}</td><td>{escape(r['course_title'])}</td>"
+        f"<td>{escape(r['assignment_name'])}</td><td>{escape(r['field'])}</td>"
+        f"<td>{escape(r['old_value'] if r['old_value'] is not None else '—')} → "
+        f"{escape(r['new_value'] if r['new_value'] is not None else '—')}</td></tr>"
+        for r in rows)
+    return _page("History", "<h1>Grade history</h1><table><tr><th>When (UTC)</th>"
+                 "<th>Student</th><th>Course</th><th>Assignment</th><th>Field</th>"
+                 "<th>Change</th></tr>" + body_rows + "</table>")
+
+
+def render_watchers(watcher_list, subscriptions) -> str:
+    if not watcher_list:
+        return _page("Watchers", "<h1>Watchers</h1><p>None yet. Add one with "
+                     "<code>mcpsgradewatch watcher add</code>.</p>")
+    w_rows = "".join(
+        f"<tr><td>{escape(w.name)}</td><td>{escape(w.kind.value)}</td>"
+        f"<td>{escape(', '.join(w.channels) or '—')}</td></tr>"
+        for w in watcher_list)
+    s_rows = "".join(
+        f"<tr><td>{escape(s.watcher_name)}</td><td>{escape(s.student_name)}</td>"
+        f"<td>{escape('all' if s.alert_type == '*' else s.alert_type.replace('_', ' '))}</td>"
+        f"<td>{escape('all configured' if s.channel == '*' else s.channel)}</td></tr>"
+        for s in subscriptions)
+    return _page("Watchers",
+                 "<h1>Watchers</h1><table><tr><th>Name</th><th>Kind</th>"
+                 "<th>Channels</th></tr>" + w_rows + "</table>"
+                 "<h2>Subscriptions</h2>"
+                 + ("<table><tr><th>Watcher</th><th>Student</th><th>Alerts</th>"
+                    "<th>Via</th></tr>" + s_rows + "</table>"
+                    if subscriptions else "<p>No subscriptions yet.</p>"))
+
+
+# ── http plumbing ─────────────────────────────────────────────────────
+
+
+def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
+    """Route one request. Returns (status, html)."""
+    from . import watchers as watchermod
+
+    if path == "/":
+        students = fetch_students(conn)
+        courses = {s["id"]: fetch_courses(conn, s["id"]) for s in students}
+        counts = {s["id"]: fetch_open_counts(conn, s["id"]) for s in students}
+        return 200, render_overview(students, courses, counts)
+    if path.startswith("/student/"):
+        agu = path[len("/student/"):]
+        student = fetch_student(conn, agu)
+        if student is None:
+            return 404, _page("Not found", "<h1>Unknown student</h1>")
+        cwa = [(c, fetch_assignments(conn, c["id"]))
+               for c in fetch_courses(conn, student["id"])]
+        return 200, render_student(student, cwa)
+    if path == "/alerts":
+        return 200, render_alerts(fetch_alerts(conn))
+    if path == "/history":
+        return 200, render_history(fetch_history(conn))
+    if path == "/watchers":
+        return 200, render_watchers(watchermod.list_watchers(conn),
+                                    watchermod.list_subscriptions(conn))
+    return 404, _page("Not found", "<h1>404</h1><p>No such page.</p>")
+
+
+def serve(db_path: Path, host: str, port: int) -> None:
+    from . import store
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802 (stdlib name)
+            # A connection per request: cheap for SQLite, and thread-safe by
+            # construction under ThreadingHTTPServer.
+            conn = store.connect(db_path)
+            try:
+                status, html = _handle(conn, urlparse(self.path).path)
+            except sqlite3.OperationalError as e:
+                status, html = 500, _page("Error", f"<h1>Database error</h1><p>{escape(str(e))}</p>")
+            finally:
+                conn.close()
+            payload = html.encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, fmt: str, *args) -> None:
+            pass  # keep the terminal quiet; this is a background convenience
+
+    server = ThreadingHTTPServer((host, port), Handler)
+    print(f"dashboard: http://{host}:{port}/  (read-only; Ctrl-C to stop)")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nbye")
+    finally:
+        server.server_close()

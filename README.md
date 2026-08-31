@@ -9,17 +9,18 @@ already use.
 > Not affiliated with Edupoint. It uses **your** credentials to read **your**
 > students' data, and everything runs on hardware you control.
 
-**Status: Phase 2 complete.** Verified live against MCPS
-(`md-mcps-psv.edupoint.com`, 2026-08-31): `mcpsgradewatch run` sweeps **every
-class** per student (via each class row's own `data-focus` payload, the same
-drill-down the portal UI performs), persists a snapshot keyed on the Edupoint
-assignment GUID, diffs against the previous run, and alerts on **score
-changes, missing-flags, work still ungraded past its due date, and deadlines
-entering the look-ahead window**. The time-based rules are status
-*derivations* re-applied each poll, so crossing a time threshold is just
-another persisted status transition — alerted exactly once, no separate dedup
-machinery. First run is a quiet baseline; every field-level change lands in an
-append-only `grade_history`.
+**Status: Phase 3 complete.** `mcpsgradewatch run` sweeps **every class** per
+student (via each class row's own `data-focus` payload, the same drill-down
+the portal UI performs), persists a snapshot keyed on the Edupoint assignment
+GUID, diffs against the previous run, and alerts on **score changes,
+missing-flags, work still ungraded past its due date, and deadlines entering
+the look-ahead window** (the time-based rules are status *derivations*, so a
+crossed threshold is just another persisted transition — alerted exactly
+once). Phase 3 adds the fan-out: **watcher accounts** (guardians *and*
+students), per-watcher **subscriptions** filtered by alert type, **channels**
+(email/SMS-gateway, ntfy, Telegram, Pushover), and a read-only **web
+dashboard**. Data path verified live against MCPS
+(`md-mcps-psv.edupoint.com`, 2026-08-31).
 
 ---
 
@@ -46,6 +47,22 @@ mcpsgradewatch run --loop         # keep polling every MCPSGRADEWATCH_POLL_MINUT
 mcpsgradewatch collect            # read-only JSON dump of what a run would persist
 ```
 
+Then route alerts to the people who should get them (Phase 3):
+
+```bash
+mcpsgradewatch watcher add Mom --kind guardian --channel email=mom@example.com
+mcpsgradewatch watcher add Jasper --kind student --channel ntfy=some-long-secret-topic
+mcpsgradewatch subscribe Mom jasper                 # all alert types, all her channels
+mcpsgradewatch subscribe Jasper jasper \
+    --types assignment_missing,upcoming_deadline    # students see nudges, not grades
+mcpsgradewatch subscriptions                        # who gets what
+mcpsgradewatch dashboard                            # read-only web UI on 127.0.0.1:8321
+```
+
+Students are referenced by AGU or any unique name/initials prefix; watchers by
+the name you gave them. With **no** watchers configured, `run` falls back to
+the single global `MCPSGRADEWATCH_NOTIFY_CHANNEL` exactly as before.
+
 ## Configuration & secrets
 
 All non-secret settings live in a **git-ignored `.env`** (`.env.example` is the
@@ -64,10 +81,27 @@ or VPS. It needs an **always-on host** to poll and push.
 ## How alerts reach people
 
 Push-**out**, not pull-in: nobody signs into MCPSGradeWatch to receive an alert.
-**Email** is the universal default; **ntfy / Telegram / Pushover / SMS** are
-opt-in per watcher (Phase 3). The web dashboard is for looking things up on
-demand — never required to get a notification. Alert payloads are **low-PII**
-(initials + course + score, never a child's full name).
+A *watcher* is just a name plus addresses; *subscriptions* say which student's
+events reach them, over which channels, filtered by alert type. One poll, one
+message per watcher-channel — a watcher subscribed to three alert types gets a
+single message listing everything.
+
+| Channel    | Watcher address        | Transport setup (env)                      |
+|------------|------------------------|--------------------------------------------|
+| `email`    | `email=who@example.com`| `MCPSGRADEWATCH_SMTP_*` (any SMTP account) |
+| *SMS*      | carrier gateway addr, e.g. `email=3015551234@vtext.com` | same as email |
+| `ntfy`     | `ntfy=secret-topic`    | none (public ntfy.sh) or `NTFY_SERVER/TOKEN` |
+| `telegram` | `telegram=<chat_id>`   | `MCPSGRADEWATCH_TELEGRAM_TOKEN` (@BotFather bot) |
+| `pushover` | `pushover=<user_key>`  | `MCPSGRADEWATCH_PUSHOVER_TOKEN` (app token) |
+| `console`  | —                      | none; prints to the run's stdout           |
+
+The web dashboard (`mcpsgradewatch dashboard`) is for looking things up on
+demand — students, assignments, alert log, grade history, watcher routing —
+never required to get a notification. It's read-only, stdlib-only, and binds
+`127.0.0.1` unless you deliberately widen it; unlike alert payloads it shows
+full names, so the bind address is the access control. Alert payloads stay
+**low-PII** (initials + course + score, never a child's full name — safe for
+an SMS preview on a lock screen).
 
 ## The Phase 0 gate — PASSED
 
@@ -99,7 +133,7 @@ and duplicate screen/print row variants fetched once).
 | **0** | ✅ Pass the gate; harden the connector into normalized courses + assignments |
 | **1** | ✅ All-class sweep, persisted snapshots (keyed on the Edupoint assignment GUID), diff + first alert (`run` / `run --loop`) |
 | **2** | ✅ Missing, ungraded-past-due, future-deadline look-ahead, score changes (`LOOKAHEAD_DAYS` / `UNGRADED_GRACE_DAYS`) |
-| **3** | Watcher accounts (guardians & students), subscriptions, dashboard, channels |
+| **3** | ✅ Watcher accounts (guardians & students), subscriptions, dashboard, channels |
 | **4** | Daily student summaries, digests, quiet hours, grade-drop thresholds, shared ack |
 | **5** | Publish the preflight as a redacted, general district tool |
 

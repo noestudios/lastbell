@@ -1,0 +1,119 @@
+"""Dashboard: routing + rendering against a real (temp) database."""
+from __future__ import annotations
+
+import datetime
+
+import pytest
+
+from mcpsgradewatch import dashboard, store, watchers
+from mcpsgradewatch.differ import Event
+from mcpsgradewatch.models import (
+    AlertType,
+    Assignment,
+    AssignmentStatus,
+    Course,
+    Snapshot,
+    Student,
+    WatcherKind,
+)
+
+
+@pytest.fixture
+def conn(tmp_path):
+    c = store.connect(tmp_path / "test.db")
+    store.ensure_schema(c)
+    yield c
+    c.close()
+
+
+@pytest.fixture
+def populated(conn):
+    snap = Snapshot(
+        student_agu="1",
+        courses=[Course(edupoint_gu="709775", title="Math <Adv>", teacher="Pat Example",
+                        term="MP1", mark="B+", percent="87.20%")],
+        assignments=[
+            Assignment(edupoint_gu="a1", course_gu="709775", name="Fractions Quiz",
+                       kind="Assessment", due_date=datetime.date(2026, 9, 12),
+                       score=8.0, points=10.0, status=AssignmentStatus.GRADED),
+            Assignment(edupoint_gu="a2", course_gu="709775", name="Collage",
+                       status=AssignmentStatus.MISSING),
+        ],
+    )
+    store.persist_snapshot(
+        conn, Student(agu="1", name="Jasper P. Hays", school="Example ES",
+                      initials="J.P.H."), snap)
+    return conn
+
+
+def _get(conn, path):
+    return dashboard._handle(conn, path)
+
+
+def test_overview_empty_db(conn):
+    status, html = _get(conn, "/")
+    assert status == 200
+    assert "No students yet" in html
+
+
+def test_overview_lists_students_and_flags(populated):
+    status, html = _get(populated, "/")
+    assert status == 200
+    assert "Jasper P. Hays" in html
+    assert "Math &lt;Adv&gt;" in html          # escaped
+    assert "1 missing" in html
+    assert "87.20%" in html
+
+
+def test_student_page_shows_assignments(populated):
+    status, html = _get(populated, "/student/1")
+    assert status == 200
+    assert "Fractions Quiz" in html
+    assert "8/10" in html
+    assert "MISSING" in html
+
+
+def test_unknown_student_404s(populated):
+    status, html = _get(populated, "/student/999")
+    assert status == 404
+
+
+def test_alerts_page(populated):
+    store.record_alert(populated, "1", Event(
+        type=AlertType.GRADE_CHANGED, student_agu="1", course_title="Math",
+        detail="Math: “Fractions Quiz” graded: 8/10"))
+    status, html = _get(populated, "/alerts")
+    assert status == 200
+    assert "grade changed" in html
+    assert "Fractions Quiz" in html
+
+
+def test_history_page(populated):
+    # regrade -> one history row
+    snap = Snapshot(
+        student_agu="1",
+        courses=[Course(edupoint_gu="709775", title="Math <Adv>", term="MP1")],
+        assignments=[Assignment(edupoint_gu="a1", course_gu="709775",
+                                name="Fractions Quiz", score=9.0, points=10.0,
+                                due_date=datetime.date(2026, 9, 12), kind="Assessment",
+                                status=AssignmentStatus.GRADED)],
+    )
+    store.persist_snapshot(populated, Student(agu="1", name="Jasper P. Hays"), snap)
+    status, html = _get(populated, "/history")
+    assert status == 200
+    assert "8.0 → 9.0" in html
+
+
+def test_watchers_page(populated):
+    w = watchers.add_watcher(populated, "Mom", WatcherKind.GUARDIAN,
+                             {"email": {"to": "mom@example.com"}})
+    watchers.subscribe(populated, w, "1")
+    status, html = _get(populated, "/watchers")
+    assert status == 200
+    assert "Mom" in html
+    assert "all configured" in html
+
+
+def test_unknown_path_404s(conn):
+    status, _ = _get(conn, "/nope")
+    assert status == 404
