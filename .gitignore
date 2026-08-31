@@ -1,0 +1,38 @@
+# ── Secrets & local config — NEVER commit ─────────────────────────────
+.env
+.env.*
+!.env.example
+config.toml
+config.local.*
+*.secret
+secrets/
+
+# ── Runtime state / data (contains students' records) ─────────────────
+data/
+*.db
+*.sqlite
+*.sqlite3
+snapshots/
+*.log
+# spike/preflight debug artifacts
+last_*.json
+last_*.txt
+last_*.png
+
+# ── Python ────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── OS / editor ───────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
