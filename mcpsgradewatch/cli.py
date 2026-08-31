@@ -87,8 +87,8 @@ def _cmd_collect(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_once(client, conn, notifier) -> int:
-    """One poll: collect -> diff -> persist -> notify. Returns the event count."""
+def _run_once(client, conn, notifier, conf) -> int:
+    """One poll: collect -> derive -> diff -> persist -> notify. Returns the event count."""
     from . import differ, store
     from .collector import collect_student
 
@@ -98,11 +98,16 @@ def _run_once(client, conn, notifier) -> int:
         for err in col.errors:
             print(f"warning [{col.student.initials}]: {err}", file=sys.stderr)
 
+        snapshot = differ.apply_time_rules(
+            col.snapshot,
+            grace_days=conf.ungraded_grace_days,
+            lookahead_days=conf.lookahead_days,
+        )
         previous = store.load_snapshot(conn, child.agu)
-        events = differ.diff(previous, col.snapshot)
-        store.persist_snapshot(conn, col.student, col.snapshot)
+        events = differ.diff(previous, snapshot)
+        store.persist_snapshot(conn, col.student, snapshot)
 
-        n_assign = len(col.snapshot.assignments)
+        n_assign = len(snapshot.assignments)
         if previous is None:
             print(f"baseline established for {col.student.initials}: "
                   f"{len(col.classes)} classes, {n_assign} assignments (no alerts on first run)")
@@ -138,7 +143,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             # interval, and re-login is one request.
             client = ParentVueClient(conf.base_url, conf.username, pw)
             try:
-                _run_once(client, conn, notifier)
+                _run_once(client, conn, notifier, conf)
             except Exception as e:
                 if not args.loop:
                     raise
