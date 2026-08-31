@@ -1,9 +1,11 @@
-"""Read-only web dashboard (Phase 3).
+"""Web dashboard (Phase 3, ack added in Phase 4).
 
 The dashboard is for *looking things up on demand* — alerts are always pushed
 out, so nobody has to open this to find out something changed. It's stdlib
 ``http.server`` over the same SQLite file the watch loop writes: no framework,
-no build step, no write path (every request is a SELECT).
+no build step. Every page is a SELECT; the one deliberate write path is the
+shared-ack button on /alerts (``POST /ack``), which only ever sets
+``acked_by``/``acked_at`` on an existing alert row.
 
 It binds 127.0.0.1 by default. To share it on your LAN set
 MCPSGRADEWATCH_DASHBOARD_HOST=0.0.0.0 — and know that unlike alert payloads it
@@ -15,7 +17,7 @@ import sqlite3
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 _STATUS_LABELS = {
     "graded": ("graded", "ok"),
@@ -45,6 +47,8 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .badge.muted { background: #8883;     color: inherit; opacity: .7; }
 .badge.warn  { background: #d9770622; color: #b45309; }
 .badge.bad   { background: #dc262622; color: #b91c1c; }
+.ackform { display: inline-flex; gap: .3rem; margin: 0; }
+.ackform select, .ackform button { font-size: .8rem; }
 .cards { display: flex; flex-wrap: wrap; gap: 1rem; }
 .card { border: 1px solid #8884; border-radius: .6rem; padding: .8rem 1rem;
         min-width: 16rem; flex: 1; }
@@ -90,8 +94,10 @@ def fetch_open_counts(conn: sqlite3.Connection, student_id: str) -> dict:
 
 def fetch_alerts(conn: sqlite3.Connection, limit: int = 100) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT al.*, st.name AS student_name FROM alerts al "
+        "SELECT al.*, st.name AS student_name, w.name AS acked_by_name "
+        "FROM alerts al "
         "JOIN students st ON st.id = al.student_id "
+        "LEFT JOIN watchers w ON w.id = al.acked_by "
         "ORDER BY al.created_at DESC, al.rowid DESC LIMIT ?", (limit,)
     ).fetchall()
 
@@ -190,25 +196,39 @@ def render_student(student, courses_with_assignments) -> str:
     return _page(student["name"], "".join(parts))
 
 
-def render_alerts(alerts) -> str:
+def render_alerts(alerts, watcher_list=()) -> str:
     if not alerts:
         body = "<h1>Alerts</h1><p>No alerts yet — quiet is good.</p>"
         return _page("Alerts", body)
     import json as _json
 
+    options = "".join(f"<option>{escape(w.name)}</option>" for w in watcher_list)
     rows = []
     for al in alerts:
         try:
             detail = _json.loads(al["body"]).get("detail", al["body"])
         except Exception:
             detail = al["body"]
+        if al["acked_at"]:
+            ack_cell = (f"<span class='badge ok'>✓ {escape(al['acked_by_name'] or 'acked')}"
+                        f"</span>")
+        elif watcher_list:
+            ack_cell = (f"<form method='post' action='/ack' class='ackform'>"
+                        f"<input type='hidden' name='alert_id' value='{escape(al['id'])}'>"
+                        f"<select name='watcher'>{options}</select> "
+                        f"<button>ack</button></form>")
+        else:
+            ack_cell = "<span class='small'>—</span>"
         rows.append(
             f"<tr><td class='small'>{escape(al['created_at'])}</td>"
             f"<td>{escape(al['student_name'])}</td>"
             f"<td>{escape(al['type'].replace('_', ' '))}</td>"
-            f"<td>{escape(detail)}</td></tr>")
-    return _page("Alerts", "<h1>Alerts</h1><table><tr><th>When (UTC)</th><th>Student</th>"
-                 "<th>Type</th><th>Detail</th></tr>" + "".join(rows) + "</table>")
+            f"<td>{escape(detail)}</td><td>{ack_cell}</td></tr>")
+    return _page("Alerts", "<h1>Alerts</h1><p class='small'>An ack is shared: one "
+                 "person marking an alert handled marks it for everyone.</p>"
+                 "<table><tr><th>When (UTC)</th><th>Student</th>"
+                 "<th>Type</th><th>Detail</th><th>Ack</th></tr>"
+                 + "".join(rows) + "</table>")
 
 
 def render_history(rows) -> str:
@@ -230,21 +250,28 @@ def render_watchers(watcher_list, subscriptions) -> str:
     if not watcher_list:
         return _page("Watchers", "<h1>Watchers</h1><p>None yet. Add one with "
                      "<code>mcpsgradewatch watcher add</code>.</p>")
+    def quiet(w) -> str:
+        if w.quiet_hours.get("start") and w.quiet_hours.get("end"):
+            return f"{w.quiet_hours['start']}–{w.quiet_hours['end']}"
+        return "—"
+
     w_rows = "".join(
         f"<tr><td>{escape(w.name)}</td><td>{escape(w.kind.value)}</td>"
-        f"<td>{escape(', '.join(w.channels) or '—')}</td></tr>"
+        f"<td>{escape(', '.join(w.channels) or '—')}</td>"
+        f"<td>{escape(quiet(w))}</td></tr>"
         for w in watcher_list)
     s_rows = "".join(
         f"<tr><td>{escape(s.watcher_name)}</td><td>{escape(s.student_name)}</td>"
         f"<td>{escape('all' if s.alert_type == '*' else s.alert_type.replace('_', ' '))}</td>"
-        f"<td>{escape('all configured' if s.channel == '*' else s.channel)}</td></tr>"
+        f"<td>{escape('all configured' if s.channel == '*' else s.channel)}</td>"
+        f"<td>{escape(f'daily at {s.send_at}' if s.send_at else 'immediate')}</td></tr>"
         for s in subscriptions)
     return _page("Watchers",
                  "<h1>Watchers</h1><table><tr><th>Name</th><th>Kind</th>"
-                 "<th>Channels</th></tr>" + w_rows + "</table>"
+                 "<th>Channels</th><th>Quiet hours</th></tr>" + w_rows + "</table>"
                  "<h2>Subscriptions</h2>"
                  + ("<table><tr><th>Watcher</th><th>Student</th><th>Alerts</th>"
-                    "<th>Via</th></tr>" + s_rows + "</table>"
+                    "<th>Via</th><th>Delivery</th></tr>" + s_rows + "</table>"
                     if subscriptions else "<p>No subscriptions yet.</p>"))
 
 
@@ -269,13 +296,31 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
                for c in fetch_courses(conn, student["id"])]
         return 200, render_student(student, cwa)
     if path == "/alerts":
-        return 200, render_alerts(fetch_alerts(conn))
+        return 200, render_alerts(fetch_alerts(conn),
+                                  watchermod.list_watchers(conn))
     if path == "/history":
         return 200, render_history(fetch_history(conn))
     if path == "/watchers":
         return 200, render_watchers(watchermod.list_watchers(conn),
                                     watchermod.list_subscriptions(conn))
     return 404, _page("Not found", "<h1>404</h1><p>No such page.</p>")
+
+
+def _handle_ack(conn: sqlite3.Connection, form: dict) -> tuple[int, str]:
+    """POST /ack — the dashboard's single write path (shared ack)."""
+    from . import store
+    from . import watchers as watchermod
+
+    alert_id = (form.get("alert_id") or [""])[0]
+    watcher_name = (form.get("watcher") or [""])[0]
+    w = watchermod.get_watcher(conn, watcher_name) if watcher_name else None
+    if not alert_id or w is None:
+        return 400, _page("Bad request", "<h1>Bad ack</h1><p>Missing alert or watcher.</p>")
+    try:
+        store.ack_alert(conn, alert_id, w.id)
+    except store.AckError as e:
+        return 400, _page("Bad request", f"<h1>Bad ack</h1><p>{escape(str(e))}</p>")
+    return 303, "/alerts"   # redirect target, not a body
 
 
 def serve(db_path: Path, host: str, port: int) -> None:
@@ -293,6 +338,29 @@ def serve(db_path: Path, host: str, port: int) -> None:
             finally:
                 conn.close()
             payload = html.encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def do_POST(self) -> None:  # noqa: N802 (stdlib name)
+            if urlparse(self.path).path != "/ack":
+                self.send_error(404)
+                return
+            length = int(self.headers.get("Content-Length") or 0)
+            form = parse_qs(self.rfile.read(length).decode("utf-8"))
+            conn = store.connect(db_path)
+            try:
+                status, result = _handle_ack(conn, form)
+            finally:
+                conn.close()
+            if status == 303:
+                self.send_response(303)
+                self.send_header("Location", result)
+                self.end_headers()
+                return
+            payload = result.encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))

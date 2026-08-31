@@ -24,47 +24,79 @@ class Delivery:
     channel: str
     to: dict
     events: list[Event] = field(default_factory=list)
+    # Phase 4 scheduling context:
+    watcher_id: str = ""
+    quiet_hours: dict = field(default_factory=dict)
+    send_at: str | None = None   # HH:MM digest time; None = immediate
 
 
 def plan(conn: sqlite3.Connection, student_id: str,
          events: list[Event]) -> tuple[list[Delivery], list[str]]:
     """Match this student's events against subscriptions.
 
-    Returns (deliveries, warnings). An empty deliveries list with no
+    Returns (deliveries, warnings). Each delivery carries its schedule: an
+    event matched by both an immediate and a digest subscription goes once,
+    immediately (the sooner schedule wins). An empty deliveries list with no
     subscriptions at all means "fall back to the global notifier"; the caller
     can tell that apart via ``has_subscriptions``.
     """
     warnings: list[str] = []
-    deliveries: dict[tuple[str, str], Delivery] = {}
+    # (watcher_id, channel) -> {event id: (event, best send_at)}; None beats
+    # any HH:MM, and earlier HH:MM beats later (zero-padded strings compare).
+    matched_map: dict[tuple[str, str], dict[int, tuple[Event, str | None]]] = {}
+    context: dict[str, watchers.Watcher] = {}
 
-    for watcher, alert_type, channel_name in watchers.subscriptions_for_student(conn, student_id):
+    for watcher, alert_type, channel_name, send_at in watchers.subscriptions_for_student(conn, student_id):
         matched = [e for e in events
                    if alert_type == watchers.ALL or e.type.value == alert_type]
         if not matched:
             continue
+        context[watcher.id] = watcher
         if channel_name == watchers.ALL:
             channel_names = list(watcher.channels) or ["console"]
         else:
             channel_names = [channel_name]
         for ch in channel_names:
-            to = watcher.channels.get(ch)
-            if to is None and ch != "console":
+            if watcher.channels.get(ch) is None and ch != "console":
                 warnings.append(
                     f"watcher {watcher.name!r} is subscribed via {ch!r} but has no "
                     f"{ch} address — set one with: mcpsgradewatch watcher set-channel "
                     f"{watcher.name} {ch}=…")
                 continue
-            d = deliveries.setdefault(
-                (watcher.id, ch),
-                Delivery(watcher_name=watcher.name, channel=ch, to=to or {}))
+            slot = matched_map.setdefault((watcher.id, ch), {})
             for e in matched:
-                if e not in d.events:
-                    d.events.append(e)
-    return list(deliveries.values()), warnings
+                prev = slot.get(id(e))
+                if prev is None or _sooner(send_at, prev[1]):
+                    slot[id(e)] = (e, send_at)
+
+    deliveries: list[Delivery] = []
+    for (watcher_id, ch), slot in matched_map.items():
+        w = context[watcher_id]
+        by_schedule: dict[str | None, list[Event]] = {}
+        for e, send_at in slot.values():
+            by_schedule.setdefault(send_at, []).append(e)
+        for send_at, evs in by_schedule.items():
+            deliveries.append(Delivery(
+                watcher_name=w.name, channel=ch, to=w.channels.get(ch) or {},
+                events=evs, watcher_id=watcher_id,
+                quiet_hours=w.quiet_hours, send_at=send_at))
+    return deliveries, warnings
+
+
+def _sooner(a: str | None, b: str | None) -> bool:
+    """Is schedule ``a`` strictly sooner than ``b``? (None = immediate.)"""
+    if a is None:
+        return b is not None
+    return b is not None and a < b
 
 
 def has_subscriptions(conn: sqlite3.Connection, student_id: str) -> bool:
-    return bool(watchers.subscriptions_for_student(conn, student_id))
+    """Any subscription row at all — including daily_summary, which routes no
+    events but still means "this household opted into targeted delivery", so
+    the global fallback must stay quiet."""
+    return conn.execute(
+        "SELECT 1 FROM subscriptions WHERE student_id = ? LIMIT 1", (student_id,)
+    ).fetchone() is not None
 
 
 def dispatch(deliveries: list[Delivery], student_initials: str,

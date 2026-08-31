@@ -46,6 +46,7 @@ class Subscription:
     student_name: str
     alert_type: str   # AlertType value or '*'
     channel: str      # channel name or '*'
+    send_at: Optional[str] = None   # HH:MM digest/summary time; None = immediate
 
 
 # ── watchers ──────────────────────────────────────────────────────────
@@ -148,17 +149,59 @@ def resolve_student(conn: sqlite3.Connection, ref: str) -> sqlite3.Row:
 # ── subscriptions ─────────────────────────────────────────────────────
 
 
+def validate_hhmm(value: str) -> str:
+    """Normalize an ``HH:MM`` string (zero-padded, 24h) or raise WatcherError."""
+    parts = value.split(":")
+    try:
+        h, m = int(parts[0]), int(parts[1])
+        if len(parts) != 2 or not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError
+    except (ValueError, IndexError):
+        raise WatcherError(f"{value!r} is not a valid time — use 24h HH:MM, e.g. 17:30")
+    return f"{h:02d}:{m:02d}"
+
+
+def set_quiet_hours(conn: sqlite3.Connection, name: str,
+                    start: Optional[str], end: Optional[str]) -> Watcher:
+    """Set (or clear, with None) the watcher's quiet window. Alerts landing
+    inside it are held in the outbox until the window ends — deferred, never
+    dropped."""
+    w = require_watcher(conn, name)
+    if start is None or end is None:
+        w.quiet_hours = {}
+    else:
+        start, end = validate_hhmm(start), validate_hhmm(end)
+        if start == end:
+            raise WatcherError("quiet hours start and end are the same — "
+                               "use `--clear` to remove the window instead")
+        w.quiet_hours = {"start": start, "end": end}
+    conn.execute("UPDATE watchers SET quiet_hours = ? WHERE id = ?",
+                 (json.dumps(w.quiet_hours), w.id))
+    conn.commit()
+    return w
+
+
 def subscribe(conn: sqlite3.Connection, watcher: Watcher, student_id: str,
               alert_types: Optional[list[str]] = None,
-              channels: Optional[list[str]] = None) -> int:
+              channels: Optional[list[str]] = None,
+              send_at: Optional[str] = None) -> int:
     """Create subscription rows (and the watcher_student link). Returns the
-    number of rows actually added; existing identical rows are left alone."""
+    number of rows actually added; existing identical rows are left alone.
+
+    ``send_at`` (HH:MM) makes the rows *scheduled*: event alerts batch into a
+    daily digest delivered after that time; a ``daily_summary`` row generates
+    the standing report then (and defaults to 07:00 if no time is given).
+    """
     types = alert_types or [ALL]
     chans = channels or [ALL]
     for t in types:
         if t != ALL and t not in VALID_ALERT_TYPES:
             raise WatcherError(
                 f"unknown alert type {t!r} (valid: {', '.join(sorted(VALID_ALERT_TYPES))})")
+    if send_at is not None:
+        send_at = validate_hhmm(send_at)
+    if AlertType.DAILY_SUMMARY.value in types and send_at is None:
+        send_at = "07:00"
 
     conn.execute(
         "INSERT OR IGNORE INTO watcher_student (watcher_id, student_id) VALUES (?, ?)",
@@ -169,15 +212,15 @@ def subscribe(conn: sqlite3.Connection, watcher: Watcher, student_id: str,
         for ch in chans:
             dup = conn.execute(
                 "SELECT 1 FROM subscriptions WHERE watcher_id=? AND student_id=? "
-                "AND alert_type=? AND channel=?",
-                (watcher.id, student_id, t, ch),
+                "AND alert_type=? AND channel=? AND send_at IS ?",
+                (watcher.id, student_id, t, ch, send_at),
             ).fetchone()
             if dup:
                 continue
             conn.execute(
-                "INSERT INTO subscriptions (id, watcher_id, student_id, alert_type, channel) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (uuid.uuid4().hex, watcher.id, student_id, t, ch),
+                "INSERT INTO subscriptions (id, watcher_id, student_id, alert_type, channel, send_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (uuid.uuid4().hex, watcher.id, student_id, t, ch, send_at),
             )
             added += 1
     conn.commit()
@@ -204,7 +247,7 @@ def unsubscribe(conn: sqlite3.Connection, watcher: Watcher,
 def list_subscriptions(conn: sqlite3.Connection) -> list[Subscription]:
     rows = conn.execute(
         "SELECT s.id, s.watcher_id, w.name AS watcher_name, s.student_id, "
-        "       st.name AS student_name, s.alert_type, s.channel "
+        "       st.name AS student_name, s.alert_type, s.channel, s.send_at "
         "FROM subscriptions s "
         "JOIN watchers w ON w.id = s.watcher_id "
         "JOIN students st ON st.id = s.student_id "
@@ -213,11 +256,35 @@ def list_subscriptions(conn: sqlite3.Connection) -> list[Subscription]:
     return [Subscription(**dict(r)) for r in rows]
 
 
-def subscriptions_for_student(conn: sqlite3.Connection, student_id: str) -> list[tuple[Watcher, str, str]]:
-    """(watcher, alert_type, channel) triples that target this student."""
+def subscriptions_for_student(conn: sqlite3.Connection, student_id: str) -> list[tuple[Watcher, str, str, Optional[str]]]:
+    """(watcher, alert_type, channel, send_at) tuples that target this student.
+    ``daily_summary`` rows are generated content, not event routing — the
+    summary sender handles them, so they're excluded here."""
     rows = conn.execute(
-        "SELECT w.*, s.alert_type, s.channel FROM subscriptions s "
-        "JOIN watchers w ON w.id = s.watcher_id WHERE s.student_id = ?",
-        (student_id,),
+        "SELECT w.*, s.alert_type, s.channel, s.send_at FROM subscriptions s "
+        "JOIN watchers w ON w.id = s.watcher_id "
+        "WHERE s.student_id = ? AND s.alert_type != ?",
+        (student_id, AlertType.DAILY_SUMMARY.value),
     ).fetchall()
-    return [(_row_to_watcher(r), r["alert_type"], r["channel"]) for r in rows]
+    return [(_row_to_watcher(r), r["alert_type"], r["channel"], r["send_at"])
+            for r in rows]
+
+
+def summary_subscriptions(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """All ``daily_summary`` rows, with watcher + student columns joined in."""
+    return conn.execute(
+        "SELECT s.id AS sub_id, s.channel, s.send_at, s.last_sent_on, "
+        "       w.id AS watcher_id, w.name AS watcher_name, w.channels AS watcher_channels, "
+        "       st.id AS student_id, st.agu, st.initials, st.school "
+        "FROM subscriptions s "
+        "JOIN watchers w ON w.id = s.watcher_id "
+        "JOIN students st ON st.id = s.student_id "
+        "WHERE s.alert_type = ?",
+        (AlertType.DAILY_SUMMARY.value,),
+    ).fetchall()
+
+
+def mark_summary_sent(conn: sqlite3.Connection, sub_id: str, sent_on: str) -> None:
+    conn.execute("UPDATE subscriptions SET last_sent_on = ? WHERE id = ?",
+                 (sent_on, sub_id))
+    conn.commit()

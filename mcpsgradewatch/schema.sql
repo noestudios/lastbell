@@ -77,12 +77,13 @@ CREATE TABLE IF NOT EXISTS grade_history (
 );
 
 CREATE TABLE IF NOT EXISTS subscriptions (
-    id         TEXT PRIMARY KEY,
-    watcher_id TEXT NOT NULL REFERENCES watchers(id) ON DELETE CASCADE,
-    student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
-    alert_type TEXT NOT NULL,
-    channel    TEXT NOT NULL,
-    send_at    TEXT                       -- for scheduled digests (e.g. daily summary)
+    id           TEXT PRIMARY KEY,
+    watcher_id   TEXT NOT NULL REFERENCES watchers(id) ON DELETE CASCADE,
+    student_id   TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    alert_type   TEXT NOT NULL,
+    channel      TEXT NOT NULL,
+    send_at      TEXT,                    -- HH:MM: digest/summary delivery time (NULL = immediate)
+    last_sent_on TEXT                     -- date the last scheduled send went out (summary gating)
 );
 
 CREATE TABLE IF NOT EXISTS alerts (
@@ -91,5 +92,21 @@ CREATE TABLE IF NOT EXISTS alerts (
     type       TEXT NOT NULL,
     body       TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    acked_by   TEXT REFERENCES watchers(id) ON DELETE SET NULL
+    acked_by   TEXT REFERENCES watchers(id) ON DELETE SET NULL,
+    acked_at   TEXT                       -- shared ack: one watcher acks for everyone
+);
+
+-- Deferred deliveries (Phase 4): digests and quiet-hours holdbacks. A row is
+-- one event line owed to one watcher over one channel; the flusher groups rows
+-- into a single message per (watcher, channel). Unsent rows retry every tick.
+CREATE TABLE IF NOT EXISTS outbox (
+    id         TEXT PRIMARY KEY,
+    watcher_id TEXT NOT NULL REFERENCES watchers(id) ON DELETE CASCADE,
+    channel    TEXT NOT NULL,
+    student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    alert_type TEXT NOT NULL,
+    detail     TEXT NOT NULL,
+    queued_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    send_after TEXT NOT NULL,             -- local ISO timestamp when eligible
+    sent_at    TEXT
 );

@@ -59,7 +59,8 @@ def apply_time_rules(
 
 
 def diff(
-    previous: Optional[Snapshot], current: Snapshot, *, today: Optional[date] = None
+    previous: Optional[Snapshot], current: Snapshot, *,
+    today: Optional[date] = None, grade_drop_points: float = 5.0,
 ) -> list[Event]:
     """Return the events implied by moving from ``previous`` to ``current``.
 
@@ -83,10 +84,20 @@ def diff(
         if p is None:
             continue
         if (c.mark, c.percent) != (p.mark, p.percent):
-            events.append(Event(
-                type=AlertType.GRADE_CHANGED, student_agu=agu, course_title=c.title,
-                detail=f"{c.title}: overall {_overall(p)} → {_overall(c)}",
-            ))
+            # A drop past the threshold is the same change wearing a louder
+            # type — one event either way, so a '*' subscriber isn't told twice.
+            drop = _percent_drop(p, c)
+            if drop is not None and drop >= grade_drop_points:
+                events.append(Event(
+                    type=AlertType.GRADE_DROP, student_agu=agu, course_title=c.title,
+                    detail=(f"{c.title}: overall DROPPED {drop:g} points: "
+                            f"{_overall(p)} → {_overall(c)}"),
+                ))
+            else:
+                events.append(Event(
+                    type=AlertType.GRADE_CHANGED, student_agu=agu, course_title=c.title,
+                    detail=f"{c.title}: overall {_overall(p)} → {_overall(c)}",
+                ))
 
     titles = {c.edupoint_gu: c.title for c in current.courses}
     prev_assignments = _by_gu(previous.assignments)
@@ -153,3 +164,17 @@ def _overall(c) -> str:
     if c.mark and c.percent:
         return f"{c.percent} ({c.mark})"
     return c.percent or c.mark or "n/a"
+
+
+def _parse_percent(text: str) -> Optional[float]:
+    try:
+        return float(text.strip().rstrip("%"))
+    except (ValueError, AttributeError):
+        return None
+
+
+def _percent_drop(prev, cur) -> Optional[float]:
+    p, c = _parse_percent(prev.percent), _parse_percent(cur.percent)
+    if p is None or c is None or c >= p:
+        return None
+    return p - c
