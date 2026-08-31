@@ -144,6 +144,22 @@ def main() -> None:
             (debug_dir / "loadcontrol_error.html").write_text(e.response_text, encoding="utf-8")
             print(f"    [dump] error response -> {debug_dir}/loadcontrol_error.html")
 
+    if gate:
+        print("\n[6] Drill-down — LoadControl (Gradebook_ClassDetails) ...")
+        try:
+            details = client.load_control(
+                "Gradebook_ClassDetails", focus.as_parameters(), agu_header=focus.agu_header
+            )
+            print(f"    PASS — received a {len(details)//1024} KB HTML fragment.")
+            if debug_dir is not None:
+                (debug_dir / "classdetails_fragment.html").write_text(details, encoding="utf-8")
+                print(f"    [dump] fragment -> {debug_dir}/classdetails_fragment.html")
+        except ParentVueError as e:
+            print(f"    not returned — {e}")
+            if debug_dir is not None and e.response_text:
+                (debug_dir / "classdetails_error.html").write_text(e.response_text, encoding="utf-8")
+                print(f"    [dump] error response -> {debug_dir}/classdetails_error.html")
+
     print("\n" + "=" * 60)
     print("  VERDICT")
     print("=" * 60)

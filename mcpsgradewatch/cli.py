@@ -51,12 +51,49 @@ def _cmd_init_db(args: argparse.Namespace) -> int:
 
 
 def _cmd_collect(args: argparse.Namespace) -> int:
-    print(
-        "collect: blocked on the Phase 0 gate — gradebook.py parsers are stubs "
-        "until a real LoadControl fragment is captured. Run `mcpsgradewatch preflight` "
-        "to check the gate."
-    )
-    return 1
+    """Pull normalized gradebook data for every student and print it as JSON.
+
+    Phase 0 scope: per student, the term list + subject rows and the default
+    class's grade/assignments. Phase 1 iterates every subject and term, and
+    persists snapshots for diffing.
+    """
+    import dataclasses
+    import json
+
+    from .client import ParentVueClient
+    from .gradebook import parse_class_details, parse_school_classes
+
+    conf = cfg.load()
+    pw = secretstore.get_password(conf.username, conf.secret_backend)
+    client = ParentVueClient(conf.base_url, conf.username, pw)
+
+    out = []
+    for child in client.get_children():
+        focus = client.get_focus_args(child.agu)
+        sc = parse_school_classes(
+            client.load_control("Gradebook_SchoolClasses", focus.as_parameters(),
+                                agu_header=focus.agu_header)
+        )
+        cd = parse_class_details(
+            client.load_control("Gradebook_ClassDetails", focus.as_parameters(),
+                                agu_header=focus.agu_header),
+            course_gu=str(focus.args.get("classID", "")),
+        )
+        out.append({
+            "student": {"agu": child.agu, "name": child.name, "school": child.school},
+            "term": sc.current_term,
+            "mark_periods": [dataclasses.asdict(p) for p in sc.mark_periods],
+            "subjects": [dataclasses.asdict(r) for r in sc.rows],
+            "default_class": {
+                "mark": cd.mark,
+                "percent": cd.percent,
+                "missing": cd.missing_text,
+                "assignments": [dataclasses.asdict(a) for a in cd.assignments],
+            },
+        })
+
+    print(json.dumps(out, indent=2, default=str))
+    return 0
 
 
 def main() -> None:

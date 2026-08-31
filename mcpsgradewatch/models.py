@@ -64,6 +64,8 @@ class Assignment:
     score: Optional[float] = None
     points: Optional[float] = None
     status: AssignmentStatus = AssignmentStatus.DUE
+    # The portal's row verbatim, so no field is ever lost to normalization.
+    raw: dict = field(default_factory=dict)
 
 
 @dataclass

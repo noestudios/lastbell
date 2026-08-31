@@ -9,9 +9,12 @@ already use.
 > Not affiliated with Edupoint. It uses **your** credentials to read **your**
 > students' data, and everything runs on hardware you control.
 
-**Status: scaffold.** The connection layer is proven against MCPS
-(`md-mcps-psv.edupoint.com`); the gradebook parser sits behind one unverified
-step — see [The Phase 0 gate](#the-phase-0-gate).
+**Status: Phase 0 complete — the gate is passed.** Verified live against MCPS
+(`md-mcps-psv.edupoint.com`, 2026-08-31): login, multi-student discovery, and
+the full `LoadControl` drill-down returning real class and assignment data for
+both an elementary (subject view) and a high-school student.
+`mcpsgradewatch collect` emits normalized JSON today; persistence + diffing
+(Phase 1) is next.
 
 ---
 
@@ -57,17 +60,21 @@ opt-in per watcher (Phase 3). The web dashboard is for looking things up on
 demand — never required to get a notification. Alert payloads are **low-PII**
 (initials + course + score, never a child's full name).
 
-## The Phase 0 gate
+## The Phase 0 gate — PASSED
 
-We reverse-engineered the data path from the portal's own JavaScript and know
-the exact `LoadControl` contract, but an end-to-end fetch returning assignment
-data isn't verified yet (the empty-parameter probe returns HTTP 500 without the
-per-term focus GUIDs). **Passing that fetch is the build's go/no-go.** The
-gradebook parsers in [`mcpsgradewatch/gradebook.py`](mcpsgradewatch/gradebook.py) are
-deliberately stubs until a real fragment is captured.
+The data path was reverse-engineered from the portal's own JavaScript and then
+verified end-to-end against MCPS: `POST service/PXP2Communication.asmx/LoadControl`
+with the page's verbatim `PXP.GBCurrentFocus` FocusArgs (and an `AGU` header)
+returns server-rendered fragments; assignments arrive as a DevExpress grid
+`dataSource` JSON array (`Date`, `GBAssignment`, `GBScore`, `GBPoints`, … with
+LinkColumn cells wrapping display text and a ready-made
+`Gradebook_AssignmentDetails` drill-down focus). The parsers in
+[`mcpsgradewatch/gradebook.py`](mcpsgradewatch/gradebook.py) are wired against
+real captured fragments from both school types.
 
 ```bash
-mcpsgradewatch preflight          # reports whether the gate passes for your district
+mcpsgradewatch preflight --dump   # go/no-go check; saves fragments to data/debug/
+mcpsgradewatch collect            # normalized JSON for every student
 ```
 
 ## Roadmap

@@ -1,0 +1,22 @@
+<div class="detail-content">
+  <div class="gb-current-grade" style="display:flex;">
+    <div id="current-grade">
+      <div class="mark">B+</div>
+      <div class="score">87.20%</div>
+    </div>
+    <div class="gb-classdetail-missingassignments ">2 Missing Assignments</div>
+  </div>
+  <div id="assignment-details">
+    <div id="AssignmentsGrid"></div>
+    <script type="text/javascript">
+      $('#AssignmentsGrid').dxDataGrid(PXP.DevExpress.ExtendGridConfiguration({
+        "columns":[{"caption":"Date","dataField":"Date"},{"caption":"Assignment","dataField":"GBAssignment"}],
+        "dataSource":[
+          {"Date":"9/12/26","GBAssignment":"{\"href\":\"javascript:\",\"hrefAttributes\":\"data-focus={}\",\"value\":\"Fractions Quiz\",\"dataType\":\"LinkColumn\"}","GBAssignmentType":"All Tasks / Assessments","GBSubject":"","GBScore":"{\"href\":\"javascript:\",\"hrefAttributes\":\"data-focus={}\",\"value\":\"8 out of 10\",\"dataType\":\"LinkColumn\"}","GBScoreType":"Raw Score","GBPoints":"8.00 / 10.0000","GBNotes":"","Teacher":"Pat Example","gradeBookId":"11110001","studentId":"999001"},
+          {"Date":"9/15/26","GBAssignment":"{\"href\":\"javascript:\",\"hrefAttributes\":\"data-focus={}\",\"value\":\"Reading Log Week 3\",\"dataType\":\"LinkColumn\"}","GBAssignmentType":"All Tasks / Assessments","GBSubject":"","GBScore":"{\"href\":\"javascript:\",\"hrefAttributes\":\"data-focus={}\",\"value\":\"Missing\",\"dataType\":\"LinkColumn\"}","GBScoreType":"Raw Score","GBPoints":"5.0000 Points Possible","GBNotes":"Missing","Teacher":"Pat Example","gradeBookId":"11110002","studentId":"999001"},
+          {"Date":"9/20/26","GBAssignment":"{\"href\":\"javascript:\",\"hrefAttributes\":\"data-focus={}\",\"value\":\"Science Fair Proposal\",\"dataType\":\"LinkColumn\"}","GBAssignmentType":"All Tasks / Assessments","GBSubject":"","GBScore":"{\"href\":\"javascript:\",\"hrefAttributes\":\"data-focus={}\",\"value\":\"Not Graded\",\"dataType\":\"LinkColumn\"}","GBScoreType":"Raw Score","GBPoints":"20.0000 Points Possible","GBNotes":"","Teacher":"Pat Example","gradeBookId":"11110003","studentId":"999001"}
+        ],
+        "noDataText":"No Data","onInitialized":PXP.Actions.GB.onGBClassDetailsLoad}))
+    </script>
+  </div>
+</div>
