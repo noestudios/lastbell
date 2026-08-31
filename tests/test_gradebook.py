@@ -5,10 +5,30 @@ from __future__ import annotations
 import datetime
 import pathlib
 
-from mcpsgradewatch.gradebook import parse_class_details
+from mcpsgradewatch.gradebook import parse_class_details, parse_school_classes
 from mcpsgradewatch.models import AssignmentStatus
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
+
+
+def test_parse_school_classes_secondary_focus_rows():
+    html = (FIXTURES / "schoolclasses_secondary.html").read_text(encoding="utf-8")
+    sc = parse_school_classes(html)
+
+    assert sc.school_id == "176"
+    assert sc.current_term == "MP1"
+    assert [p.name for p in sc.mark_periods] == ["MP1", "MP2"]
+    assert sc.mark_periods[0].current
+
+    spanish, algebra, empty = sc.rows
+    # single-quoted attribute, raw JSON inside
+    assert spanish.title == "Spanish 2"
+    assert spanish.focus["LoadParams"]["ControlName"] == "Gradebook_ClassDetails"
+    assert spanish.focus["FocusArgs"]["classID"] == 736713
+    # double-quoted attribute with &quot; entities
+    assert algebra.focus["FocusArgs"]["classID"] == 736714
+    # elementary-style empty data-focus stays an empty dict
+    assert empty.focus == {}
 
 
 def test_parse_class_details_sample():

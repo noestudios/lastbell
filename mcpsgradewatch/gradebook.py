@@ -26,6 +26,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from html import unescape
 from typing import Optional
 
 from .models import Assignment, AssignmentStatus
@@ -51,6 +52,10 @@ class SubjectRow:
     period: str = ""
     room: str = ""
     score: str = ""       # raw score/mark text when present
+    # The row's data-focus payload ({"LoadParams": ..., "FocusArgs": ...}).
+    # The portal's own GB.LoadControl click handler sends this verbatim, so a
+    # non-empty focus is a ready-made drill-down into the row's class.
+    focus: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -78,6 +83,26 @@ class ParseError(RuntimeError):
 
 def _text(html: str) -> str:
     return " ".join(re.sub(r"<[^>]+>", " ", html).split())
+
+
+def _row_focus(seg: str) -> dict:
+    """Parse a row's ``data-focus`` attribute into its {LoadParams, FocusArgs}.
+
+    The attribute is JSON inside the HTML attribute quotes — single-quoted with
+    raw double quotes inside (the shape MCPS serves), or double-quoted with
+    ``&quot;`` entities. Empty/unparseable focus (the elementary subject view
+    renders ``data-focus=''``) yields ``{}``.
+    """
+    for pat in (r"data-focus='([^']*)'", r'data-focus="([^"]*)"'):
+        m = re.search(pat, seg)
+        if m and m.group(1).strip():
+            try:
+                obj = json.loads(unescape(m.group(1)))
+            except ValueError:
+                continue
+            if isinstance(obj, dict):
+                return obj
+    return {}
 
 
 # ── Gradebook_SchoolClasses ───────────────────────────────────────────
@@ -134,6 +159,7 @@ def parse_school_classes(html: str) -> SchoolClasses:
                 period=cell("period"),
                 room=cell("room"),
                 score=cell("score") or cell("mark"),
+                focus=_row_focus(seg),
             )
         )
 
