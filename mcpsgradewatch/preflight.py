@@ -104,13 +104,17 @@ def main() -> None:
     children = client.get_children()
     print(f"    found {len(children)}: " + ", ".join(_redact(c.name, show) for c in children))
 
-    print("\n[4] Focus args (LoadControl inputs) ...")
+    print("\n[4] Focus args (PXP.GBCurrentFocus bootstrap) ...")
     agu = children[0].agu if children else "0"
     focus = client.get_focus_args(agu)
-    for label, val in (("OrgYearGU", focus.org_year_gu), ("gradePeriodGU", focus.grade_period_gu), ("schoolID", focus.school_id)):
-        print(f"    {label:14}: {'resolved' if val else 'MISSING'}")
-    if focus.raw:
-        print(f"    also resolved  : {', '.join(focus.raw)}")
+    if not focus.args:
+        print("    MISSING — PXP.GBCurrentFocus not found on the gradebook page.")
+    else:
+        print(f"    FocusArgs object: {len(focus.args)} fields "
+              f"({', '.join(sorted(focus.args))})")
+        for label, val in (("OrgYearGU", focus.org_year_gu), ("gradePeriodGU", focus.grade_period_gu), ("schoolID", focus.school_id)):
+            print(f"    {label:14}: {'resolved' if val else 'MISSING'}")
+        print(f"    AGU header    : {focus.agu_header}")
 
     debug_dir = None
     if args.dump:
@@ -125,7 +129,9 @@ def main() -> None:
 
     print("\n[5] Gate — live LoadControl (Gradebook_SchoolClasses) ...")
     try:
-        html = client.load_control("Gradebook_SchoolClasses", focus.as_parameters(agu))
+        html = client.load_control(
+            "Gradebook_SchoolClasses", focus.as_parameters(), agu_header=focus.agu_header
+        )
         print(f"    PASS — received a {len(html)//1024} KB HTML fragment.")
         gate = len(html) > 0
         if debug_dir is not None:

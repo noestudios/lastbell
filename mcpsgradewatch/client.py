@@ -50,22 +50,35 @@ class Child:
 
 @dataclass
 class FocusArgs:
-    """The per-term identifiers LoadControl requires. Read from the gradebook
-    page; they rotate each school year / grading period, so re-read per run."""
+    """The focus object LoadControl requires.
 
-    org_year_gu: str
-    grade_period_gu: str
-    school_id: str
-    raw: dict = field(default_factory=dict)
+    ``args`` is the *verbatim* ``FocusArgs`` dict from the page's
+    ``PXP.GBCurrentFocus`` bootstrap — the server's own statement of the
+    current focus (studentGU, schoolID, classID, mark/grade period GUIDs,
+    sentinel -1s, all of it). Sending it back unmodified is what the portal's
+    own JS does. These rotate per school year / grading period, so re-read
+    them every run. ``agu_header`` is the page's ``PXP.AGU`` value, sent as
+    the ``AGU`` request header.
+    """
 
-    def as_parameters(self, agu: str) -> dict:
-        return {
-            "schoolID": self.school_id,
-            "OrgYearGU": self.org_year_gu,
-            "gradePeriodGU": self.grade_period_gu,
-            "AGU": agu,
-            **self.raw,
-        }
+    args: dict = field(default_factory=dict)
+    agu_header: str = "0"
+
+    @property
+    def org_year_gu(self) -> str:
+        return str(self.args.get("OrgYearGU") or "")
+
+    @property
+    def grade_period_gu(self) -> str:
+        return str(self.args.get("gradePeriodGU") or "")
+
+    @property
+    def school_id(self) -> str:
+        val = self.args.get("schoolID")
+        return "" if val in (None, "") else str(val)
+
+    def as_parameters(self) -> dict:
+        return dict(self.args)
 
 
 class _HiddenFields(HTMLParser):
@@ -140,6 +153,13 @@ class ParentVueClient:
 
     # ── focus args (LoadControl needs these) ──────────────────────────
     def get_focus_args(self, agu: str = "0") -> FocusArgs:
+        """Read the gradebook page's own focus bootstrap.
+
+        The page embeds ``PXP.GBCurrentFocus = {"LoadParams": ..., "FocusArgs":
+        {...}};`` — a complete, internally-consistent focus object. We use its
+        ``FocusArgs`` verbatim rather than reassembling fields from scattered
+        regexes (which risks mixing GUIDs from different grading periods).
+        """
         self.login()
         r = self.session.get(f"{self.base_url}/PXP2_Gradebook.aspx?AGU={agu}", timeout=30)
         r.raise_for_status()
@@ -147,47 +167,42 @@ class ParentVueClient:
         # Kept so debug tooling (preflight --dump) can save the raw page.
         self.last_gradebook_html = html
 
-        def grab(key: str) -> str:
-            # Values may be quoted GUIDs/strings or bare numbers, and key
-            # casing varies across the page's embedded JSON blobs.
-            m = re.search(rf'"{key}"\s*:\s*"([^"]*)"', html, re.IGNORECASE)
-            if m is None:
-                m = re.search(rf'"{key}"\s*:\s*(-?\d+)', html, re.IGNORECASE)
-            return m.group(1) if m else ""
+        m = re.search(r"PXP\.GBCurrentFocus\s*=\s*(\{.*?\});", html, re.DOTALL)
+        args: dict = {}
+        if m:
+            try:
+                args = json.loads(m.group(1)).get("FocusArgs", {}) or {}
+            except ValueError:
+                args = {}
 
-        # Optional focus fields the portal JS also passes when present.
-        raw = {}
-        for key in ("markPeriodGU", "GradingPeriodGroup"):
-            val = grab(key)
-            if val:
-                raw[key] = val
+        agu_m = re.search(r"PXP\.AGU\s*=\s*['\"]?(\w+)", html)
+        agu_header = agu_m.group(1) if agu_m else str(agu)
 
-        return FocusArgs(
-            org_year_gu=grab("OrgYearGU"),
-            grade_period_gu=grab("gradePeriodGU"),
-            school_id=grab("schoolID"),
-            raw=raw,
-        )
+        return FocusArgs(args=args, agu_header=agu_header)
 
-    # ── the gradebook page method ─────────────────────────────────────
-    def load_control(self, control: str, parameters: dict) -> str:
-        """POST PXP2_Gradebook.aspx/LoadControl and return the HTML fragment.
+    # ── the gradebook web-service call ────────────────────────────────
+    def load_control(self, control: str, parameters: dict, agu_header: str = "0") -> str:
+        """Call the portal's LoadControl web method and return its HTML fragment.
+
+        Wire contract (from the portal's own PXPUtility.js / PXP2_Gradebook.js):
+          POST {base}/service/PXP2Communication.asmx/LoadControl
+          headers: Content-Type: application/json, AGU: <PXP.AGU>
+          body:    {"request": {"control": <name>, "parameters": <FocusArgs>}}
+          reply:   {"d": {"Data": {"html": ...}, "Error": {...}?}}
 
         Controls: ``Gradebook_SchoolClasses`` (class list + overall marks),
         ``Gradebook_ClassDetails`` (assignments in a class), and
         ``Gradebook_AssignmentDetails`` (one assignment's due date / score).
 
-        ⚠ PHASE 0 GATE: the endpoint and payload shape are read from the
-        portal's own JS, but an end-to-end call returning real assignment data
-        is not yet verified — the empty-parameter probe returned HTTP 500
-        because the focus GUIDs were missing. Verifying this is the build's
-        go/no-go. Until then, callers should expect ParentVueError.
+        ⚠ PHASE 0 GATE: this contract is read from the portal's JS; the first
+        end-to-end call returning real data is the build's go/no-go.
         """
         self.login()
-        url = f"{self.base_url}/PXP2_Gradebook.aspx/LoadControl"
+        url = f"{self.base_url}/service/PXP2Communication.asmx/LoadControl"
         body = {"request": {"control": control, "parameters": parameters}}
         headers = {
-            "Content-Type": "application/json; charset=UTF-8",
+            "Content-Type": "application/json; charset=utf-8",
+            "AGU": str(agu_header),
             "X-Requested-With": "XMLHttpRequest",
             "Accept": "application/json, text/javascript, */*; q=0.01",
             "Referer": f"{self.base_url}/PXP2_Gradebook.aspx",
@@ -195,13 +210,19 @@ class ParentVueClient:
         r = self.session.post(url, data=json.dumps(body), headers=headers, timeout=30)
         if "json" not in r.headers.get("Content-Type", "").lower():
             raise ParentVueError(
-                f"LoadControl({control}) did not return JSON (HTTP {r.status_code}); "
-                "focus parameters are probably missing or invalid.",
+                f"LoadControl({control}) did not return JSON (HTTP {r.status_code}).",
                 response_text=r.text,
             )
         payload = r.json()
         d = payload.get("d", payload)
-        html = d.get("html") if isinstance(d, dict) else d
+        if isinstance(d, dict) and d.get("Error"):
+            msg = d["Error"].get("Message", str(d["Error"])) if isinstance(d["Error"], dict) else str(d["Error"])
+            raise ParentVueError(
+                f"LoadControl({control}) server error: {msg}",
+                response_text=r.text,
+            )
+        data = d.get("Data", d) if isinstance(d, dict) else d
+        html = data.get("html") if isinstance(data, dict) else data
         if not html:
             raise ParentVueError(
                 f"LoadControl({control}) returned no html fragment.",
