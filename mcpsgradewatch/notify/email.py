@@ -1,7 +1,7 @@
 """Email notifier over SMTP (stdlib only).
 
 Email is the universal default channel: every device on every OS already has it,
-no extra app to install. Configure via the GRADEWATCH_SMTP_* environment vars.
+no extra app to install. Configure via the MCPSGRADEWATCH_SMTP_* environment vars.
 """
 from __future__ import annotations
 
@@ -29,12 +29,12 @@ class EmailNotifier:
             return val
 
         return cls(
-            host=need("GRADEWATCH_SMTP_HOST"),
-            port=int(os.environ.get("GRADEWATCH_SMTP_PORT", "587")),
-            user=os.environ.get("GRADEWATCH_SMTP_USER", ""),
-            password=os.environ.get("GRADEWATCH_PASSWORD_SMTP", ""),
-            sender=need("GRADEWATCH_SMTP_FROM"),
-            recipient=need("GRADEWATCH_SMTP_TO"),
+            host=need("MCPSGRADEWATCH_SMTP_HOST"),
+            port=int(os.environ.get("MCPSGRADEWATCH_SMTP_PORT", "587")),
+            user=os.environ.get("MCPSGRADEWATCH_SMTP_USER", ""),
+            password=os.environ.get("MCPSGRADEWATCH_PASSWORD_SMTP", ""),
+            sender=need("MCPSGRADEWATCH_SMTP_FROM"),
+            recipient=need("MCPSGRADEWATCH_SMTP_TO"),
         )
 
     def send(self, subject: str, body: str) -> None:

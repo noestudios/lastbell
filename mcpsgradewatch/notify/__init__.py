@@ -1,7 +1,7 @@
 """Pluggable notification channels.
 
 Delivery is push-*out*: a channel sends to a person's inbox/phone. No one signs
-into gradewatch to receive an alert. Payloads are low-PII by default (initials +
+into mcpsgradewatch to receive an alert. Payloads are low-PII by default (initials +
 course + score, never a child's full name).
 
 Add a channel by implementing ``Notifier.send`` and registering it in ``get``.

@@ -3,13 +3,13 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "gradewatch"
+name = "mcpsgradewatch"
 version = "0.1.0"
 description = "Self-hosted ParentVUE grade & assignment monitor — alerts for any number of watchers, and the students too."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-authors = [{ name = "gradewatch contributors" }]
+authors = [{ name = "mcpsgradewatch contributors" }]
 keywords = ["parentvue", "edupoint", "synergy", "grades", "school", "self-hosted"]
 dependencies = [
     "requests>=2.31",
@@ -22,10 +22,10 @@ service = ["APScheduler>=3.10"]
 dev = ["pytest>=7.4"]
 
 [project.scripts]
-gradewatch = "gradewatch.cli:main"
+mcpsgradewatch = "mcpsgradewatch.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["gradewatch*"]
+include = ["mcpsgradewatch*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

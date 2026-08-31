@@ -53,12 +53,12 @@ class Config:
 def load() -> Config:
     """Build a Config from the environment. Raises ConfigError on missing values."""
     return Config(
-        district=_get("GRADEWATCH_DISTRICT", required=True),
-        username=_get("GRADEWATCH_USERNAME", required=True),
-        secret_backend=_get("GRADEWATCH_SECRET_BACKEND", "keyring"),
-        poll_minutes=int(_get("GRADEWATCH_POLL_MINUTES", "180")),
-        db_path=Path(_get("GRADEWATCH_DB_PATH", "data/gradewatch.db")),
-        snapshot_dir=Path(_get("GRADEWATCH_SNAPSHOT_DIR", "data/snapshots")),
-        snapshot_retention_days=int(_get("GRADEWATCH_SNAPSHOT_RETENTION_DAYS", "90")),
-        notify_channel=_get("GRADEWATCH_NOTIFY_CHANNEL", "console"),
+        district=_get("MCPSGRADEWATCH_DISTRICT", required=True),
+        username=_get("MCPSGRADEWATCH_USERNAME", required=True),
+        secret_backend=_get("MCPSGRADEWATCH_SECRET_BACKEND", "keyring"),
+        poll_minutes=int(_get("MCPSGRADEWATCH_POLL_MINUTES", "180")),
+        db_path=Path(_get("MCPSGRADEWATCH_DB_PATH", "data/mcpsgradewatch.db")),
+        snapshot_dir=Path(_get("MCPSGRADEWATCH_SNAPSHOT_DIR", "data/snapshots")),
+        snapshot_retention_days=int(_get("MCPSGRADEWATCH_SNAPSHOT_RETENTION_DAYS", "90")),
+        notify_channel=_get("MCPSGRADEWATCH_NOTIFY_CHANNEL", "console"),
     )

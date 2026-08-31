@@ -6,7 +6,7 @@ sample of those fragments for MCPS, because the end-to-end LoadControl fetch is
 unverified. So the selectors below are intentionally stubs: fill them in from a
 real captured fragment as the first implementation step, then delete the raises.
 
-Do the capture with ``gradewatch collect --dump`` once focus args resolve, or
+Do the capture with ``mcpsgradewatch collect --dump`` once focus args resolve, or
 grab one LoadControl response from the browser Network tab.
 """
 from __future__ import annotations

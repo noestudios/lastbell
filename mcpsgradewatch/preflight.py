@@ -64,7 +64,7 @@ def _soap_probe(base_url: str, username: str, password: str) -> str:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="gradewatch district preflight")
+    ap = argparse.ArgumentParser(description="mcpsgradewatch district preflight")
     ap.add_argument("--show-values", action="store_true", help="reveal names/grades locally (do not share)")
     args = ap.parse_args()
 
@@ -76,7 +76,7 @@ def main() -> None:
         password = secretstore.prompt_password()
 
     print("=" * 60)
-    print(f"  gradewatch preflight -> {conf.district}")
+    print(f"  mcpsgradewatch preflight -> {conf.district}")
     print(f"  username: {conf.username}")
     print("=" * 60)
 

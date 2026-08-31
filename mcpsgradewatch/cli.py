@@ -1,4 +1,4 @@
-"""Command-line entrypoint: ``gradewatch <command>``."""
+"""Command-line entrypoint: ``mcpsgradewatch <command>``."""
 from __future__ import annotations
 
 import argparse
@@ -20,7 +20,7 @@ def _cmd_set_password(args: argparse.Namespace) -> int:
 def _cmd_preflight(args: argparse.Namespace) -> int:
     from . import preflight
 
-    sys.argv = ["gradewatch preflight"] + (["--show-values"] if args.show_values else [])
+    sys.argv = ["mcpsgradewatch preflight"] + (["--show-values"] if args.show_values else [])
     preflight.main()
     return 0
 
@@ -48,15 +48,15 @@ def _cmd_init_db(args: argparse.Namespace) -> int:
 def _cmd_collect(args: argparse.Namespace) -> int:
     print(
         "collect: blocked on the Phase 0 gate — gradebook.py parsers are stubs "
-        "until a real LoadControl fragment is captured. Run `gradewatch preflight` "
+        "until a real LoadControl fragment is captured. Run `mcpsgradewatch preflight` "
         "to check the gate."
     )
     return 1
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="gradewatch", description="Self-hosted ParentVUE grade monitor")
-    parser.add_argument("--version", action="version", version=f"gradewatch {__version__}")
+    parser = argparse.ArgumentParser(prog="mcpsgradewatch", description="Self-hosted ParentVUE grade monitor")
+    parser.add_argument("--version", action="version", version=f"mcpsgradewatch {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("set-password", help="store a credential's password in the OS keyring").set_defaults(func=_cmd_set_password)

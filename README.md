@@ -1,4 +1,4 @@
-# gradewatch
+# MCPSGradeWatch
 
 A self-hosted **ParentVUE grade & assignment monitor**. It watches your own
 students' gradebooks and pushes alerts — missing assignments, new or changed
@@ -18,9 +18,9 @@ step — see [The Phase 0 gate](#the-phase-0-gate).
 ## Why scraping (and not the SOAP API)
 
 The legacy Edupoint SOAP mobile API is disabled on a growing number of districts
-(MCPS returns `UPD5304-00`, Loudoun `D5517`). gradewatch talks to the PXP2 **web
+(MCPS returns `UPD5304-00`, Loudoun `D5517`). MCPSGradeWatch talks to the PXP2 **web
 portal** instead: an ASP.NET form login, then the `PXP2_Gradebook.aspx/LoadControl`
-page method the gradebook UI itself calls. Run `gradewatch preflight` to see what
+page method the gradebook UI itself calls. Run `mcpsgradewatch preflight` to see what
 your district allows.
 
 ## Quickstart
@@ -30,8 +30,8 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 
 cp .env.example .env          # then edit: district + username (NOT the password)
-gradewatch set-password       # stores the password in your OS keyring
-gradewatch preflight          # district go/no-go check (values redacted)
+mcpsgradewatch set-password       # stores the password in your OS keyring
+mcpsgradewatch preflight          # district go/no-go check (values redacted)
 ```
 
 ## Configuration & secrets
@@ -42,8 +42,8 @@ a *reference* to where the secret lives:
 
 | Install        | Secret store                                                        |
 |----------------|---------------------------------------------------------------------|
-| Bare-metal     | OS keyring — macOS Keychain / Windows Credential Manager / Secret Service (`gradewatch set-password`) |
-| Docker / CI    | `GRADEWATCH_PASSWORD`, injected from Docker secrets or a CI secret store |
+| Bare-metal     | OS keyring — macOS Keychain / Windows Credential Manager / Secret Service (`mcpsgradewatch set-password`) |
+| Docker / CI    | `MCPSGRADEWATCH_PASSWORD`, injected from Docker secrets or a CI secret store |
 
 Cross-platform by construction: plain Python (Windows/macOS/Linux), no OS-native
 hooks. SQLite by default; ship it as a container to run identically on a Pi, NAS,
@@ -51,7 +51,7 @@ or VPS. It needs an **always-on host** to poll and push.
 
 ## How alerts reach people
 
-Push-**out**, not pull-in: nobody signs into gradewatch to receive an alert.
+Push-**out**, not pull-in: nobody signs into MCPSGradeWatch to receive an alert.
 **Email** is the universal default; **ntfy / Telegram / Pushover / SMS** are
 opt-in per watcher (Phase 3). The web dashboard is for looking things up on
 demand — never required to get a notification. Alert payloads are **low-PII**
@@ -63,11 +63,11 @@ We reverse-engineered the data path from the portal's own JavaScript and know
 the exact `LoadControl` contract, but an end-to-end fetch returning assignment
 data isn't verified yet (the empty-parameter probe returns HTTP 500 without the
 per-term focus GUIDs). **Passing that fetch is the build's go/no-go.** The
-gradebook parsers in [`gradewatch/gradebook.py`](gradewatch/gradebook.py) are
+gradebook parsers in [`mcpsgradewatch/gradebook.py`](mcpsgradewatch/gradebook.py) are
 deliberately stubs until a real fragment is captured.
 
 ```bash
-gradewatch preflight          # reports whether the gate passes for your district
+mcpsgradewatch preflight          # reports whether the gate passes for your district
 ```
 
 ## Roadmap
@@ -80,6 +80,16 @@ gradewatch preflight          # reports whether the gate passes for your distric
 | **3** | Watcher accounts (guardians & students), subscriptions, dashboard, channels |
 | **4** | Daily student summaries, digests, quiet hours, grade-drop thresholds, shared ack |
 | **5** | Publish the preflight as a redacted, general district tool |
+
+## Credits
+
+The web-portal approach (ASP.NET form login, embedded child-list JSON) was
+first demonstrated by [dmc5179/ParentVUE](https://github.com/dmc5179/ParentVUE)
+(GPLv3), which served as prior art and reference during this project's district
+recon. MCPSGradeWatch's code is written independently against the portal itself, but
+that repo deserves the credit for proving the post-SOAP path first. Community
+documentation of the (now largely deprecated) SOAP API lives at
+[StudentVue/docs](https://github.com/StudentVue/docs).
 
 ## License
 
