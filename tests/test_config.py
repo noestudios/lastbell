@@ -35,8 +35,11 @@ def test_no_hardcoded_credentials_in_source():
         src = (pkg / name).read_text()
         assert ".edupoint.com" not in src, f"{name}: no district host may be hard-coded"
         assert 'default="' not in src, f"{name}: no argparse credential defaults"
-    # preflight must be config-driven
-    assert "cfg.load()" in (pkg / "preflight.py").read_text()
+    # preflight is a general tool (Phase 5): district/username come from flags
+    # or the MCPSGRADEWATCH_* environment, never literals in source.
+    src = (pkg / "preflight.py").read_text()
+    assert "MCPSGRADEWATCH_DISTRICT" in src
+    assert "MCPSGRADEWATCH_USERNAME" in src
 
 
 def test_placeholder_username_rejected(monkeypatch):

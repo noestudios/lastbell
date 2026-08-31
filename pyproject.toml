@@ -23,6 +23,9 @@ dev = ["pytest>=7.4"]
 
 [project.scripts]
 mcpsgradewatch = "mcpsgradewatch.cli:main"
+# The preflight doubles as a standalone district-compatibility tool:
+#   pipx run --spec mcpsgradewatch parentvue-preflight -d some-host.edupoint.com
+parentvue-preflight = "mcpsgradewatch.preflight:main"
 
 [tool.setuptools.packages.find]
 include = ["mcpsgradewatch*"]
