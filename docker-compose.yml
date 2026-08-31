@@ -13,6 +13,18 @@ services:
     restart: unless-stopped
     # command: run          # (Phase 1+) the always-on collector loop
 
+  # Optional (Phase 3): the read-only dashboard as its own service, sharing the
+  # same data volume. Published on localhost only; widen deliberately.
+  # dashboard:
+  #   build: .
+  #   env_file: .env
+  #   command: ["dashboard", "--host", "0.0.0.0"]
+  #   ports:
+  #     - "127.0.0.1:8321:8321"
+  #   volumes:
+  #     - ./data:/data
+  #   restart: unless-stopped
+
 secrets:
   parentvue_password:
     # Provide via: `docker secret` (swarm) or a file kept out of git.
