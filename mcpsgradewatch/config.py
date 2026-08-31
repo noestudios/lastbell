@@ -52,9 +52,16 @@ class Config:
 
 def load() -> Config:
     """Build a Config from the environment. Raises ConfigError on missing values."""
+    username = _get("MCPSGRADEWATCH_USERNAME", required=True)
+    if username == "your_parentvue_username":
+        raise ConfigError(
+            "MCPSGRADEWATCH_USERNAME is still the placeholder from .env.example. "
+            "Edit .env and set your real ParentVUE username. (Careful not to re-run "
+            "`cp .env.example .env` afterward — it overwrites your edits.)"
+        )
     return Config(
         district=_get("MCPSGRADEWATCH_DISTRICT", required=True),
-        username=_get("MCPSGRADEWATCH_USERNAME", required=True),
+        username=username,
         secret_backend=_get("MCPSGRADEWATCH_SECRET_BACKEND", "keyring"),
         poll_minutes=int(_get("MCPSGRADEWATCH_POLL_MINUTES", "180")),
         db_path=Path(_get("MCPSGRADEWATCH_DB_PATH", "data/mcpsgradewatch.db")),

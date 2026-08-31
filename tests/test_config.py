@@ -37,3 +37,10 @@ def test_no_hardcoded_credentials_in_source():
         assert 'default="' not in src, f"{name}: no argparse credential defaults"
     # preflight must be config-driven
     assert "cfg.load()" in (pkg / "preflight.py").read_text()
+
+
+def test_placeholder_username_rejected(monkeypatch):
+    monkeypatch.setenv("MCPSGRADEWATCH_DISTRICT", "md-mcps-psv.edupoint.com")
+    monkeypatch.setenv("MCPSGRADEWATCH_USERNAME", "your_parentvue_username")
+    with pytest.raises(cfg.ConfigError, match="placeholder"):
+        cfg.load()
