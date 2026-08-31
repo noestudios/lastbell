@@ -82,7 +82,7 @@ def test_course_mark_change():
     events = diff(prev, curr)
     assert len(events) == 1
     assert events[0].type is AlertType.GRADE_CHANGED
-    assert "87.20% (B+) → 90.10% (A-)" in events[0].detail
+    assert "87.2% (B+) → 90.1% (A-)" in events[0].detail
 
 
 def test_new_term_is_a_fresh_course_baseline():

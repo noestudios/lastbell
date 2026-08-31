@@ -26,13 +26,19 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
     today = today or date.today()
     lines: list[str] = []
 
+    from .models import format_percent
+
     courses = conn.execute(
         "SELECT * FROM courses WHERE student_id = ? ORDER BY title", (student_id,)
     ).fetchall()
-    overall = "; ".join(
-        f"{c['title']} {c['percent'] or c['mark'] or '—'}"
-        + (f" ({c['mark']})" if c["percent"] and c["mark"] else "")
-        for c in courses)
+
+    def one_course(c) -> str:
+        pct = format_percent(c["percent"])
+        shown = f"{pct}%" if pct is not None else (c["percent"] or c["mark"] or "—")
+        suffix = f" ({c['mark']})" if shown != c["mark"] and c["mark"] else ""
+        return f"{c['title']} {shown}{suffix}"
+
+    overall = "; ".join(one_course(c) for c in courses)
     lines.append(f"Overall: {overall or 'no courses yet'}")
 
     def open_items(status: str) -> list[sqlite3.Row]:

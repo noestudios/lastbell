@@ -60,3 +60,16 @@ def test_parse_class_details_sample():
     assert pending.points == 20.0
     # raw row preserved verbatim for future fields / drill-down focus payloads
     assert pending.raw["Teacher"] == "Pat Example"
+
+
+def test_secondary_graded_row_recovers_points_from_score_text():
+    """Live secondary rows leave GBPoints empty; "3 out of 4.0000" carries both."""
+    from mcpsgradewatch.gradebook import _row_to_assignment
+
+    a = _row_to_assignment(
+        {"GBScore": '{"value": "3 out of 4.0000", "dataType": "LinkColumn"}',
+         "GBAssignment": '{"value": "U1L3 HW"}', "gradeBookId": "77"},
+        course_gu="c1")
+    assert a.score == 3.0
+    assert a.points == 4.0
+    assert a.status.value == "graded"

@@ -134,12 +134,27 @@ def _badge(status: str) -> str:
     return f"<span class='badge {klass}'>{escape(label)}</span>"
 
 
+def _pct(raw: str) -> str:
+    """Course percent for display: one decimal place, or a dash."""
+    from .models import format_percent
+
+    formatted = format_percent(raw)
+    return formatted if formatted is not None else (raw or "—")
+
+
 def _score(row) -> str:
+    """Assignment score as a percentage (one decimal), raw points on hover.
+
+    No points value (or zero, e.g. extra credit) means no denominator to
+    percent against — those show the raw score.
+    """
     if row["score"] is None:
         return "—"
-    if row["points"] is None:
-        return f"{row['score']:g}"
-    return f"{row['score']:g}/{row['points']:g}"
+    if not row["points"]:
+        return escape(f"{row['score']:g}")
+    raw = f"{row['score']:g}/{row['points']:g}"
+    pct = row["score"] / row["points"] * 100
+    return f"<span title='{escape(raw)}'>{pct:.1f}%</span>"
 
 
 def render_overview(students, courses_by_student, counts_by_student) -> str:
@@ -154,7 +169,7 @@ def render_overview(students, courses_by_student, counts_by_student) -> str:
         rows = "".join(
             f"<tr><td><a href='/student/{escape(s['agu'])}'>{escape(c['title'])}</a></td>"
             f"<td>{escape(c['teacher'])}</td>"
-            f"<td class='num'>{escape(c['percent'] or '—')}</td>"
+            f"<td class='num'>{escape(_pct(c['percent']))}</td>"
             f"<td>{escape(c['mark'] or '')}</td></tr>"
             for c in courses)
         flags = []
@@ -179,7 +194,8 @@ def render_student(student, courses_with_assignments) -> str:
              f"<p class='small'>{escape(student['school'])} · AGU {escape(student['agu'])}</p>"]
     for course, assignments in courses_with_assignments:
         head = escape(course["title"])
-        overall = " · ".join(x for x in (course["percent"], course["mark"]) if x)
+        pct = _pct(course["percent"]) if course["percent"] else ""
+        overall = " · ".join(x for x in (pct and f"{pct}%", course["mark"]) if x)
         teacher = f" — {escape(course['teacher'])}" if course["teacher"] else ""
         parts.append(f"<h2>{head}{teacher}"
                      f"{f' <span class=badge>{escape(overall)}</span>' if overall else ''}</h2>")

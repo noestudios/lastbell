@@ -286,6 +286,10 @@ def _row_to_assignment(row: dict, course_gu: str) -> Assignment:
     points = float(pts_nums[-1]) if pts_nums else None
     if score is None and len(pts_nums) >= 2:
         score = float(pts_nums[0])
+    # Secondary graded rows leave GBPoints empty and carry both numbers in the
+    # score text instead ("3 out of 4.0000") — recover the denominator there.
+    if points is None and len(score_nums) >= 2:
+        points = float(score_nums[1])
 
     lowered = f"{score_text} {_cell_value(row.get('GBNotes'))}".lower()
     if "missing" in lowered:

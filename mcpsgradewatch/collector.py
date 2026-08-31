@@ -82,11 +82,17 @@ def collect_student(
         # Elementary subject view / no per-class focus: the bootstrap's default
         # class is the only one addressable (the Phase 0 path).
         class_gu = str(focus.args.get("classID", ""))
-        teacher = next(
-            (r.teacher for r in sc.rows
+        row = next(
+            (r for r in sc.rows
              if r.teacher_id and r.teacher_id == str(focus.args.get("teacherID"))),
-            sc.rows[0].teacher if sc.rows else "",
+            sc.rows[0] if sc.rows else None,
         )
+        teacher = row.teacher if row else ""
+        # Best available human name for the default class: the row's own title
+        # (rare in the elementary subject view), else the teacher's class,
+        # else the GUID as a last resort.
+        title = ((row.title if row else "")
+                 or (f"{teacher}'s class" if teacher else f"Class {class_gu}"))
         try:
             cd = parse_class_details(
                 client.load_control(
@@ -99,7 +105,7 @@ def collect_student(
             out.errors.append(f"default class {class_gu}: {e}")
             return out
         out.classes.append(CollectedClass(
-            course=Course(edupoint_gu=class_gu, title=f"Class {class_gu}",
+            course=Course(edupoint_gu=class_gu, title=title,
                           teacher=teacher, term=sc.current_term,
                           mark=cd.mark, percent=cd.percent),
             details=cd,
