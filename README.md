@@ -9,12 +9,15 @@ already use.
 > Not affiliated with Edupoint. It uses **your** credentials to read **your**
 > students' data, and everything runs on hardware you control.
 
-**Status: Phase 0 complete — the gate is passed.** Verified live against MCPS
-(`md-mcps-psv.edupoint.com`, 2026-08-31): login, multi-student discovery, and
-the full `LoadControl` drill-down returning real class and assignment data for
-both an elementary (subject view) and a high-school student.
-`mcpsgradewatch collect` emits normalized JSON today; persistence + diffing
-(Phase 1) is next.
+**Status: Phase 1 complete.** Verified live against MCPS
+(`md-mcps-psv.edupoint.com`, 2026-08-31): `mcpsgradewatch run` sweeps **every
+class** per student (via each class row's own `data-focus` payload, the same
+drill-down the portal UI performs), persists a snapshot keyed on the Edupoint
+assignment GUID, diffs against the previous run, and pushes alerts — score
+changes and missing-flags — through the configured channel. First run is a
+quiet baseline; every field-level change lands in an append-only
+`grade_history`. The time-based rules (ungraded-past-due, deadline look-ahead)
+are Phase 2.
 
 ---
 
@@ -35,6 +38,10 @@ pip install -e .
 cp .env.example .env          # then edit: district + username (NOT the password)
 mcpsgradewatch set-password       # stores the password in your OS keyring
 mcpsgradewatch preflight          # district go/no-go check (values redacted)
+
+mcpsgradewatch run                # one pass: snapshot, diff, alert (first run = baseline)
+mcpsgradewatch run --loop         # keep polling every MCPSGRADEWATCH_POLL_MINUTES
+mcpsgradewatch collect            # read-only JSON dump of what a run would persist
 ```
 
 ## Configuration & secrets
@@ -74,15 +81,21 @@ real captured fragments from both school types.
 
 ```bash
 mcpsgradewatch preflight --dump   # go/no-go check; saves fragments to data/debug/
-mcpsgradewatch collect            # normalized JSON for every student
+mcpsgradewatch collect            # normalized JSON for every student and class
 ```
+
+Phase 1 built the watch loop on top of that path: each class row's `data-focus`
+attribute carries the ready-made `{LoadParams, FocusArgs}` the portal's own
+`GB.LoadControl` click handler sends, so `run` sweeps every class exactly the
+way a human clicking through them would (with a polite delay between calls,
+and duplicate screen/print row variants fetched once).
 
 ## Roadmap
 
 | Phase | What ships |
 |------:|------------|
-| **0** | Pass the gate; harden the connector into normalized courses + assignments |
-| **1** | Persist snapshots (keyed on the Edupoint assignment GUID) + diff + first alert |
+| **0** | ✅ Pass the gate; harden the connector into normalized courses + assignments |
+| **1** | ✅ All-class sweep, persisted snapshots (keyed on the Edupoint assignment GUID), diff + first alert (`run` / `run --loop`) |
 | **2** | Missing, ungraded-past-due, future-deadline look-ahead, score changes |
 | **3** | Watcher accounts (guardians & students), subscriptions, dashboard, channels |
 | **4** | Daily student summaries, digests, quiet hours, grade-drop thresholds, shared ack |
