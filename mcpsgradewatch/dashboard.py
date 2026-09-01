@@ -27,34 +27,9 @@ _STATUS_LABELS = {
     "ungraded_past_due": ("ungraded past due", "warn"),
 }
 
-_CSS = """
-:root { color-scheme: light dark; }
-body { font: 15px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
-       margin: 0 auto; max-width: 64rem; padding: 1rem 1.25rem 3rem; }
-a { color: #2563eb; text-decoration: none; } a:hover { text-decoration: underline; }
-nav { border-bottom: 1px solid #8884; padding-bottom: .6rem; margin-bottom: 1.2rem; }
-nav a { margin-right: 1.1rem; font-weight: 600; }
-nav .brand { font-weight: 800; margin-right: 1.6rem; }
-h1 { font-size: 1.35rem; } h2 { font-size: 1.1rem; margin-top: 1.8rem; }
-table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; }
-th, td { text-align: left; padding: .3rem .6rem; border-bottom: 1px solid #8883; }
-th { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
-td.num { text-align: right; font-variant-numeric: tabular-nums; }
-.badge { display: inline-block; padding: .05rem .5rem; border-radius: 999px;
-         font-size: .78rem; font-weight: 600; white-space: nowrap; }
-.badge.ok    { background: #16a34a22; color: #15803d; }
-.badge.info  { background: #2563eb22; color: #1d4ed8; }
-.badge.muted { background: #8883;     color: inherit; opacity: .7; }
-.badge.warn  { background: #d9770622; color: #b45309; }
-.badge.bad   { background: #dc262622; color: #b91c1c; }
-.ackform { display: inline-flex; gap: .3rem; margin: 0; }
-.ackform select, .ackform button { font-size: .8rem; }
-.cards { display: flex; flex-wrap: wrap; gap: 1rem; }
-.card { border: 1px solid #8884; border-radius: .6rem; padding: .8rem 1rem;
-        min-width: 16rem; flex: 1; }
-.card h3 { margin: 0 0 .2rem; font-size: 1rem; }
-.small { font-size: .85rem; opacity: .75; }
-"""
+# The theme lives in style.css next to this module (design tokens extracted
+# from the Purity UI Dashboard template) and is served at /static/style.css.
+_STYLE_PATH = Path(__file__).with_name("style.css")
 
 
 # ── data (all read-only) ──────────────────────────────────────────────
@@ -133,7 +108,8 @@ def _page(title: str, body: str) -> str:
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        f"<title>{escape(title)} · MCPSGradeWatch</title><style>{_CSS}</style></head><body>"
+        f"<title>{escape(title)} · MCPSGradeWatch</title>"
+        "<link rel='stylesheet' href='/static/style.css'></head><body>"
         "<nav><a class='brand' href='/'>MCPSGradeWatch</a>"
         "<a href='/'>Students</a><a href='/alerts'>Alerts</a>"
         "<a href='/history'>History</a><a href='/watchers'>Watchers</a></nav>"
@@ -392,6 +368,14 @@ def serve(db_path: Path, host: str, port: int) -> None:
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 (stdlib name)
+            if urlparse(self.path).path == "/static/style.css":
+                css = _STYLE_PATH.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/css; charset=utf-8")
+                self.send_header("Content-Length", str(len(css)))
+                self.end_headers()
+                self.wfile.write(css)
+                return
             # A connection per request: cheap for SQLite, and thread-safe by
             # construction under ThreadingHTTPServer.
             conn = store.connect(db_path)

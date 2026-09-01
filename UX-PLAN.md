@@ -63,8 +63,13 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
   language + what happens next ("Couldn't reach the portal — retrying at the
   next poll"). Rides along with whichever phase touches each surface.
 
-## Needed to start Phase A
-- The Figma file link, with the Figma connector authorized for this tool
-  (claude.ai → connector settings, or `/mcp` in an interactive session) —
-  or, failing that, exported screenshots + a written list of
-  colors/fonts/spacing from the template.
+## Design source (resolved)
+- Figma: "Purity UI Dashboard - Chakra UI Dashboard (Community)", file key
+  `0q4rKhRxuflN8snhqSm3k0`. Vector screens on page 0:1 ("Free Version"):
+  Dashboard `2:31`, Tables `29:2`, Billing `42:2`, Profile `63:149`,
+  Sign In `88:3`, Sign Up `92:86` — the component reference for Phases B–D.
+- Exact token values cross-checked against the template's open-source Chakra
+  theme (creativetimofficial/purity-ui-dashboard, MIT — attribution in README
+  Credits and style.css).
+- Phase A status: **done** — tokens live in `mcpsgradewatch/style.css`,
+  served at `/static/style.css`.
