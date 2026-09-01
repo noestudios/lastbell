@@ -374,8 +374,10 @@ def test_settings_subscription_row_preselects_current_values(populated):
     # the row is editable: current values preloaded in its controls
     assert "value='17:00'" in html
     assert " checked> grade changed" in html   # its checkbox is preselected
-    # single-type group: the multiselect summary names it
-    assert "<summary>grade changed</summary>" in html
+    # single-type group: the multiselect summary names it (and states its
+    # purpose for AT — the visible value alone doesn't)
+    assert ("<summary aria-label='Alert types: grade changed'>"
+            "grade changed</summary>") in html
 
 
 def test_stylesheet_exists_and_is_linked(populated):

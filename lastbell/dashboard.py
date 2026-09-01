@@ -31,6 +31,8 @@ _REPO_URL = "https://github.com/noestudios/lastbell"
 # Screen-reader marker for the engaged option in a set of links (active view
 # card, active filter chip): the visual accent alone doesn't announce.
 _CURRENT = " aria-current='true'"
+# …and for nav links, the current PAGE (also the visual current state's hook).
+_CURRENT_PAGE = " aria-current='page'"
 
 _STATUS_LABELS = {
     "graded": ("graded", "ok"),
@@ -547,21 +549,23 @@ def _nav_names(students) -> list[str]:
     return firsts
 
 
-def _nav_students(students) -> str:
+def _nav_students(students, path="") -> str:
     """Student links for the nav: names inline at desktop width; on narrow
     they give way to a <details> menu behind the students icon (no JS to
     open — app.js only adds outside-click close)."""
     if not students:
         return ""
     names = _nav_names(students)
+    def cur(s):
+        return _CURRENT_PAGE if path == f"/student/{s['agu']}" else ""
     inline = "".join(
         # The tooltip earns its place only when the nav abbreviates: it reveals
         # the full name behind a first name. When the shown name already IS the
         # full name, a tooltip would just echo it, so render a plain link.
-        (f"<a class='tip-b' href='/student/{escape(s['agu'])}' "
+        (f"<a class='tip-b'{cur(s)} href='/student/{escape(s['agu'])}' "
          f"data-tip='{escape(s['name'])}'>{escape(n)}</a>"
          if n != s["name"] else
-         f"<a href='/student/{escape(s['agu'])}'>{escape(n)}</a>")
+         f"<a{cur(s)} href='/student/{escape(s['agu'])}'>{escape(n)}</a>")
         for s, n in zip(students, names))
     menu = "".join(
         f"<a href='/student/{escape(s['agu'])}'>{escape(s['name'])}</a>"
@@ -572,9 +576,11 @@ def _nav_students(students) -> str:
             f"<div class='smenu-list'>{menu}</div></details>")
 
 
-def _page(title: str, body: str, nav_students=()) -> str:
+def _page(title: str, body: str, nav_students=(), path="") -> str:
+    def cur(href):
+        return _CURRENT_PAGE if href and href == path else ""
     links = "".join(
-        f"<a href='{href}' aria-label='{label}'>{_SVG.format(icon)}"
+        f"<a href='{href}'{cur(href)} aria-label='{label}'>{_SVG.format(icon)}"
         f"<span class='lbl'>{label}</span></a>"
         for href, label, icon in _NAV_ITEMS)
     return (
@@ -586,12 +592,14 @@ def _page(title: str, body: str, nav_students=()) -> str:
         "<script src='/static/app.js' defer></script></head><body>"
         "<a class='skip' href='#main'>Skip to content</a>"
         f"<nav><a class='brand' href='/'>Last Bell</a>"
-        f"{_nav_students(nav_students)}{links}"
-        f"<a class='gear' href='/settings' "
+        f"{_nav_students(nav_students, path)}{links}"
+        f"<a class='gear'{cur('/settings')} href='/settings' "
         f"aria-label='Settings'>{_GEAR_ICON}</a>"
         f"<button id='themetoggle' class='tip-b tip-e' "
         f"aria-label='Theme'>{_THEME_ICON_AUTO}</button></nav>"
-        f"<main id='main'>{body}</main></body></html>"
+        f"<main id='main'>{body}</main>"
+        "<div id='announce' class='vh' role='status' aria-live='polite'>"
+        "</div></body></html>"
     )
 
 
@@ -733,7 +741,7 @@ def render_overview(students, courses_by_student, counts_by_student) -> str:
             f"<div>{' '.join(flags) or '<span class=small>all clear</span>'}</div>"
             f"<table class='courses'><tr class='head'><th>Course</th><th>Teacher</th>"
             f"<th>%</th><th>Mark</th></tr>{rows}</table></div>")
-    return _page("Students", "<h1>Students</h1><div class='cards'>" + "".join(cards) + "</div>",
+    return _page("Students", "<h1>Students</h1><div class='cards'>" + "".join(cards) + "</div>", path="/",
                  nav_students=students)
 
 
@@ -1204,7 +1212,8 @@ def render_student(student, ctx, nav_students=()) -> str:
         parts.append(_course_strip(student, ctx))
     parts.append(_stat_cards(student, ctx))
     parts.append(view_body[ctx["view"]](student, ctx))
-    return _page(student["name"], "".join(parts), nav_students=nav_students)
+    return _page(student["name"], "".join(parts), nav_students=nav_students,
+                 path=f"/student/{student['agu']}")
 
 
 def render_alerts(alerts, counts=(), nav_students=(),
@@ -1212,7 +1221,7 @@ def render_alerts(alerts, counts=(), nav_students=(),
                   today: date | None = None) -> str:
     if not counts:
         body = "<h1>Alerts</h1><p>No alerts yet — quiet is good.</p>"
-        return _page("Alerts", body, nav_students=nav_students)
+        return _page("Alerts", body, nav_students=nav_students, path="/alerts")
     import json as _json
 
     today = today or date.today()
@@ -1264,7 +1273,8 @@ def render_alerts(alerts, counts=(), nav_students=(),
     return _page("Alerts", "<h1>Alerts</h1><div class='card tablecard'>"
                  f"<h2>{heading}</h2>"
                  f"<div class='chips'>{''.join(chips)}</div>"
-                 + table + pager + "</div>", nav_students=nav_students)
+                 + table + pager + "</div>", nav_students=nav_students,
+                 path="/alerts")
 
 
 _HISTORY_PREVIEW = 8   # recent rows shown per section; the rest go behind "Show all"
@@ -1293,7 +1303,7 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
                    *, course="", field="", nav_students=()) -> str:
     if not class_counts and not field_counts:
         return _page("History", "<h1>Grade history</h1><p>No changes recorded yet.</p>",
-                     nav_students=nav_students)
+                     nav_students=nav_students, path="/history")
     today = date.today()
 
     def href(c: str, f: str) -> str:
@@ -1370,7 +1380,7 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
     body_html += ("".join(sections) if sections
                   else "<p class='small'>No changes match this filter.</p>")
     return _page("History", "<h1>Grade history</h1>" + body_html,
-                 nav_students=nav_students)
+                 nav_students=nav_students, path="/history")
 
 
 def _type_multiselect(fid, selected) -> str:
@@ -1396,8 +1406,11 @@ def _type_multiselect(fid, selected) -> str:
         f"<label><input type='checkbox' name='type' value='{escape(v)}'"
         f"{form_attr}{' checked' if v in sel else ''}> {escape(lab)}</label>"
         for v, lab in opts)
-    return (f"<details class='msel'><summary>{escape(label)}</summary>"
-            f"<div class='msel-list'>{boxes}</div></details>")
+    return (f"<details class='msel'>"
+            f"<summary aria-label='Alert types: {escape(label)}'>"
+            f"{escape(label)}</summary>"
+            f"<div class='msel-list' role='group' "
+            f"aria-label='Alert types'>{boxes}</div></details>")
 
 
 def _options(pairs, selected="") -> str:
@@ -1440,7 +1453,9 @@ def render_settings(watcher_list, subscriptions, students=(),
                 f"<form method='post' action='/settings/watcher-remove' "
                 f"class='rowform' data-group='{escape(w.id)}'>"
                 f"<input type='hidden' name='name' value='{escape(w.name)}'>"
-                f"<button class='ghost'>remove</button></form>"
+                f"<button class='ghost' "
+                f"aria-label='Remove watcher {escape(w.name)}'>"
+                f"remove</button></form>"
                 f"</td></tr>")
             for cname, addr in w.channels.items():
                 fid = f"ch-{escape(w.id)}-{escape(cname)}"
@@ -1448,7 +1463,9 @@ def render_settings(watcher_list, subscriptions, students=(),
                           f"<input type='hidden' name='channel' value='{escape(cname)}'>")
                 if notify.ADDRESS_KEY.get(cname) is None:   # console: no address
                     addr_cell = "—"
-                    buttons = "<button class='ghost'>remove</button>"
+                    buttons = (f"<button class='ghost' aria-label='Remove "
+                               f"{escape(channel_label.get(cname, cname))} channel'>"
+                               f"remove</button>")
                     form = (f"<form id='{fid}' method='post' "
                             f"action='/settings/channel-remove' class='rowform'>"
                             f"{hidden}{buttons}</form>")
@@ -1459,12 +1476,15 @@ def render_settings(watcher_list, subscriptions, students=(),
                     # sms rows hold a carrier gateway, so no suggestions.
                     autofill = "email" if cname == "email" else "off"
                     addr_cell = (f"<input name='to' form='{fid}' "
+                                 f"aria-label='{escape(channel_label.get(cname, cname))} address' "
                                  f"value='{escape(address)}' "
                                  f"autocomplete='{autofill}'>")
                     form = (f"<form id='{fid}' method='post' "
                             f"action='/settings/channel' class='rowform'>{hidden}"
                             f"<button class='upd'>Update</button> "
                             f"<button class='ghost' "
+                            f"aria-label='Remove "
+                            f"{escape(channel_label.get(cname, cname))} channel' "
                             f"formaction='/settings/channel-remove'>"
                             f"remove</button></form>")
                 w_rows.append(
@@ -1479,10 +1499,10 @@ def render_settings(watcher_list, subscriptions, students=(),
                 w_rows.append(
                     f"<tr class='chrow' id='row-{fid}' data-w='{escape(w.id)}'>"
                     f"<td class='chname'>"
-                    f"<select name='channel' form='{fid}'>"
+                    f"<select name='channel' form='{fid}' aria-label='Channel'>"
                     f"{_options(remaining)}</select></td>"
                     f"<td data-label='Address'>"
-                    f"<input name='to' form='{fid}' autocomplete='off' "
+                    f"<input name='to' form='{fid}' aria-label='Address' autocomplete='off' "
                     f"placeholder='name@example.com / 5551234567@vtext.com' "
                     f"data-tip='Email address — or, for text message, your carrier&#39;s "
                     f"email-to-SMS gateway address'></td>"
@@ -1492,17 +1512,17 @@ def render_settings(watcher_list, subscriptions, students=(),
                     f"<input type='hidden' name='watcher' value='{escape(w.name)}'>"
                     f"<button>Add channel</button></form></td></tr>")
         w_body = ("<table class='manage'><tr class='head'><th>Watcher</th>"
-                  "<th>Address</th><th></th></tr>" + "".join(w_rows) + "</table>")
+                  "<th>Address</th><th><span class='vh'>Actions</span></th></tr>" + "".join(w_rows) + "</table>")
     else:
         w_body = "<p class='small'>None yet — add the first watcher above.</p>"
 
     add_form = (
         "<form method='post' action='/settings/watcher-add' class='edit'>"
         "<span class='formtitle'>Add</span>"
-        "<input name='name' placeholder='Name' required autocomplete='off'>"
-        f"<select name='kind'>{_options([('guardian', 'guardian'), ('student', 'student')])}</select>"
-        f"<select name='channel'>{_options([('', 'no channel yet')] + channel_opts)}</select>"
-        "<input name='to' autocomplete='off' "
+        "<input name='name' aria-label='Watcher name' placeholder='Name' required autocomplete='off'>"
+        f"<select name='kind' aria-label='Watcher role'>{_options([('guardian', 'guardian'), ('student', 'student')])}</select>"
+        f"<select name='channel' aria-label='Channel'>{_options([('', 'no channel yet')] + channel_opts)}</select>"
+        "<input name='to' aria-label='Address' autocomplete='off' "
         "placeholder='name@example.com / 5551234567@vtext.com' "
         "data-tip='Email address — or, for text message, your carrier&#39;s "
         "email-to-SMS gateway address'>"
@@ -1533,10 +1553,12 @@ def render_settings(watcher_list, subscriptions, students=(),
                 f"<td>{escape(first.watcher_name)} ⇒ {escape(first.student_name)}</td>"
                 f"<td data-label='Alerts'>"
                 f"{_type_multiselect(fid, [s.alert_type for s in group])}</td>"
-                f"<td data-label='Via'><select name='channel' form='{fid}'>"
+                f"<td data-label='Via'><select name='channel' form='{fid}' "
+                f"aria-label='Delivery channel'>"
                 f"{_options([('*', 'all configured')] + channel_opts, selected=first.channel)}"
                 f"</select></td>"
                 f"<td data-label='Delivery'><input type='time' name='at' form='{fid}' "
+                f"aria-label='Daily digest time' "
                 f"value='{escape(first.send_at or '')}' "
                 f"data-tip='Daily digest time — blank for immediate delivery'> "
                 f"<label class='urgent' data-tip='{escape(urgent_tip)}'>"
@@ -1547,10 +1569,12 @@ def render_settings(watcher_list, subscriptions, students=(),
                 f"class='rowform'>"
                 f"<input type='hidden' name='ids' value='{escape(ids)}'>"
                 f"<button class='upd'>Update</button> "
-                f"<button class='ghost' formaction='/settings/unsubscribe'>"
+                f"<button class='ghost' formaction='/settings/unsubscribe' "
+                f"aria-label='Unsubscribe {escape(first.watcher_name)} "
+                f"from {escape(first.student_name)}'>"
                 f"remove</button></form></td></tr>")
         s_body = ("<table class='manage'><tr class='head'><th>Watcher ⇒ Student</th>"
-                  "<th>Alerts</th><th>Via</th><th>Delivery</th><th></th></tr>"
+                  "<th>Alerts</th><th>Via</th><th>Delivery</th><th><span class='vh'>Actions</span></th></tr>"
                   + "".join(s_rows) + "</table>")
     else:
         s_body = "<p class='small'>No subscriptions yet.</p>"
@@ -1560,14 +1584,14 @@ def render_settings(watcher_list, subscriptions, students=(),
         s_form = (
             "<form method='post' action='/settings/subscribe' class='edit'>"
             "<span class='formtitle'>Add</span>"
-            f"<select name='watcher'>{_options(watcher_opts)}</select>"
+            f"<select name='watcher' aria-label='Watcher'>{_options(watcher_opts)}</select>"
             "<span class='small'>gets</span>"
             f"{_type_multiselect(None, ['*'])}"
             "<span class='small'>for</span>"
-            f"<select name='student'>{_options(student_opts)}</select>"
+            f"<select name='student' aria-label='Student'>{_options(student_opts)}</select>"
             "<span class='small'>via</span>"
-            f"<select name='channel'>{_options([('*', 'all channels')] + channel_opts)}</select>"
-            "<input type='time' name='at' value='16:00' "
+            f"<select name='channel' aria-label='Delivery channel'>{_options([('*', 'all channels')] + channel_opts)}</select>"
+            "<input type='time' name='at' value='16:00' aria-label='Daily digest time' "
             "data-tip='Daily digest time — clear for immediate delivery'>"
             "<label class='urgent' data-tip='Send urgent alerts (missing, due soon, "
             "grade drop) immediately instead of waiting for the digest'>"
@@ -1579,7 +1603,8 @@ def render_settings(watcher_list, subscriptions, students=(),
     s_card = ("<div class='card tablecard'><h2>Subscriptions</h2>"
               + s_form + s_body + "</div>")
 
-    banner = f"<div class='banner bad'>{escape(error)}</div>" if error else ""
+    banner = (f"<div class='banner bad' role='alert'>{escape(error)}</div>"
+              if error else "")
     toast = (f"<div class='toast' role='status' aria-live='polite'>"
              f"{escape(notice)}</div>" if notice else "")
     # The one place the app credits itself: quiet, at the very bottom of the
@@ -1595,7 +1620,7 @@ def render_settings(watcher_list, subscriptions, students=(),
     # form post — banner, cards, and toast all live inside it.
     return _page("Settings", "<h1>Settings</h1><div id='settings-main'>"
                  + banner + w_card + s_card + toast + "</div>" + credit,
-                 nav_students=students)
+                 nav_students=students, path="/settings")
 
 
 # ── http plumbing ─────────────────────────────────────────────────────

@@ -158,6 +158,14 @@
     });
   }
 
+  /* Mirror a status/error message into the persistent live region in the
+   * page shell — a region that arrives pre-populated inside the swapped
+   * subtree is not reliably announced, one that mutates in place is. */
+  function announce(text) {
+    var region = document.getElementById("announce");
+    if (region) region.textContent = text || "";
+  }
+
   function applySwap(html, finalUrl) {
     var doc = new DOMParser().parseFromString(html, "text/html");
     var next = doc.getElementById("settings-main");
@@ -166,7 +174,28 @@
       window.location.href = finalUrl;
       return;
     }
+    // The swap destroys the focused element; remember something stable to
+    // put focus back on (the row forms carry stable ids), else the section
+    // heading — a keyboard user must not restart from the top of the page.
+    var focusId = "";
+    var active = document.activeElement;
+    if (active && cur.contains(active)) {
+      var anchor = active.closest("[id]");
+      focusId = (anchor && anchor.id) || "";
+    }
     cur.replaceWith(document.importNode(next, true));
+    if (focusId) {
+      var target = document.getElementById(focusId) ||
+        document.querySelector("#settings-main h2");
+      if (target) {
+        // Rows/headings aren't natively focusable; controls must not lose
+        // their tab-order, so only non-controls get the tabindex.
+        if (!/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(target.tagName)) {
+          target.setAttribute("tabindex", "-1");
+        }
+        target.focus();
+      }
+    }
     var params;
     try {
       params = new URL(finalUrl, window.location.href).searchParams;
@@ -180,11 +209,16 @@
       });
     }
     armToast();
+    var toast = document.querySelector(".toast");
+    if (toast) announce(toast.textContent);
     if (params.get("err")) {
       var banner = document.querySelector(".banner");
-      if (banner) banner.scrollIntoView({
-        behavior: reducedMotion() ? "auto" : "smooth", block: "center"
-      });
+      if (banner) {
+        announce(banner.textContent);
+        banner.scrollIntoView({
+          behavior: reducedMotion() ? "auto" : "smooth", block: "center"
+        });
+      }
     }
   }
 
@@ -225,7 +259,11 @@
     box.className = "confirm";
     box.setAttribute("role", "alertdialog");
     box.setAttribute("aria-modal", "true");
-    box.innerHTML = "<p></p><div class='confirm-actions'>" +
+    // The message IS the dialog's accessible name — an alertdialog with no
+    // name announces as an empty box in several SR/browser pairs.
+    box.setAttribute("aria-describedby", "confirm-msg");
+    box.setAttribute("aria-label", "Confirm removal");
+    box.innerHTML = "<p id='confirm-msg'></p><div class='confirm-actions'>" +
       "<button type='button' class='ghost'>Cancel</button>" +
       "<button type='button' class='danger'>Remove</button></div>";
     box.querySelector("p").textContent = message;
@@ -236,7 +274,20 @@
       if (opener && opener.isConnected) opener.focus();
     }
     function onKey(e) {
-      if (e.key === "Escape") close();
+      if (e.key === "Escape") { close(); return; }
+      // aria-modal promises the page behind doesn't exist; make Tab keep
+      // that promise by wrapping between the dialog's two buttons.
+      if (e.key === "Tab") {
+        var btns = box.querySelectorAll("button");
+        var first = btns[0], last = btns[btns.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault(); last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault(); first.focus();
+        } else if (!box.contains(document.activeElement)) {
+          e.preventDefault(); first.focus();
+        }
+      }
     }
     scrim.addEventListener("click", close);
     box.querySelector(".ghost").addEventListener("click", close);
