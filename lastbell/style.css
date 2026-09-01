@@ -660,8 +660,10 @@ table.assignments col.c-due { width: 7.5rem; }
 table.assignments col.c-score { width: 5.5rem; }
 table.assignments col.c-status { width: 9rem; }
 
-/* The earned all-clear state (Problems with nothing to show). */
-.allclear { text-align: center; padding: 2.6rem var(--card-pad); }
+/* The earned all-clear state (Problems with nothing to show). The bottom
+ * margin keeps the card off the due-soon peek below it (same rhythm as
+ * .tablecard). */
+.allclear { text-align: center; padding: 2.6rem var(--card-pad); margin: 0 0 1.1rem; }
 .allclear svg { width: 42px; height: 42px; margin-bottom: 0.7rem; }
 .allclear h2 { margin: 0 0 0.3rem; font-size: 1rem; }
 .allclear p { margin: 0; }
@@ -692,6 +694,16 @@ details.more summary {
 }
 details.more summary:hover { color: var(--text); }
 details.more[open] summary svg { transform: rotate(180deg); }
+
+/* History "Show all": the overflow rows are a hidden <tbody> of the same
+ * table (one header, aligned columns); the <details> after the table is
+ * only the toggle. Opening it also restores the border the preview tbody's
+ * last row sheds via tr:last-child — the seam between the two tbodies. */
+tbody.overflow { display: none; }
+.tablecard:has(> details.more[open]) tbody.overflow { display: table-row-group; }
+.tablecard:has(> details.more[open]) tbody:not(:last-child) tr:last-child td {
+  border-bottom: 1px solid var(--border);
+}
 
 /* A closed term is a card whose face is its finals line. */
 details.closedterm {
@@ -830,9 +842,22 @@ tr.st-due     > td { background: color-mix(in srgb, var(--warn) 4%, transparent)
 tr.hit > td { animation: hit-in calc(2 * var(--dur-linger)) var(--ease); }
 #hit { scroll-margin-top: 1rem; }
 
-/* ── alerts: type chips, paging ─────────────────────────────────────── */
+/* ── alerts + history: type chips, paging ───────────────────────────── */
 
 .chips { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.55rem 0 0.8rem; }
+
+/* History filter bar: two labeled chip rows (Class / Change). The label
+ * shares the strip/settings uppercase-tag treatment; the chips reuse the
+ * alerts styling above. */
+.histfilters { margin: 0.2rem 0 1.1rem; }
+.filterrow { display: flex; align-items: baseline; gap: 0.7rem; flex-wrap: wrap;
+             margin: 0.55rem 0; }
+.filterrow .chips { margin: 0; }
+.filterlabel {
+  font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-muted);
+  flex: none; min-width: 3.4rem; padding-top: 0.2rem;
+}
 a.chip {
   font-size: 0.74rem;
   font-weight: 600;
@@ -906,6 +931,12 @@ a.chip b { font-weight: 700; opacity: 0.75; margin-left: 0.15rem; }
   }
   td:not([data-label]) { font-weight: 600; }
   td.num { text-align: right; }
+  /* Stacked mode re-lays tbodies as blocks, and the row border moves from
+   * td to tr — re-state the history overflow reveal + seam in those terms. */
+  .tablecard:has(> details.more[open]) tbody.overflow { display: block; }
+  .tablecard:has(> details.more[open]) tbody:not(:last-child) tr:last-child {
+    border-bottom: 1px solid var(--border);
+  }
   table.assignments th, table.courses th,
   table.strip th, table.openitems th { width: auto; }
   td.day { padding-top: 0.9rem; }
