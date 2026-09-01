@@ -914,6 +914,31 @@ def test_settings_toasts_name_who_and_what(populated):
     assert "Removed watcher Mom" in unquote(target)
 
 
+def test_school_name_links_when_resolvable(populated, monkeypatch):
+    """When the MCPS directory resolves the school, its name becomes a new-tab
+    link (with the 'Visit school website' tip) on both the overview and the
+    student page."""
+    monkeypatch.setattr(dashboard.schools, "school_url",
+                        lambda name: "https://bcc-hs.mcpsmd.org/")
+    for path in ("/", "/student/1"):
+        _, html = _get(populated, path)
+        assert "class='schoollink'" in html
+        assert "href='https://bcc-hs.mcpsmd.org/'" in html
+        assert "target='_blank'" in html and "rel='noopener noreferrer'" in html
+        assert "Visit school website" in html
+        assert "Example ES</a>" in html          # the name itself is the link
+
+
+def test_school_name_plain_when_unresolvable(populated, monkeypatch):
+    """An unknown school stays plain muted text — no anchor, no outbound link."""
+    monkeypatch.setattr(dashboard.schools, "school_url", lambda name: None)
+    for path in ("/", "/student/1"):
+        _, html = _get(populated, path)
+        assert "Example ES" in html
+        assert "schoollink" not in html
+        assert "target='_blank'" not in html
+
+
 def test_history_when_is_local_date_words(populated):
     snap = Snapshot(
         student_agu="1",

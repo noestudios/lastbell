@@ -1,0 +1,46 @@
+{
+  "generated": "2026-09-01",
+  "source": "https://ww2.montgomeryschoolsmd.org/schools/index.aspx",
+  "schools": [
+    {
+      "id": "04406",
+      "name": "Bethesda-Chevy Chase",
+      "short_name": "Bethesda-Chevy Chase HS",
+      "level": "high",
+      "website": "https://bcc-hs.mcpsmd.org/",
+      "overview_url": "https://ww2.montgomeryschoolsmd.org/schoolodex/schooloverview.aspx?s=04406",
+      "address": "4301 East-West Highway, Bethesda, MD 20814",
+      "phone": "240-740-0400"
+    },
+    {
+      "id": "02900",
+      "name": "Poolesville",
+      "short_name": "Poolesville ES",
+      "level": "elementary",
+      "website": "https://poolesville-es.mcpsmd.org/",
+      "overview_url": "https://ww2.montgomeryschoolsmd.org/schoolodex/schooloverview.aspx?s=02900",
+      "address": "",
+      "phone": ""
+    },
+    {
+      "id": "04900",
+      "name": "Poolesville",
+      "short_name": "Poolesville HS",
+      "level": "high",
+      "website": "https://poolesville-hs.mcpsmd.org/",
+      "overview_url": "https://ww2.montgomeryschoolsmd.org/schoolodex/schooloverview.aspx?s=04900",
+      "address": "",
+      "phone": ""
+    },
+    {
+      "id": "55107",
+      "name": "Blair G. Ewing Center",
+      "short_name": "Blair G. Ewing Center",
+      "level": "alternative",
+      "website": "",
+      "overview_url": "https://ww2.montgomeryschoolsmd.org/schoolodex/schooloverview.aspx?s=55107",
+      "address": "",
+      "phone": ""
+    }
+  ]
+}

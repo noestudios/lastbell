@@ -23,6 +23,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
+from . import schools
+
 _STATUS_LABELS = {
     "graded": ("graded", "ok"),
     "not_due": ("not due yet", "muted"),
@@ -546,6 +548,22 @@ def _tip(inner_html: str, tip: str, extra_class: str = "") -> str:
     return f"<span class='{cls}' data-tip='{escape(tip)}'>{inner_html}</span>"
 
 
+def _school_link(name: str) -> str:
+    """The school name as muted text; when its own website is known (via the
+    bundled MCPS directory) it becomes a new-tab link with a 'Visit school
+    website' tip. Plain escaped text on any miss — unknown school, ambiguous
+    name, or absent data file. The first outbound link in the app."""
+    safe = escape(name)
+    if not name:
+        return safe
+    url = schools.school_url(name)
+    if not url:
+        return safe
+    anchor = (f"<a class='schoollink' href='{escape(url)}' "
+              f"target='_blank' rel='noopener noreferrer'>{safe}</a>")
+    return _tip(anchor, "Visit school website")
+
+
 def _row_mark(status: str, hl: str = "", first_hit: bool = False) -> tuple[str, str]:
     """(tr attributes, leading icon html) for an assignment row. ``hl`` is the
     ?status= highlight target; the first matching row gets id='hit' so the
@@ -651,7 +669,7 @@ def render_overview(students, courses_by_student, counts_by_student) -> str:
         cards.append(
             f"<div class='card'><h3><a href='/student/{escape(s['agu'])}'>"
             f"{escape(s['name'])}</a></h3>"
-            f"<div class='small'>{escape(s['school'])}</div>"
+            f"<div class='small'>{_school_link(s['school'])}</div>"
             f"<div>{' '.join(flags) or '<span class=small>all clear</span>'}</div>"
             f"<table class='courses'><tr class='head'><th>Course</th><th>Teacher</th>"
             f"<th>%</th><th>Mark</th></tr>{rows}</table></div>")
@@ -1111,7 +1129,7 @@ def render_student(student, ctx, nav_students=()) -> str:
                  "recent": _view_recent, "everything": _view_everything}
     parts = [
         f"<h1>{escape(student['name'])}</h1>",
-        f"<p class='small'>{escape(student['school'])}</p>",
+        f"<p class='small'>{_school_link(student['school'])}</p>",
     ]
     if len(ctx["strip"]) > 1:            # the collapsed All Courses strip
         parts.append(_course_strip(student, ctx))

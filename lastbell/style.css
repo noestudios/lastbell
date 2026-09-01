@@ -218,6 +218,16 @@ table.courses td a {
 table.courses td a:hover { text-decoration-color: currentColor; }
 /* Breathing room between the school line and the status badges. */
 .card h3 + .small { margin-bottom: 0.55rem; }
+/* The school name links out to the school's own site — the app's only outbound
+ * link. It inherits .small's muted color so the name stays quiet; the soft
+ * underline (same treatment as the in-app links above) is the affordance. */
+.schoollink {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent-strong) 40%, transparent);
+  text-underline-offset: 3px;
+}
+.schoollink:hover { text-decoration-color: currentColor; }
 
 /* A table section as a card, Purity-style: the section title lives INSIDE
  * the card ("Authors Table"), not floating on the canvas above it. */

@@ -31,7 +31,7 @@ parentvue-preflight = "lastbell.preflight:main"
 include = ["lastbell*"]
 
 [tool.setuptools.package-data]
-lastbell = ["schema.sql", "style.css", "app.js"]
+lastbell = ["schema.sql", "style.css", "app.js", "mcps_schools.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
