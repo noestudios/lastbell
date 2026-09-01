@@ -1591,8 +1591,13 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
         agu = path[len("/student/"):]
         student = fetch_student(conn, agu)
         if student is None:
-            return 404, _page("Not found", "<h1>Unknown student</h1>",
-                              nav_students=students)
+            return 404, _page(
+                "Not found",
+                "<h1>No student by that id</h1>"
+                "<p>They may have been removed, or the link is stale. "
+                "<a href='/'>Back to the overview</a> — every current student "
+                "is listed there.</p>",
+                nav_students=students)
         ctx = build_student_ctx(conn, student,
                                 (query.get("view") or [""])[0],
                                 (query.get("course") or [""])[0],
@@ -1625,8 +1630,12 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
                                     notice=(query.get("ok") or [""])[0])
     if path == "/watchers":   # pre-Settings URL; keep old bookmarks working
         return 301, "/settings"
-    return 404, _page("Not found", "<h1>404</h1><p>No such page.</p>",
-                      nav_students=students)
+    return 404, _page(
+        "Not found",
+        "<h1>No such page</h1>"
+        "<p>That address doesn't go anywhere. "
+        "<a href='/'>Back to the overview</a>.</p>",
+        nav_students=students)
 
 
 def _handle_settings_post(conn: sqlite3.Connection, action: str,
@@ -1765,8 +1774,12 @@ def _handle_settings_post(conn: sqlite3.Connection, action: str,
             return done(f"Unsubscribed {named.watcher_name} from "
                         f"{named.student_name}" if named
                         else "Subscription removed")
-        return 404, _page("Not found", "<h1>404</h1><p>No such action.</p>",
-                          nav_students=fetch_students(conn))
+        return 404, _page(
+            "Not found",
+            "<h1>No such action</h1>"
+            "<p>That settings action doesn't exist — the page may be out of "
+            "date. <a href='/settings'>Back to Settings</a>.</p>",
+            nav_students=fetch_students(conn))
     except (watchermod.WatcherError, ValueError) as e:
         return 303, "/settings?err=" + quote(str(e))
 
@@ -1802,7 +1815,14 @@ def serve(db_path: Path, host: str, port: int) -> None:
             try:
                 status, html = _handle(conn, self.path)
             except sqlite3.OperationalError as e:
-                status, html = 500, _page("Error", f"<h1>Database error</h1><p>{escape(str(e))}</p>")
+                status, html = 500, _page(
+                    "Error",
+                    "<h1>Something went wrong</h1>"
+                    "<p>The dashboard couldn't read its database just now — "
+                    "usually momentary (a poll or backup holding the file). "
+                    "Refresh to try again; if it keeps happening, check that "
+                    "the database file exists and is writable.</p>"
+                    f"<p class='small'>Detail: {escape(str(e))}</p>")
             finally:
                 conn.close()
             if status == 301:   # html is the redirect target, not a body

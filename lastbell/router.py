@@ -122,7 +122,9 @@ def dispatch(deliveries: list[Delivery], student_initials: str,
             sent += 1
         except Exception as e:
             warnings.append(
-                f"delivery to {d.watcher_name!r} via {d.channel} failed: {e}")
+                f"couldn't deliver to {d.watcher_name!r} via {d.channel} ({e}) "
+                f"— this message won't be retried, but the alerts stay in the "
+                f"dashboard's alert log")
     return sent, warnings
 
 

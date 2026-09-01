@@ -284,4 +284,3 @@ documentation of the (now largely deprecated) SOAP API lives at
 
 MIT — see [LICENSE](LICENSE). Because the connector is original code (not a fork),
 the license is a free choice; MIT is the permissive default for maximum forkability.
-Set your name/handle in `LICENSE` before publishing.

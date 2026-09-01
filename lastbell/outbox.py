@@ -126,8 +126,9 @@ def flush_due(conn: sqlite3.Connection, now: Optional[datetime] = None,
         to = addresses.get(channel_name)
         if to is None and channel_name != "console":
             warnings.append(
-                f"outbox: watcher {w['name']!r} has no {channel_name} address; "
-                f"{len(group)} item(s) held")
+                f"{w['name']!r} has no {channel_name} address; {len(group)} "
+                f"queued item(s) held until one is added — lastbell watcher "
+                f"set-channel {w['name']} {channel_name}=…")
             continue
         try:
             ch = transports.get(channel_name)
@@ -142,8 +143,8 @@ def flush_due(conn: sqlite3.Connection, now: Optional[datetime] = None,
             sent += 1
         except Exception as e:
             warnings.append(
-                f"outbox delivery to {w['name']!r} via {channel_name} failed "
-                f"(will retry): {e}")
+                f"couldn't deliver {w['name']!r}'s digest via {channel_name} "
+                f"({e}) — still queued, will retry within a minute")
     return sent, warnings
 
 

@@ -128,7 +128,11 @@ class ParentVueClient:
         )
         r2.raise_for_status()
         if "PXP2_Login" in r2.url:
-            raise LoginError("Login failed — bad credentials, MFA, or CAPTCHA.")
+            raise LoginError(
+                "the portal rejected the sign-in. Check the username in .env, "
+                "re-store the password with `lastbell set-password`, and make "
+                "sure the account can sign in at the portal in a browser — "
+                "MFA or a CAPTCHA there blocks automated login.")
         self._logged_in = True
 
     # ── students on this credential ───────────────────────────────────

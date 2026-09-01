@@ -136,7 +136,9 @@ def send_due(conn: sqlite3.Connection, *, lookahead_days: int = 7,
             to = addresses.get(ch_name)
             if to is None and ch_name != "console":
                 warnings.append(
-                    f"summary for {sub['watcher_name']!r}: no {ch_name} address")
+                    f"{sub['watcher_name']!r} has no {ch_name} address for "
+                    f"their daily summary — add one with: lastbell watcher "
+                    f"set-channel {sub['watcher_name']} {ch_name}=…")
                 continue
             try:
                 ch = transports.get(ch_name)
@@ -147,8 +149,9 @@ def send_due(conn: sqlite3.Connection, *, lookahead_days: int = 7,
                 sent += 1
             except Exception as e:
                 warnings.append(
-                    f"summary to {sub['watcher_name']!r} via {ch_name} failed "
-                    f"(will retry next tick): {e}")
+                    f"couldn't send {sub['watcher_name']!r}'s daily summary "
+                    f"via {ch_name} ({e}) — retries within a minute unless "
+                    f"another channel already delivered it")
         if delivered:
             # Partial success counts as sent — retrying would double-send the
             # channels that worked; the failure is warned and visible.
