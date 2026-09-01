@@ -1111,8 +1111,7 @@ def render_student(student, ctx, nav_students=()) -> str:
                  "recent": _view_recent, "everything": _view_everything}
     parts = [
         f"<h1>{escape(student['name'])}</h1>",
-        f"<p class='small'>{escape(student['school'])} · "
-        f"AGU {escape(student['agu'])}</p>",
+        f"<p class='small'>{escape(student['school'])}</p>",
     ]
     if len(ctx["strip"]) > 1:            # the collapsed All Courses strip
         parts.append(_course_strip(student, ctx))
