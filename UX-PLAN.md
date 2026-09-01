@@ -139,7 +139,9 @@ tokens, dark theme) live in the "Student Page Views" artifact:
 https://claude.ai/code/artifact/d7b0733e-fd0b-468d-a6d3-79bbcb40ce1a
 
 **The decided model — "C0: structure", to build BEFORE Phase C's visual
-signal work (tints/icons paint onto these views):**
+signal work (tints/icons paint onto these views).
+Status: built (2026-09-01) — everything below shipped as specified; notes
+inline where reality forced a call.**
 
 - **Four views** on the student page, server-rendered via query params
   (`?view=`, `&course=`), no JS:
@@ -151,10 +153,12 @@ signal work (tints/icons paint onto these views):**
     Kept separate from Problems: at crunch time it's dozens of rows of
     *normal* workload and would bury the fires.
   - **Recent grades** — graded work newest-first across courses, grouped
-    by day (Today / Yesterday / dates). Sorts on `graded_at` — verify the
-    real collector populates it (the seeder does); fall back to the
-    assignment's first score row in `grade_history` if the portal doesn't
-    supply it.
+    by day (Today / Yesterday / dates). Sorts on `graded_at` — verified:
+    the real collector does NOT populate it (only the seeder), so the
+    build's `graded_on` falls back to the assignment's first score row in
+    `grade_history` everywhere (a baseline-run grade has neither and stays
+    out of Recent — it isn't recent). Capped at 20 rows with a link onward
+    to Everything.
   - **Everything** — the archive (receipt-lookup job): per-course cards,
     open items surfaced first, graded backlog collapsed to the last ~5
     with a no-JS "show all N" `<details>` expander; closed terms collapse
@@ -180,6 +184,20 @@ signal work (tints/icons paint onto these views):**
   Single-course (elementary) students skip the strip entirely.
 - **Overview badges** (Phase C) become deep links into these views —
   "1 missing" → `?view=problems`. One mechanism, several doors.
+  **Done with C0** (trivial once the views existed): missing/past-due
+  badges → `?view=problems`, due-soon → `?view=due`. The remaining Phase C
+  badge item is only the highlight-and-scroll `?status=` treatment.
+- Build notes (2026-09-01): stat cards are `<a>` links that keep the
+  `?course=` scope when switching views; counts stay student-wide (the
+  scoped row is marked in the strip, and the view card's heading names the
+  course). The strip's scoped row shows an inset accent bar; clicking it
+  again clears the filter. The problems trend reconstructs per-day status
+  from `grade_history` transitions, using `assigned` as the
+  existed-on-that-day proxy. The 2-week delta reads `course_history`
+  percent rows ("value in effect 14 days ago"). Graded-backlog expander
+  and closed terms are `<details>`; the expander's continuation table
+  shares column widths via `<colgroup>`. Sparkline SVGs color through
+  `style='stroke:var(--…)'` so both themes work.
 - **Alerts page ripple**: same treatment later — type-group chips,
   unacked surfaced, "older →" paging instead of the silent 100-row cap,
   local dates per the existing Phase C item.
