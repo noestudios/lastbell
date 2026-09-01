@@ -49,6 +49,11 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
 - Alerts list: local-time **dates** only (today/yesterday for recent), full
   local timestamp on hover. (Stored timestamps are UTC; the current
   "When (UTC)" column is the anti-pattern this replaces.)
+- **Styled tooltips**: the score hover (raw points behind the percentage) —
+  and any other hover reveal, e.g. the alert timestamp above — renders as a
+  design-system tooltip (tokens: surface, radius, shadow), not the browser's
+  tiny native `title` bubble. CSS-only where possible (positioned
+  pseudo-element/`data-tip` attribute), no JS dependency.
 
 ### D. Interaction — ack
 - One-time viewer identity picker (choose your watcher), remembered in
