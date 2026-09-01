@@ -611,9 +611,13 @@ def _badge(status: str) -> str:
 def _tip(inner_html: str, tip: str, extra_class: str = "") -> str:
     """Wrap already-escaped html in a design-system tooltip (CSS-only: the
     bubble is a ::after reading data-tip — never the browser's native
-    ``title`` speck)."""
+    ``title`` speck). The span is focusable so keyboard users can summon
+    the bubble, and the tip text rides aria-label so screen readers hear
+    what hover reveals — some tips (exact timestamps, raw scores) carry
+    data that exists nowhere else on the page."""
     cls = f"tip {extra_class}".strip()
-    return f"<span class='{cls}' data-tip='{escape(tip)}'>{inner_html}</span>"
+    return (f"<span class='{cls}' tabindex='0' data-tip='{escape(tip)}'>"
+            f"{inner_html}<span class='vh'> ({escape(tip)})</span></span>")
 
 
 def _school_link(name: str) -> str:

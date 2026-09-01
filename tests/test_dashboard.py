@@ -809,7 +809,7 @@ def test_low_score_tints_bad_below_the_global_cutoff(populated, monkeypatch):
     assert "tip low" not in html
     monkeypatch.setenv("LASTBELL_SCORE_CUTOFF", "85")
     _, html = _get(populated, "/student/1?view=everything")
-    assert "class='tip low' data-tip='8/10'" in html
+    assert "class='tip low' tabindex='0' data-tip='8/10'" in html
     monkeypatch.setenv("LASTBELL_SCORE_CUTOFF", "0")   # 0 disables the tint
     _, html = _get(populated, "/student/1?view=everything")
     assert "tip low" not in html
@@ -862,7 +862,7 @@ def test_alerts_when_is_local_date_words_with_tooltip(populated):
     _alert(populated, "Math: quiz graded")
     _, html = _get(populated, "/alerts")
     assert "When (UTC)" not in html
-    assert ">today</span>" in html            # date words in the cell…
+    assert ">today<span class='vh'>" in html  # visible word + SR timestamp suffix            # date words in the cell…
     assert "data-tip='20" in html             # …full local timestamp on hover
 
 
@@ -993,4 +993,4 @@ def test_history_when_is_local_date_words(populated):
     store.persist_snapshot(populated, Student(agu="1", name="Jasper P. Hays"), snap)
     _, html = _get(populated, "/history")
     assert "When (UTC)" not in html
-    assert ">today</span>" in html
+    assert ">today<span class='vh'>" in html  # visible word + SR timestamp suffix
