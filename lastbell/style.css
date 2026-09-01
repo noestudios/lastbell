@@ -509,6 +509,21 @@ form button.ghost:active { transform: translateY(1px); }
   pointer-events: none;
 }
 
+/* The settings footer credit — the app's one self-reference, kept quiet.
+ * Links inherit the muted color so the line reads as a whisper, not nav. */
+.credit {
+  margin: 2rem 0 0.5rem;
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+.credit a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.credit a:hover { color: var(--text); }
+
 /* ── confirm dialog (destructive removals) ──────────────────────────── */
 
 @keyframes scrim-in {

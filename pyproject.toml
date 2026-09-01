@@ -17,6 +17,11 @@ dependencies = [
     "keyring>=24.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/noestudios/lastbell"
+Repository = "https://github.com/noestudios/lastbell"
+Issues = "https://github.com/noestudios/lastbell/issues"
+
 [project.optional-dependencies]
 service = ["APScheduler>=3.10"]
 dev = ["pytest>=7.4"]

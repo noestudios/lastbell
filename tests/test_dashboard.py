@@ -332,6 +332,12 @@ def test_settings_page(populated):
     assert "text message" in html
     for gone in ("ntfy", "telegram", "pushover"):
         assert f"<option value='{gone}'>" not in html
+    # the quiet footer credit: © + repo + license links, and it sits outside
+    # #settings-main so fetch-based form posts never repaint it
+    assert "© 2026" in html
+    assert "https://github.com/noestudios/lastbell'" in html
+    assert "https://github.com/noestudios/lastbell/blob/main/LICENSE'" in html
+    assert html.index("class='credit'") > html.index("id='settings-main'")
 
 
 def test_settings_channels_are_rows_under_their_watcher(populated):
