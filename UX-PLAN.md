@@ -17,6 +17,9 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
    students, and seeds their email channel from `MCPSGRADEWATCH_SMTP_TO` when
    set. Ack and the viewer identity picker therefore always have someone to
    attribute to; watcher CRUD beyond that stays in the CLI for now.
+   **Implemented (2026-08-31):** `watchers.ensure_default_watcher`, called at
+   the end of every `run` pass — a no-op once any watcher exists. Console
+   channel when SMTP_TO is unset, mirroring the old no-watcher fallback.
 4. **Score cutoff**: one global display threshold
    (`MCPSGRADEWATCH_SCORE_CUTOFF`), used to tint graded rows below it.
    Per-student cutoffs are a later maybe.

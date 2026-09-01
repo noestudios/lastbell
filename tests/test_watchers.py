@@ -92,3 +92,35 @@ def test_unsubscribe_scoped_and_full(conn_with_student):
     watchers.subscribe(conn, w, "1")
     assert watchers.unsubscribe(conn, w) == 1
     assert watchers.list_subscriptions(conn) == []
+
+
+# ── default watcher (UX decision 3) ───────────────────────────────────
+
+
+def test_ensure_default_watcher_seeds_guardian_with_email(conn_with_student):
+    conn = conn_with_student
+    w = watchers.ensure_default_watcher(conn, "parent_login", "mom@example.com")
+    assert w is not None
+    assert w.kind is WatcherKind.GUARDIAN
+    assert w.channels == {"email": {"to": "mom@example.com"}}
+    subs = watchers.list_subscriptions(conn)
+    assert [(s.watcher_name, s.student_name, s.alert_type, s.channel)
+            for s in subs] == [("parent_login", "Jasper P. Hays", "*", "*")]
+
+
+def test_ensure_default_watcher_falls_back_to_console(conn_with_student):
+    w = watchers.ensure_default_watcher(conn_with_student, "parent_login", None)
+    assert w.channels == {"console": {}}
+
+
+def test_ensure_default_watcher_noop_when_any_watcher_exists(conn_with_student):
+    conn = conn_with_student
+    watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
+    assert watchers.ensure_default_watcher(conn, "parent_login") is None
+    assert [w.name for w in watchers.list_watchers(conn)] == ["Mom"]
+
+
+def test_ensure_default_watcher_with_no_students_still_creates(conn):
+    w = watchers.ensure_default_watcher(conn, "parent_login")
+    assert w is not None
+    assert watchers.list_subscriptions(conn) == []

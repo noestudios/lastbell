@@ -64,8 +64,11 @@ mcpsgradewatch dashboard                            # read-only web UI on 127.0.
 ```
 
 Students are referenced by AGU or any unique name/initials prefix; watchers by
-the name you gave them. With **no** watchers configured, `run` falls back to
-the single global `MCPSGRADEWATCH_NOTIFY_CHANNEL` exactly as before.
+the name you gave them. You start with one automatically: the first `run`
+creates a guardian watcher named after the credential holder, subscribed to
+every student — email seeded from `MCPSGRADEWATCH_SMTP_TO` when set, console
+otherwise. Rename or remove it freely; it's only re-created if the watcher
+list is ever empty again.
 
 And shape *when and how much* each person hears (Phase 4):
 

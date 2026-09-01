@@ -116,6 +116,26 @@ def set_channels(conn: sqlite3.Connection, name: str, updates: dict) -> Watcher:
     return w
 
 
+def ensure_default_watcher(conn: sqlite3.Connection, username: str,
+                           email: Optional[str] = None) -> Optional[Watcher]:
+    """Whoever installs with a username/password IS a watcher (UX decision 3).
+
+    With zero watchers, create a guardian named after the credential holder
+    and subscribe them to every student in the database — so ack and the
+    viewer identity picker always have someone to attribute to. The email
+    channel comes from ``email`` (MCPSGRADEWATCH_SMTP_TO) when set; otherwise
+    console, matching the old no-watcher fallback. Returns the new watcher,
+    or None when any watcher already exists (a no-op on every later call).
+    """
+    if list_watchers(conn):
+        return None
+    channels = {"email": {"to": email}} if email else {"console": {}}
+    w = add_watcher(conn, username, WatcherKind.GUARDIAN, channels)
+    for r in conn.execute("SELECT id FROM students"):
+        subscribe(conn, w, r["id"])
+    return w
+
+
 # ── student resolution ────────────────────────────────────────────────
 
 
