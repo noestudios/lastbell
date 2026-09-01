@@ -939,6 +939,22 @@ def test_school_name_plain_when_unresolvable(populated, monkeypatch):
         assert "target='_blank'" not in html
 
 
+def test_nav_omits_tooltip_when_name_not_abbreviated():
+    """A single-word full name is shown whole in the nav, so no reveal tooltip
+    (it would only echo the visible text)."""
+    html = dashboard._nav_students([{"agu": "1", "name": "Jasper"}])
+    assert ">Jasper</a>" in html
+    assert "tip-b" not in html
+    assert "data-tip" not in html
+
+
+def test_nav_reveals_full_name_when_abbreviated():
+    """When the nav shows a first name, the link reveals the full name on hover."""
+    html = dashboard._nav_students([{"agu": "1", "name": "Jasper P. Hays"}])
+    assert "class='tip-b'" in html
+    assert "data-tip='Jasper P. Hays'" in html
+
+
 def test_history_when_is_local_date_words(populated):
     snap = Snapshot(
         student_agu="1",
