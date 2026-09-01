@@ -164,6 +164,20 @@ th {
 }
 td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
+/* Shared column grids so every instance of a table type lines up the same —
+ * the per-course assignment tables on a student page must not each invent
+ * their own column widths. First column (name/course) takes the remainder. */
+table.assignments,
+table.courses { table-layout: fixed; }
+table.assignments td { overflow-wrap: break-word; }
+table.assignments th:nth-child(2) { width: 22%; }   /* type   */
+table.assignments th:nth-child(3) { width: 7.5rem; }/* due    */
+table.assignments th:nth-child(4) { width: 5.5rem; }/* score  */
+table.assignments th:nth-child(5) { width: 9rem; }  /* status */
+table.courses th:nth-child(2) { width: 34%; }       /* teacher */
+table.courses th:nth-child(3) { width: 3.6rem; }    /* percent */
+table.courses th:nth-child(4) { width: 3.6rem; }    /* mark    */
+
 /* ── status badges (solid pills, Purity-style) ──────────────────────── */
 
 .badge {
