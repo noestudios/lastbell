@@ -90,9 +90,10 @@ def _cmd_collect(args: argparse.Namespace) -> int:
 
 def _run_once(client, conn, notifier, conf) -> int:
     """One poll: collect -> derive -> diff -> persist -> notify. Returns the event count."""
+    import os
     from datetime import datetime
 
-    from . import differ, outbox, router, store
+    from . import differ, outbox, router, store, watchers
     from .collector import collect_student
 
     total = 0
@@ -145,6 +146,14 @@ def _run_once(client, conn, notifier, conf) -> int:
             for e in events:
                 store.record_alert(conn, child.agu, e)
             total += len(events)
+    # After students are persisted: an install with zero watchers gets one
+    # for the credential holder, subscribed to everyone (UX decision 3).
+    w = watchers.ensure_default_watcher(
+        conn, conf.username, os.environ.get("MCPSGRADEWATCH_SMTP_TO"))
+    if w is not None:
+        print(f"created default watcher {w.name!r} (guardian, via "
+              f"{', '.join(w.channels)}), subscribed to all students — "
+              f"adjust with `mcpsgradewatch watcher` / `subscribe`")
     return total
 
 
