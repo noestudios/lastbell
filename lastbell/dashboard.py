@@ -1,11 +1,11 @@
-"""Web dashboard (Phase 3, ack added in Phase 4).
+"""Web dashboard (Phase 3).
 
 The dashboard is for *looking things up on demand* — alerts are always pushed
 out, so nobody has to open this to find out something changed. It's stdlib
 ``http.server`` over the same SQLite file the watch loop writes: no framework,
-no build step. Pages are SELECTs; the write paths are the shared-ack button on
-/alerts (``POST /ack``) and the watcher/subscription forms on /settings
-(``POST /settings/<action>``) — household bookkeeping only, never grade data.
+no build step. Pages are SELECTs; the only write paths are the
+watcher/subscription forms on /settings (``POST /settings/<action>``) —
+household bookkeeping only, never grade data.
 
 It binds 127.0.0.1 by default. To share it on your LAN set
 LASTBELL_DASHBOARD_HOST=0.0.0.0 — and know that unlike alert payloads it
@@ -343,28 +343,26 @@ _ALERTS_PAGE = 50
 
 def fetch_alerts(conn: sqlite3.Connection, page: int = 1,
                  alert_type: str = "") -> tuple[list[sqlite3.Row], bool]:
-    """One page of alerts — unacked surfaced first, newest first within each
-    group — plus whether an older page exists. Offset paging is safe here
-    because the sort key is stable between requests."""
-    sql = ("SELECT al.*, st.name AS student_name, w.name AS acked_by_name "
+    """One page of alerts, newest first, plus whether an older page exists.
+    Offset paging is safe here because the sort key is stable between
+    requests."""
+    sql = ("SELECT al.*, st.name AS student_name "
            "FROM alerts al "
-           "JOIN students st ON st.id = al.student_id "
-           "LEFT JOIN watchers w ON w.id = al.acked_by ")
+           "JOIN students st ON st.id = al.student_id ")
     params: list = []
     if alert_type:
         sql += "WHERE al.type = ? "
         params.append(alert_type)
-    sql += ("ORDER BY (al.acked_at IS NULL) DESC, al.created_at DESC, "
-            "al.rowid DESC LIMIT ? OFFSET ?")
+    sql += "ORDER BY al.created_at DESC, al.rowid DESC LIMIT ? OFFSET ?"
     params += [_ALERTS_PAGE + 1, (page - 1) * _ALERTS_PAGE]
     rows = conn.execute(sql, params).fetchall()
     return rows[:_ALERTS_PAGE], len(rows) > _ALERTS_PAGE
 
 
 def fetch_alert_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """(type, n, unacked) per alert type present — the type-group chips."""
+    """(type, n) per alert type present — the type-group chips."""
     return conn.execute(
-        "SELECT type, COUNT(*) AS n, SUM(acked_at IS NULL) AS unacked "
+        "SELECT type, COUNT(*) AS n "
         "FROM alerts GROUP BY type ORDER BY n DESC, type").fetchall()
 
 
@@ -1144,7 +1142,7 @@ def render_student(student, ctx, nav_students=()) -> str:
     return _page(student["name"], "".join(parts), nav_students=nav_students)
 
 
-def render_alerts(alerts, counts=(), watcher_list=(), nav_students=(),
+def render_alerts(alerts, counts=(), nav_students=(),
                   page: int = 1, alert_type: str = "", more: bool = False,
                   today: date | None = None) -> str:
     if not counts:
@@ -1161,7 +1159,6 @@ def render_alerts(alerts, counts=(), watcher_list=(), nav_students=(),
     # Type-group chips: one door per alert type present, with counts. The
     # active chip marks the filter; "all" clears it.
     total = sum(c["n"] for c in counts)
-    unacked_total = sum(c["unacked"] or 0 for c in counts)
     chips = [f"<a class='chip{'' if alert_type else ' active'}' "
              f"href='/alerts'>all <b>{total}</b></a>"]
     chips += [
@@ -1170,47 +1167,21 @@ def render_alerts(alerts, counts=(), watcher_list=(), nav_students=(),
         f"{escape(c['type'].replace('_', ' '))} <b>{c['n']}</b></a>"
         for c in counts]
 
-    options = "".join(f"<option>{escape(w.name)}</option>" for w in watcher_list)
-
-    # The catch-up control: ack every unacked alert in the current filter,
-    # from the Ack column's header. The count states the blast radius —
-    # it reaches past the visible page.
-    cur_unacked = (next((c["unacked"] or 0 for c in counts
-                         if c["type"] == alert_type), 0)
-                   if alert_type else unacked_total)
-    ack_head = "Ack"
-    if watcher_list and cur_unacked:
-        ack_head = (f"<form method='post' action='/ack-all' class='ackform'>"
-                    f"<input type='hidden' name='type' value='{escape(alert_type)}'>"
-                    f"<select name='watcher'>{options}</select> "
-                    f"<button>ack all {cur_unacked}</button></form>")
-
     rows = []
     for al in alerts:
         try:
             detail = _json.loads(al["body"]).get("detail", al["body"])
         except Exception:
             detail = al["body"]
-        if al["acked_at"]:
-            ack_cell = (f"<span class='badge ok'>✓ {escape(al['acked_by_name'] or 'acked')}"
-                        f"</span>")
-        elif watcher_list:
-            ack_cell = (f"<form method='post' action='/ack' class='ackform'>"
-                        f"<input type='hidden' name='alert_id' value='{escape(al['id'])}'>"
-                        f"<select name='watcher'>{options}</select> "
-                        f"<button>ack</button></form>")
-        else:
-            ack_cell = "<span class='small'>—</span>"
         rows.append(
-            f"<tr{' class=\'unacked\'' if not al['acked_at'] else ''}>"
+            f"<tr>"
             f"<td>{escape(detail)}</td>"
             f"<td class='small' data-label='When'>"
             f"{_when_html(al['created_at'], today)}</td>"
             f"<td data-label='Student'>{escape(al['student_name'])}</td>"
-            f"<td data-label='Type'>{escape(al['type'].replace('_', ' '))}</td>"
-            f"<td data-label='Ack'>{ack_cell}</td></tr>")
+            f"<td data-label='Type'>{escape(al['type'].replace('_', ' '))}</td></tr>")
     table = ("<table class='alerts'><tr class='head'><th>Detail</th><th>When</th>"
-             f"<th>Student</th><th>Type</th><th>{ack_head}</th></tr>"
+             "<th>Student</th><th>Type</th></tr>"
              + "".join(rows) + "</table>"
              if rows else "<p class='small'>Nothing on this page.</p>")
 
@@ -1222,15 +1193,10 @@ def render_alerts(alerts, counts=(), watcher_list=(), nav_students=(),
                  if more else "<span></span>")
         pager = f"<div class='pager'>{newer}{older}</div>"
 
-    note = ("An ack is shared: one person marking an alert handled marks it "
-            "for everyone.")
-    if unacked_total:
-        note = (f"{unacked_total} unacknowledged — surfaced first. " + note)
     heading = "Recent alerts" if page == 1 else f"Alerts — page {page}"
     return _page("Alerts", "<h1>Alerts</h1><div class='card tablecard'>"
                  f"<h2>{heading}</h2>"
                  f"<div class='chips'>{''.join(chips)}</div>"
-                 f"<p class='small'>{note}</p>"
                  + table + pager + "</div>", nav_students=nav_students)
 
 
@@ -1310,10 +1276,11 @@ def _options(pairs, selected="") -> str:
 
 def render_settings(watcher_list, subscriptions, students=(),
                     error="", notice="") -> str:
-    """The Settings page: full watcher/subscription CRUD as plain HTML forms
-    (same trust model as ack — the bind address is the access control).
-    Env-owned config (poll cadence, thresholds) is deliberately absent: if it
-    can't be changed from here, it isn't shown here.
+    """The Settings page: full watcher/subscription CRUD as plain HTML forms.
+    These are the dashboard's only write paths; they carry no auth of their
+    own — the bind address is the access control. Env-owned config (poll
+    cadence, thresholds) is deliberately absent: if it can't be changed from
+    here, it isn't shown here.
     """
     from . import notify
 
@@ -1527,7 +1494,6 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
         alert_type = (query.get("type") or [""])[0]
         alert_rows, more = fetch_alerts(conn, page, alert_type)
         return 200, render_alerts(alert_rows, fetch_alert_counts(conn),
-                                  watchermod.list_watchers(conn),
                                   nav_students=students, page=page,
                                   alert_type=alert_type, more=more)
     if path == "/history":
@@ -1545,49 +1511,13 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
                       nav_students=students)
 
 
-def _handle_ack(conn: sqlite3.Connection, form: dict) -> tuple[int, str]:
-    """POST /ack — the dashboard's single write path (shared ack)."""
-    from . import store
-    from . import watchers as watchermod
-
-    alert_id = (form.get("alert_id") or [""])[0]
-    watcher_name = (form.get("watcher") or [""])[0]
-    w = watchermod.get_watcher(conn, watcher_name) if watcher_name else None
-    if not alert_id or w is None:
-        return 400, _page("Bad request", "<h1>Bad ack</h1><p>Missing alert or watcher.</p>",
-                          nav_students=fetch_students(conn))
-    try:
-        store.ack_alert(conn, alert_id, w.id)
-    except store.AckError as e:
-        return 400, _page("Bad request", f"<h1>Bad ack</h1><p>{escape(str(e))}</p>",
-                          nav_students=fetch_students(conn))
-    return 303, "/alerts"   # redirect target, not a body
-
-
-def _handle_ack_all(conn: sqlite3.Connection, form: dict) -> tuple[int, str]:
-    """POST /ack-all — the catch-up button: ack every unacked alert in the
-    current type filter (all of them when unfiltered), attributed to the
-    chosen watcher. Redirects back to the same filter."""
-    from . import store
-    from . import watchers as watchermod
-
-    watcher_name = (form.get("watcher") or [""])[0]
-    alert_type = (form.get("type") or [""])[0]
-    w = watchermod.get_watcher(conn, watcher_name) if watcher_name else None
-    if w is None:
-        return 400, _page("Bad request", "<h1>Bad ack</h1><p>Missing watcher.</p>",
-                          nav_students=fetch_students(conn))
-    store.ack_all_alerts(conn, w.id, alert_type)
-    return 303, "/alerts" + (f"?type={quote(alert_type)}" if alert_type else "")
-
-
 def _handle_settings_post(conn: sqlite3.Connection, action: str,
                           form: dict) -> tuple[int, str]:
-    """POST /settings/<action> — the Settings page's write paths. Same trust
-    model as ack: the bind address is the access control. Always redirects
-    back to /settings; a validation failure carries the message in ?err= and
-    renders as a banner, with the tables (and the browser's back-button form
-    state) intact."""
+    """POST /settings/<action> — the Settings page's write paths. They carry
+    no auth of their own: the bind address is the access control. Always
+    redirects back to /settings; a validation failure carries the message in
+    ?err= and renders as a banner, with the tables (and the browser's
+    back-button form state) intact."""
     from . import notify
     from . import watchers as watchermod
     from .models import WatcherKind
@@ -1771,20 +1701,15 @@ def serve(db_path: Path, host: str, port: int) -> None:
 
         def do_POST(self) -> None:  # noqa: N802 (stdlib name)
             path = urlparse(self.path).path
-            if path not in ("/ack", "/ack-all") and not path.startswith("/settings/"):
+            if not path.startswith("/settings/"):
                 self.send_error(404)
                 return
             length = int(self.headers.get("Content-Length") or 0)
             form = parse_qs(self.rfile.read(length).decode("utf-8"))
             conn = store.connect(db_path)
             try:
-                if path == "/ack":
-                    status, result = _handle_ack(conn, form)
-                elif path == "/ack-all":
-                    status, result = _handle_ack_all(conn, form)
-                else:
-                    status, result = _handle_settings_post(
-                        conn, path[len("/settings/"):], form)
+                status, result = _handle_settings_post(
+                    conn, path[len("/settings/"):], form)
             finally:
                 conn.close()
             if status == 303:

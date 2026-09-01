@@ -357,9 +357,9 @@ def _cmd_alerts(args: argparse.Namespace) -> int:
 
     conn = _db(cfg.load())
     try:
-        rows = store.list_alerts(conn, only_open=args.open, limit=args.limit)
+        rows = store.list_alerts(conn, limit=args.limit)
         if not rows:
-            print("no alerts" + (" awaiting ack" if args.open else " yet"))
+            print("no alerts yet")
             return 0
         import json
 
@@ -368,29 +368,9 @@ def _cmd_alerts(args: argparse.Namespace) -> int:
                 detail = json.loads(r["body"]).get("detail", "")
             except Exception:
                 detail = r["body"]
-            ack = f"✓ {r['acked_by_name']}" if r["acked_at"] else "·"
             print(f"  {r['id'][:8]}  {r['created_at']}  {r['initials'] or r['student_name']:8}"
-                  f"  {ack:12}  {detail}")
-        if not args.open:
-            print("\n(✓ = acknowledged; ack one with: lastbell ack <id> --by <watcher>)")
+                  f"  {detail}")
         return 0
-    finally:
-        conn.close()
-
-
-def _cmd_ack(args: argparse.Namespace) -> int:
-    from . import store, watchers
-
-    conn = _db(cfg.load())
-    try:
-        w = watchers.require_watcher(conn, args.by)
-        for alert_id in args.alert_ids:
-            row = store.ack_alert(conn, alert_id, w.id)
-            print(f"acked {row['id'][:8]} for everyone (by {w.name})")
-        return 0
-    except store.AckError as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 2
     finally:
         conn.close()
 
@@ -583,18 +563,10 @@ def main() -> None:
 
     sub.add_parser("subscriptions", help="list who gets what").set_defaults(func=_cmd_subscriptions)
 
-    # Phase 4: alert log + shared ack, and the deferred-delivery outbox
-    p_al = sub.add_parser("alerts", help="list recent alerts and their ack state")
-    p_al.add_argument("--open", action="store_true", help="only unacked alerts")
+    # Alert log, and the deferred-delivery outbox
+    p_al = sub.add_parser("alerts", help="list recent alerts")
     p_al.add_argument("--limit", type=int, default=50)
     p_al.set_defaults(func=_cmd_alerts)
-
-    p_ack = sub.add_parser("ack", help="acknowledge alert(s) for the whole household")
-    p_ack.add_argument("alert_ids", nargs="+", metavar="ID",
-                       help="alert id (any unique prefix, from `alerts`)")
-    p_ack.add_argument("--by", required=True, metavar="WATCHER",
-                       help="who is acknowledging")
-    p_ack.set_defaults(func=_cmd_ack)
 
     sub.add_parser("flush", help="send due digests/summaries now; list what's still queued"
                    ).set_defaults(func=_cmd_flush)

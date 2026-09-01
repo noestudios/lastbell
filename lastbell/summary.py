@@ -22,7 +22,7 @@ from . import notify, watchers
 def build(conn: sqlite3.Connection, student_id: str, initials: str,
           *, lookahead_days: int = 7, today: Optional[date] = None) -> str:
     """The summary body for one student: overall marks, open problems,
-    what's coming, and recent alerts nobody has acked yet."""
+    what's coming, and the week's recent alerts."""
     today = today or date.today()
     lines: list[str] = []
 
@@ -88,15 +88,15 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
     if not (missing or past_due or upcoming):
         lines.append("Nothing missing, nothing overdue, nothing due soon. 🎉")
 
-    unacked = conn.execute(
+    recent = conn.execute(
         "SELECT type, body, created_at FROM alerts "
-        "WHERE student_id = ? AND acked_at IS NULL "
+        "WHERE student_id = ? "
         "AND created_at >= datetime('now', '-7 days') "
         "ORDER BY created_at DESC LIMIT 10", (student_id,)
     ).fetchall()
-    if unacked:
-        lines.append(f"Unacked alerts this week ({len(unacked)}):")
-        for r in unacked:
+    if recent:
+        lines.append(f"Recent alerts this week ({len(recent)}):")
+        for r in recent:
             try:
                 detail = json.loads(r["body"]).get("detail", "")
             except Exception:

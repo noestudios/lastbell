@@ -15,9 +15,9 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
    by default. Setup (or the first `run` with zero watchers) creates a guardian
    watcher for the credential holder, subscribes them to all discovered
    students, and seeds their email channel from `LASTBELL_SMTP_TO` when
-   set. Ack and the viewer identity picker therefore always have someone to
-   attribute to; watcher CRUD is in both the CLI and (since the Phase B
-   settings build-out) the dashboard's Settings page.
+   set. A fresh install therefore always has someone to notify; watcher CRUD
+   is in both the CLI and (since the Phase B settings build-out) the
+   dashboard's Settings page.
    **Implemented (2026-08-31):** `watchers.ensure_default_watcher`, called at
    the end of every `run` pass — a no-op once any watcher exists. Console
    channel when SMTP_TO is unset, mirroring the old no-watcher fallback.
@@ -36,7 +36,7 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
 - Values come from the Figma template. Fonts: bundle locally or use a system
   stack — the dashboard must work on a LAN box with no internet.
 - Keep the ethos: server-rendered HTML, no framework, no build step; small
-  vanilla JS only where interaction demands it (mobile nav menu, ack, hover).
+  vanilla JS only where interaction demands it (mobile nav menu, hover).
 
 ### B. Structure — nav + settings
 - Nav per decision 2 (responsive: names on desktop, icons+menu on mobile).
@@ -45,8 +45,7 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
   earlier read-only-with-CLI-hints deferral). Env-owned config (poll
   cadence, thresholds) is deliberately absent: if it can't be changed from
   the page, it isn't shown there (owner's call 2026-09-01). The write paths
-  follow ack's trust model: no auth of their own, the bind address is the
-  access control.
+  carry no auth of their own: the bind address is the access control.
 - Settings status: **done (2026-09-01)** — `/settings` replaces `/watchers`
   (301). The gear is set apart from the page links: always icon-only,
   right-aligned against the theme toggle. Add-forms sit above their tables.
@@ -150,12 +149,17 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
   row, `tip-e`/`tip-s` end/start-aligned), wrapping for long text. A
   regression test asserts no `title=` in any page body.
 
-### D. Interaction — ack
-- One-time viewer identity picker (choose your watcher), remembered in
-  localStorage; ack becomes a single checkmark click attributed to that
-  person. Acked rows show ✓ + who (+ when on hover). Identity switchable.
-- With decision 3, a fresh install always has at least one watcher, so the
-  ack UI never silently disappears (its current failure mode).
+### D. Interaction — ack — CANCELLED (owner's call 2026-09-01)
+Ack is removed from the app entirely: the shared-ack button and ack-all
+control on /alerts, the CLI `ack` command, the alerts page's
+unacked-surfacing, and the `acked_by`/`acked_at` columns from the fresh
+schema — the feature wasn't being used. What Phase D would have added (a
+one-time viewer identity picker so ack was a single attributed click) is
+therefore moot. The default-watcher work from decision 3 stays — a fresh
+install still needs someone to notify. The daily summary's "unacked alerts
+this week" section became "recent alerts this week" (same list, no ack
+filter). Existing databases keep the orphaned `acked_*` columns; nothing
+reads them and no destructive migration drops them.
 
 ### Density at end-of-quarter scale — DECIDED (owner's calls 2026-09-01)
 Today each class holds a handful of assignments; by quarter's end it will be
@@ -258,6 +262,10 @@ inline where reality forced a call.**
   line got breathing room, the theme toggle became icon-only
   (auto ◐ / sun / moon, gear-sized), and settings toasts now name who and
   what changed ("Removed Mom's email (mom@example.com)") with a 6s hold.
+  **Ack removed (2026-09-01, see Phase D):** the ack-all button, the Ack
+  column, and unacked-surfacing are gone; alerts now sort purely
+  newest-first. The type chips, `?type=` filtering, `?page=` paging, local
+  dates, and the overview polish all remain.
 
 Original pre-decision framing, kept for the record:
 

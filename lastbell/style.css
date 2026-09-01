@@ -294,9 +294,8 @@ table.courses th:nth-child(4) { width: 3.6rem; }    /* mark    */
 .badge.bad   { background: var(--bad); }
 .badge.muted { background: var(--surface-2); color: var(--text-muted); }
 
-/* ── forms (ack + settings) ─────────────────────────────────────────── */
+/* ── forms (settings) ───────────────────────────────────────────────── */
 
-.ackform { display: inline-flex; gap: 0.35rem; margin: 0; align-items: center; }
 /* Add forms sit apart from the rows they feed: an inset panel on the canvas
  * color, so "create" and "manage" read as two zones. */
 form.edit {
@@ -307,7 +306,6 @@ form.edit {
   border-radius: var(--radius-sm);
 }
 form.rowform { display: inline; margin: 0; }
-.ackform select,
 form.edit select,
 form.edit input,
 td select,
@@ -329,7 +327,7 @@ form.edit input { max-width: 13rem; }
   color: var(--text-muted);
   min-width: 4.6rem;
 }
-.ackform button, form.edit button, form.rowform button {
+form.edit button, form.rowform button {
   font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -345,9 +343,9 @@ form.edit input { max-width: 13rem; }
               color var(--dur-fast) var(--ease),
               transform var(--dur-fast) var(--ease);
 }
-.ackform button:hover, form.edit button:hover,
+form.edit button:hover,
 form.rowform button:hover { background: var(--accent-strong); }
-.ackform button:active, form.edit button:active,
+form.edit button:active,
 form.rowform button:active { transform: translateY(1px); }
 
 /* Update buttons earn their place: absent until the row's fields differ
@@ -832,7 +830,7 @@ tr.st-due     > td { background: color-mix(in srgb, var(--warn) 4%, transparent)
 tr.hit > td { animation: hit-in calc(2 * var(--dur-linger)) var(--ease); }
 #hit { scroll-margin-top: 1rem; }
 
-/* ── alerts: type chips, unacked surfaced, paging ───────────────────── */
+/* ── alerts: type chips, paging ─────────────────────────────────────── */
 
 .chips { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.55rem 0 0.8rem; }
 a.chip {
@@ -851,10 +849,6 @@ a.chip:hover { color: var(--text); border-color: var(--text-muted);
 a.chip.active { color: #fff; background: var(--accent);
                 border-color: var(--accent); }
 a.chip b { font-weight: 700; opacity: 0.75; margin-left: 0.15rem; }
-
-/* Unacked alerts sort first and carry the accent bar (same mark as the
- * course strip's scoped row: "this is the live one"). */
-table.alerts tr.unacked td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 
 .pager { display: flex; justify-content: space-between; margin-top: 0.8rem;
          font-size: 0.8rem; font-weight: 600; }
@@ -917,12 +911,5 @@ table.alerts tr.unacked td:first-child { box-shadow: inset 3px 0 0 var(--accent)
   td.day { padding-top: 0.9rem; }
   /* Stacked cells lose their side padding, so the inset accent bar needs
    * the text pushed off it. */
-  table.alerts tr.unacked td:first-child,
   table.strip tr.scoped td:first-child { padding-left: 0.6rem; }
-  /* Keep the ack-all catch-up control on phones: the header row collapses
-   * to just its Ack cell. */
-  table.alerts tr.head { display: block; }
-  table.alerts tr.head th { display: none; }
-  table.alerts tr.head th:last-child { display: block; border: none;
-                                       padding: 0.2rem 0 0.4rem; }
 }

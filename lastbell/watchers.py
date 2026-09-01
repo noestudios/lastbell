@@ -122,9 +122,9 @@ def ensure_default_watcher(conn: sqlite3.Connection, username: str,
     """Whoever installs with a username/password IS a watcher (UX decision 3).
 
     With zero watchers, create a guardian named after the credential holder
-    and subscribe them to every student in the database — so ack and the
-    viewer identity picker always have someone to attribute to. The email
-    channel comes from ``email`` (LASTBELL_SMTP_TO) when set; otherwise
+    and subscribe them to every student in the database — so a fresh install
+    always has someone to notify. The email channel comes from ``email``
+    (LASTBELL_SMTP_TO) when set; otherwise
     console, matching the old no-watcher fallback. Delivery defaults to the
     considerate cadence: one 16:00 daily digest, with urgent alert types
     (missing / due soon / grade drop) sent immediately. Returns the new

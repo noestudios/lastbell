@@ -54,7 +54,6 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 # Columns added after a table first shipped: CREATE IF NOT EXISTS won't touch
 # an existing table, so they're patched in with ALTER on upgrade.
 _MIGRATIONS = [
-    ("alerts", "acked_at", "TEXT"),
     ("subscriptions", "last_sent_on", "TEXT"),
     ("students", "current_term", "TEXT NOT NULL DEFAULT ''"),
     ("subscriptions", "urgent_now", "INTEGER NOT NULL DEFAULT 0"),
@@ -220,7 +219,7 @@ def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot)
 
 
 def record_alert(conn: sqlite3.Connection, student_agu: str, event: Event) -> None:
-    """Log a delivered alert; ``ack_alert`` marks it handled for everyone."""
+    """Log a delivered alert."""
     conn.execute(
         "INSERT INTO alerts (id, student_id, type, body) VALUES (?, ?, ?, ?)",
         (uuid.uuid4().hex, student_agu, event.type.value,
@@ -229,59 +228,9 @@ def record_alert(conn: sqlite3.Connection, student_agu: str, event: Event) -> No
     conn.commit()
 
 
-# ── shared ack (Phase 4) ──────────────────────────────────────────────
-#
-# An ack is *shared*: one watcher marking an alert handled marks it for the
-# whole household — summaries and the dashboard show who took it.
-
-
-class AckError(RuntimeError):
-    pass
-
-
-def list_alerts(conn: sqlite3.Connection, *, only_open: bool = False,
-                limit: int = 50) -> list[sqlite3.Row]:
-    where = "WHERE al.acked_at IS NULL" if only_open else ""
+def list_alerts(conn: sqlite3.Connection, *, limit: int = 50) -> list[sqlite3.Row]:
     return conn.execute(
-        f"SELECT al.*, st.initials, st.name AS student_name, w.name AS acked_by_name "
-        f"FROM alerts al JOIN students st ON st.id = al.student_id "
-        f"LEFT JOIN watchers w ON w.id = al.acked_by {where} "
-        f"ORDER BY al.created_at DESC, al.rowid DESC LIMIT ?", (limit,)
+        "SELECT al.*, st.initials, st.name AS student_name "
+        "FROM alerts al JOIN students st ON st.id = al.student_id "
+        "ORDER BY al.created_at DESC, al.rowid DESC LIMIT ?", (limit,)
     ).fetchall()
-
-
-def ack_alert(conn: sqlite3.Connection, alert_id_prefix: str, watcher_id: str) -> sqlite3.Row:
-    """Ack one alert by id (any unique prefix). Returns the alert row."""
-    rows = conn.execute(
-        "SELECT * FROM alerts WHERE id LIKE ? ORDER BY created_at",
-        (alert_id_prefix + "%",),
-    ).fetchall()
-    if not rows:
-        raise AckError(f"no alert with id starting {alert_id_prefix!r} "
-                       f"(see `lastbell alerts`)")
-    if len(rows) > 1:
-        ids = ", ".join(r["id"][:8] for r in rows[:5])
-        raise AckError(f"{alert_id_prefix!r} matches {len(rows)} alerts ({ids}…) — "
-                       f"use more characters")
-    (row,) = rows
-    if row["acked_at"] is None:
-        conn.execute(
-            "UPDATE alerts SET acked_by = ?, acked_at = datetime('now') WHERE id = ?",
-            (watcher_id, row["id"]))
-        conn.commit()
-    return conn.execute("SELECT * FROM alerts WHERE id = ?", (row["id"],)).fetchone()
-
-
-def ack_all_alerts(conn: sqlite3.Connection, watcher_id: str,
-                   alert_type: str = "") -> int:
-    """Ack every unacked alert (of one type, when given) in one shot —
-    the dashboard's catch-up button. Returns how many were acked."""
-    sql = ("UPDATE alerts SET acked_by = ?, acked_at = datetime('now') "
-           "WHERE acked_at IS NULL")
-    params: list = [watcher_id]
-    if alert_type:
-        sql += " AND type = ?"
-        params.append(alert_type)
-    n = conn.execute(sql, params).rowcount
-    conn.commit()
-    return n

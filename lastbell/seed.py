@@ -252,17 +252,6 @@ def seed_demo(conn: sqlite3.Connection, *, seed: int = 2026,
         watchermod.subscribe(conn, mom, agu, send_at="16:00", urgent_now=True)
     watchermod.subscribe(conn, maya, _HS.agu,
                          ["assignment_missing", "upcoming_deadline"], ["sms"])
-
-    # A household keeps up, mostly: ack the bulk of the older alerts.
-    cutoff = f"{today - timedelta(days=5)} 00:00:00"
-    for i, row in enumerate(conn.execute(
-            "SELECT id, created_at FROM alerts WHERE created_at < ? "
-            "ORDER BY created_at", (cutoff,)).fetchall()):
-        if rng.random() < 0.85:
-            who = mom.id if i % 3 else maya.id
-            conn.execute(
-                "UPDATE alerts SET acked_by=?, acked_at=? WHERE id=?",
-                (who, row["created_at"][:11] + "22:30:00", row["id"]))
     conn.commit()
 
     return {
