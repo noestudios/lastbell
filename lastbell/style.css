@@ -696,10 +696,33 @@ details.allcourses {
   margin: 0 0 1.1rem;
 }
 details.allcourses summary h2 { margin: 0; }
-details.allcourses summary svg { transform: rotate(-90deg); }
-details.allcourses[open] summary svg { transform: rotate(0); }
+details.allcourses summary > svg { transform: rotate(-90deg); }
+details.allcourses[open] summary > svg { transform: rotate(0); }
 details.allcourses table { margin: 0.6rem 0 0; box-shadow: none;
                            border-radius: 0; overflow: visible; }
+/* Open/close eases instead of snapping (base tier). ::details-content +
+ * interpolate-size are progressive enhancement — browsers without them
+ * keep the instant toggle. */
+details.allcourses { interpolate-size: allow-keywords; }
+details.allcourses::details-content {
+  opacity: 0;
+  block-size: 0;
+  overflow-y: clip;
+  transition: content-visibility var(--dur-base) allow-discrete,
+              opacity var(--dur-base) var(--ease),
+              block-size var(--dur-base) var(--ease);
+}
+details.allcourses[open]::details-content { opacity: 1; block-size: auto; }
+/* The active-filter tag on the summary: legible while collapsed. */
+.striptag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent-strong);
+}
+.striptag svg.filtericon { width: 11px; height: 11px; flex: none; }
 
 h2.termhead { font-size: 0.8rem; color: var(--text-muted);
               text-transform: uppercase; letter-spacing: 0.06em;
