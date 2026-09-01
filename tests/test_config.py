@@ -42,6 +42,21 @@ def test_no_hardcoded_credentials_in_source():
     assert "LASTBELL_USERNAME" in src
 
 
+def test_poll_floor_enforced(monkeypatch, capsys):
+    """The good-neighbor floor: a too-eager LASTBELL_POLL_MINUTES is clamped,
+    with a warning, so the README's portal-load promise holds by construction."""
+    monkeypatch.setenv("LASTBELL_DISTRICT", "md-mcps-psv.edupoint.com")
+    monkeypatch.setenv("LASTBELL_USERNAME", "someone")
+    monkeypatch.setenv("LASTBELL_POLL_MINUTES", "1")
+    conf = cfg.load()
+    assert conf.poll_minutes == cfg.POLL_FLOOR_MINUTES
+    assert "good-neighbor floor" in capsys.readouterr().err
+
+    monkeypatch.setenv("LASTBELL_POLL_MINUTES", "60")
+    assert cfg.load().poll_minutes == 60
+    assert capsys.readouterr().err == ""
+
+
 def test_placeholder_username_rejected(monkeypatch):
     monkeypatch.setenv("LASTBELL_DISTRICT", "md-mcps-psv.edupoint.com")
     monkeypatch.setenv("LASTBELL_USERNAME", "your_parentvue_username")
