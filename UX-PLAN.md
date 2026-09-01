@@ -82,6 +82,24 @@ week-one data. Before locking Phase C layouts:
 - The seeder stays useful afterward for screenshots, docs, and demoing
   without exposing real student data.
 
+### Open design question — grade trends over time
+Consider whether the overview and/or student detail show trends: e.g. a
+sparkline of course percent next to each course, a larger per-course chart on
+the detail page (percent line over the term, assignment scores as points).
+The Purity template's chart cards are the visual precedent; server-rendered
+inline SVG keeps it JS-free.
+
+- **Data-model prerequisite (do early, regardless of the UX decision):**
+  `grade_history` only logs *assignment* field changes — course-level
+  mark/percent changes are upserted in place and their history is lost.
+  Add course grade logging (append-only, like grade_history) NOW so data
+  accumulates while the trend UX is being decided; history not captured
+  can't be backfilled.
+- The demo-data seeder (above) should fabricate months of course-percent
+  history so trend layouts can be designed at realistic density.
+- Decide: sparkline on overview cards vs. detail-only charts; whether the
+  term-final summary alert links to/embeds the closing term's trajectory.
+
 ### Cross-cutting — human-readable errors
 - Inventory every user-facing failure (dashboard error page, CLI poll
   warnings, channel delivery failures, collect errors) and rewrite as plain
