@@ -80,7 +80,7 @@ def test_student_everything_view_shows_assignments(populated):
     assert status == 200
     assert "Fractions Quiz" in html
     assert "80.0%" in html                    # score as a percentage…
-    assert "title='8/10'" in html             # …raw points on hover
+    assert "data-tip='8/10'" in html          # …raw points in a styled tooltip
     assert "87.2% · B+" in html               # course heading, one decimal
     assert "MISSING" in html
 
@@ -226,8 +226,10 @@ def test_everything_closed_term_collapses_to_finals_line(conn):
 
 
 def test_overview_badges_deep_link_into_views(populated):
+    """Badges deep-link into the views, carrying the ?status= highlight and
+    the #hit scroll anchor (the Phase C treatment)."""
     _, html = _get(populated, "/")
-    assert ("<a href='/student/1?view=problems'>"
+    assert ("<a href='/student/1?view=problems&status=missing#hit'>"
             "<span class='badge bad'>1 missing</span></a>") in html
 
 
@@ -670,3 +672,146 @@ def test_email_address_must_look_like_email(populated):
                            channel="email", to="not-an-address")
     assert status == 303 and "err=" in target
     assert watchers.get_watcher(conn, "Dad") is None
+
+
+# ── Phase C: status signal (tints, icons, cutoff, highlight) ──────────
+
+
+def test_status_rows_carry_tint_class_and_icon(conn):
+    today = datetime.date.today()
+    _persist(conn, "1",
+             [Course(edupoint_gu="c1", title="Math", term="MP1")],
+             [Assignment(edupoint_gu="a1", course_gu="c1", name="Lost",
+                         status=AssignmentStatus.MISSING),
+              Assignment(edupoint_gu="a2", course_gu="c1", name="Late",
+                         due_date=today - datetime.timedelta(days=5),
+                         status=AssignmentStatus.UNGRADED_PAST_DUE),
+              Assignment(edupoint_gu="a3", course_gu="c1", name="Soon",
+                         due_date=today + datetime.timedelta(days=1),
+                         status=AssignmentStatus.DUE)],
+             term="MP1")
+    _, html = _get(conn, "/student/1?view=everything")
+    for cls in ("st-missing", "st-late", "st-due"):
+        assert f"class='{cls}'" in html
+    assert "class='rowicon'" in html
+    # graded rows earn no tint class
+    _, html = _get(conn, "/student/1?view=problems")
+    assert "st-missing" in html and "st-late" in html
+    assert "st-due" not in html          # due rows live in their own view
+
+
+def test_low_score_tints_bad_below_the_global_cutoff(populated, monkeypatch):
+    # populated's quiz is 8/10 = 80% — above the default cutoff of 70
+    _, html = _get(populated, "/student/1?view=everything")
+    assert "tip low" not in html
+    monkeypatch.setenv("LASTBELL_SCORE_CUTOFF", "85")
+    _, html = _get(populated, "/student/1?view=everything")
+    assert "class='tip low' data-tip='8/10'" in html
+    monkeypatch.setenv("LASTBELL_SCORE_CUTOFF", "0")   # 0 disables the tint
+    _, html = _get(populated, "/student/1?view=everything")
+    assert "tip low" not in html
+
+
+def test_recent_view_low_score_cell(populated, monkeypatch):
+    # a re-persist gives the grade a history row, landing it in Recent
+    snap = Snapshot(
+        student_agu="1",
+        courses=[Course(edupoint_gu="709775", title="Math <Adv>", term="MP1")],
+        assignments=[Assignment(edupoint_gu="a1", course_gu="709775",
+                                name="Fractions Quiz", score=6.0, points=10.0,
+                                kind="Assessment",
+                                status=AssignmentStatus.GRADED)],
+    )
+    store.persist_snapshot(populated, Student(agu="1", name="Jasper P. Hays"), snap)
+    _, html = _get(populated, "/student/1?view=recent")
+    assert "class='num low'" in html          # 60% < the default 70 cutoff
+
+
+def test_status_param_highlights_and_anchors_matching_rows(populated):
+    _, html = _get(populated, "/student/1?view=problems&status=missing")
+    assert "class='st-missing hit' id='hit'" in html
+    # without the param — and with a nonsense value — nothing highlights
+    _, html = _get(populated, "/student/1?view=problems")
+    assert "id='hit'" not in html
+    _, html = _get(populated, "/student/1?view=problems&status=nonsense")
+    assert "id='hit'" not in html
+
+
+def test_tooltips_are_styled_not_native(populated):
+    from lastbell.dashboard import _STYLE_PATH
+
+    css = _STYLE_PATH.read_text(encoding="utf-8")
+    assert "attr(data-tip)" in css
+    _, html = _get(populated, "/student/1?view=everything")
+    # the score hover is the design-system tooltip, not a title bubble
+    assert "data-tip='8/10'" in html and "title='8/10'" not in html
+
+
+# ── Phase C ripple: the alerts page ───────────────────────────────────
+
+
+def _alert(conn, detail, type_=AlertType.GRADE_CHANGED):
+    store.record_alert(conn, "1", Event(
+        type=type_, student_agu="1", course_title="Math", detail=detail))
+
+
+def test_alerts_when_is_local_date_words_with_tooltip(populated):
+    _alert(populated, "Math: quiz graded")
+    _, html = _get(populated, "/alerts")
+    assert "When (UTC)" not in html
+    assert ">today</span>" in html            # date words in the cell…
+    assert "data-tip='20" in html             # …full local timestamp on hover
+
+
+def test_alerts_type_chips_group_and_filter(populated):
+    _alert(populated, "quiz graded")
+    _alert(populated, "quiz graded again")
+    _alert(populated, "Math slipped", AlertType.GRADE_DROP)
+    _, html = _get(populated, "/alerts")
+    assert ">all <b>3</b></a>" in html
+    assert "grade changed <b>2</b>" in html
+    assert "grade drop <b>1</b>" in html
+    # filtering keeps only that type's rows and marks the chip active
+    _, html = _get(populated, "/alerts?type=grade_drop")
+    assert "Math slipped" in html and "quiz graded" not in html
+    assert "class='chip active' href='/alerts?type=grade_drop'" in html
+
+
+def test_alerts_unacked_surface_first(populated):
+    conn = populated
+    w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
+    _alert(conn, "older, never acked")
+    _alert(conn, "newer, already acked")
+    newer = conn.execute("SELECT id FROM alerts ORDER BY rowid DESC").fetchone()
+    store.ack_alert(conn, newer["id"], w.id)
+    _, html = _get(conn, "/alerts")
+    assert html.index("older, never acked") < html.index("newer, already acked")
+    assert "class='unacked'" in html
+    assert "1 unacknowledged" in html
+
+
+def test_alerts_page_older_paging_replaces_the_cap(populated):
+    for i in range(55):
+        _alert(populated, f"alert number {i}")
+    _, html = _get(populated, "/alerts")
+    assert html.count("data-label='Ack'") == 50
+    assert ">older →</a>" in html and "?page=2" in html
+    assert "← newer" not in html
+    _, html = _get(populated, "/alerts?page=2")
+    assert html.count("data-label='Ack'") == 5
+    assert ">← newer</a>" in html and "older →" not in html
+
+
+def test_history_when_is_local_date_words(populated):
+    snap = Snapshot(
+        student_agu="1",
+        courses=[Course(edupoint_gu="709775", title="Math <Adv>", term="MP1")],
+        assignments=[Assignment(edupoint_gu="a1", course_gu="709775",
+                                name="Fractions Quiz", score=9.0, points=10.0,
+                                kind="Assessment",
+                                status=AssignmentStatus.GRADED)],
+    )
+    store.persist_snapshot(populated, Student(agu="1", name="Jasper P. Hays"), snap)
+    _, html = _get(populated, "/history")
+    assert "When (UTC)" not in html
+    assert ">today</span>" in html

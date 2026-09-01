@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -30,6 +30,37 @@ _STATUS_LABELS = {
     "missing": ("MISSING", "bad"),
     "ungraded_past_due": ("ungraded past due", "warn"),
 }
+
+# Phase C row signal: statuses that earn a tint + leading icon, so a mixed
+# table scans by color before it's read. Escalation ladder: due soon is a
+# light caution, ungraded-past-due a stronger one, missing is red. The icons
+# are feather-style paths (rendered via _SVG below); each colors through the
+# same token its badge uses.
+_STATUS_ROWS = {
+    "missing": ("st-missing", "var(--bad)",
+                "<circle cx='12' cy='12' r='10'/>"
+                "<line x1='12' y1='8' x2='12' y2='12'/>"
+                "<line x1='12' y1='16' x2='12.01' y2='16'/>"),
+    "ungraded_past_due": (
+        "st-late", "var(--warn)",
+        "<path d='M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0"
+        " 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z'/>"
+        "<line x1='12' y1='9' x2='12' y2='13'/>"
+        "<line x1='12' y1='17' x2='12.01' y2='17'/>"),
+    "due": ("st-due", "var(--warn)",
+            "<circle cx='12' cy='12' r='10'/>"
+            "<polyline points='12 6 12 12 16 14'/>"),
+}
+
+
+def _score_cutoff() -> float | None:
+    """The global display threshold (decision 4): graded scores below it tint
+    bad. Display-only — nothing alerts on it. 0 or empty disables."""
+    try:
+        value = float(os.environ.get("LASTBELL_SCORE_CUTOFF", "70"))
+    except ValueError:
+        return None
+    return value if value > 0 else None
 
 # The theme lives in style.css next to this module (design tokens extracted
 # from the Purity UI Dashboard template) and is served at /static/style.css.
@@ -197,13 +228,16 @@ def _problem_series(rows, transitions: dict[str, list],
 
 
 def build_student_ctx(conn: sqlite3.Connection, student, view: str,
-                      course_gu: str, today: date | None = None) -> dict:
+                      course_gu: str, hl: str = "",
+                      today: date | None = None) -> dict:
     """Everything render_student needs: the strip, the four stat cards' data
-    stories, and the active view's rows (scoped to ?course= when given)."""
+    stories, and the active view's rows (scoped to ?course= when given).
+    ``hl`` is the ?status= highlight from an overview badge click-through."""
     from .models import parse_percent
 
     today = today or date.today()
     view = view if view in _VIEWS else "problems"
+    hl = hl if hl in _STATUS_ROWS else ""
     sid, term = student["id"], student["current_term"] or ""
     strip = fetch_strip_rows(conn, sid, term)
     if course_gu and course_gu not in {
@@ -264,7 +298,8 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
                 if not course_gu or r["course_gu"] == course_gu]
 
     ctx = {
-        "view": view, "course_gu": course_gu, "today": today, "term": term,
+        "view": view, "course_gu": course_gu, "hl": hl,
+        "today": today, "term": term,
         "strip": strip, "deltas": deltas,
         "problems": scoped(problems), "due": scoped(due),
         "recent": scoped(graded),
@@ -297,14 +332,35 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
     return ctx
 
 
-def fetch_alerts(conn: sqlite3.Connection, limit: int = 100) -> list[sqlite3.Row]:
+# Alerts page size ("older →" paging replaces the old silent 100-row cap).
+_ALERTS_PAGE = 50
+
+
+def fetch_alerts(conn: sqlite3.Connection, page: int = 1,
+                 alert_type: str = "") -> tuple[list[sqlite3.Row], bool]:
+    """One page of alerts — unacked surfaced first, newest first within each
+    group — plus whether an older page exists. Offset paging is safe here
+    because the sort key is stable between requests."""
+    sql = ("SELECT al.*, st.name AS student_name, w.name AS acked_by_name "
+           "FROM alerts al "
+           "JOIN students st ON st.id = al.student_id "
+           "LEFT JOIN watchers w ON w.id = al.acked_by ")
+    params: list = []
+    if alert_type:
+        sql += "WHERE al.type = ? "
+        params.append(alert_type)
+    sql += ("ORDER BY (al.acked_at IS NULL) DESC, al.created_at DESC, "
+            "al.rowid DESC LIMIT ? OFFSET ?")
+    params += [_ALERTS_PAGE + 1, (page - 1) * _ALERTS_PAGE]
+    rows = conn.execute(sql, params).fetchall()
+    return rows[:_ALERTS_PAGE], len(rows) > _ALERTS_PAGE
+
+
+def fetch_alert_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """(type, n, unacked) per alert type present — the type-group chips."""
     return conn.execute(
-        "SELECT al.*, st.name AS student_name, w.name AS acked_by_name "
-        "FROM alerts al "
-        "JOIN students st ON st.id = al.student_id "
-        "LEFT JOIN watchers w ON w.id = al.acked_by "
-        "ORDER BY al.created_at DESC, al.rowid DESC LIMIT ?", (limit,)
-    ).fetchall()
+        "SELECT type, COUNT(*) AS n, SUM(acked_at IS NULL) AS unacked "
+        "FROM alerts GROUP BY type ORDER BY n DESC, type").fetchall()
 
 
 def fetch_course_history(conn: sqlite3.Connection, limit: int = 100) -> list[sqlite3.Row]:
@@ -454,6 +510,52 @@ def _badge(status: str) -> str:
     return f"<span class='badge {klass}'>{escape(label)}</span>"
 
 
+def _tip(inner_html: str, tip: str, extra_class: str = "") -> str:
+    """Wrap already-escaped html in a design-system tooltip (CSS-only: the
+    bubble is a ::after reading data-tip — never the browser's native
+    ``title`` speck)."""
+    cls = f"tip {extra_class}".strip()
+    return f"<span class='{cls}' data-tip='{escape(tip)}'>{inner_html}</span>"
+
+
+def _row_mark(status: str, hl: str = "", first_hit: bool = False) -> tuple[str, str]:
+    """(tr attributes, leading icon html) for an assignment row. ``hl`` is the
+    ?status= highlight target; the first matching row gets id='hit' so the
+    badge link's #hit fragment scrolls to it."""
+    klass, color, icon = _STATUS_ROWS.get(status, ("", "", ""))
+    classes = " ".join(c for c in (klass, "hit" if status == hl else "") if c)
+    attrs = (f" class='{classes}'" if classes else "") + (
+        " id='hit'" if first_hit and status == hl else "")
+    lead = ""
+    if icon:
+        lead = ("<svg class='rowicon' viewBox='0 0 24 24' fill='none' "
+                f"style='stroke:{color}' stroke-width='2' stroke-linecap='round' "
+                f"stroke-linejoin='round' aria-hidden='true'>{icon}</svg>")
+    return attrs, lead
+
+
+# Stored timestamps are UTC (sqlite datetime('now')); the reader lives in
+# local time. Display rule (Phase C): date words in the cell — today /
+# yesterday for recent — with the full local timestamp in the tooltip.
+def _when_html(utc_iso: str, today: date | None = None) -> str:
+    try:
+        dt = (datetime.fromisoformat(utc_iso).replace(tzinfo=timezone.utc)
+              .astimezone())
+    except ValueError:
+        return escape(utc_iso)
+    today = today or date.today()
+    d = dt.date()
+    if d == today:
+        words = "today"
+    elif d == today - timedelta(days=1):
+        words = "yesterday"
+    elif d.year == today.year:
+        words = f"{d.strftime('%b')} {d.day}"
+    else:
+        words = f"{d.strftime('%b')} {d.day}, {d.year}"
+    return _tip(escape(words), dt.strftime("%Y-%m-%d %H:%M %Z").strip())
+
+
 def _pct(raw: str) -> str:
     """Course percent for display: one decimal place, or a dash."""
     from .models import format_percent
@@ -463,7 +565,8 @@ def _pct(raw: str) -> str:
 
 
 def _score(row) -> str:
-    """Assignment score as a percentage (one decimal), raw points on hover.
+    """Assignment score as a percentage (one decimal), raw points in a styled
+    tooltip. A score below the global cutoff tints bad (Phase C signal).
 
     No points value (or zero, e.g. extra credit) means no denominator to
     percent against — those show the raw score.
@@ -474,7 +577,12 @@ def _score(row) -> str:
         return escape(f"{row['score']:g}")
     raw = f"{row['score']:g}/{row['points']:g}"
     pct = row["score"] / row["points"] * 100
-    return f"<span title='{escape(raw)}'>{pct:.1f}%</span>"
+    return _tip(f"{pct:.1f}%", raw, extra_class=_low_class(pct))
+
+
+def _low_class(pct: float | None) -> str:
+    cutoff = _score_cutoff()
+    return "low" if pct is not None and cutoff and pct < cutoff else ""
 
 
 def render_overview(students, courses_by_student, counts_by_student) -> str:
@@ -496,12 +604,17 @@ def render_overview(students, courses_by_student, counts_by_student) -> str:
         # several doors ("1 missing" → the Problems view).
         base = f"/student/{escape(s['agu'])}"
         flags = []
+        # ?status= narrows the highlight inside the mixed Problems list; the
+        # #hit fragment scrolls to the first matching row (id='hit').
         if counts.get("missing"):
-            flags.append(f"<a href='{base}?view=problems'><span class='badge bad'>"
+            flags.append(f"<a href='{base}?view=problems&status=missing#hit'>"
+                         f"<span class='badge bad'>"
                          f"{counts['missing']} missing</span></a>")
         if counts.get("past_due"):
-            flags.append(f"<a href='{base}?view=problems'><span class='badge warn'>"
-                         f"{counts['past_due']} ungraded past due</span></a>")
+            flags.append(
+                f"<a href='{base}?view=problems&status=ungraded_past_due#hit'>"
+                f"<span class='badge warn'>"
+                f"{counts['past_due']} ungraded past due</span></a>")
         if counts.get("due"):
             flags.append(f"<a href='{base}?view=due'><span class='badge info'>"
                          f"{counts['due']} due soon</span></a>")
@@ -734,14 +847,17 @@ def _assignment_table(rows, ctx) -> str:
     head = ("<tr class='head'><th>Assignment</th>"
             + ("<th>Course</th>" if with_course else "")
             + "<th>Due</th><th>Status</th></tr>")
-    body = "".join(
-        f"<tr><td>{escape(r['name'])}</td>"
-        + (f"<td class='small' data-label='Course'>"
-           f"{escape(r['course_title'])}</td>" if with_course else "")
-        + f"<td class='small' data-label='Due'>{escape(r['due_date'] or '—')}</td>"
-        f"<td data-label='Status'>{_badge(r['status'])}</td></tr>"
-        for r in rows)
-    return f"<table class='openitems'>{head}{body}</table>"
+    body, hit_seen = [], False
+    for r in rows:
+        attrs, lead = _row_mark(r["status"], ctx["hl"], first_hit=not hit_seen)
+        hit_seen = hit_seen or "id='hit'" in attrs
+        body.append(
+            f"<tr{attrs}><td>{lead}{escape(r['name'])}</td>"
+            + (f"<td class='small' data-label='Course'>"
+               f"{escape(r['course_title'])}</td>" if with_course else "")
+            + f"<td class='small' data-label='Due'>{escape(r['due_date'] or '—')}</td>"
+            f"<td data-label='Status'>{_badge(r['status'])}</td></tr>")
+    return f"<table class='openitems'>{head}{''.join(body)}</table>"
 
 
 def _view_problems(student, ctx) -> str:
@@ -798,9 +914,11 @@ def _view_recent(student, ctx) -> str:
             out.append(f"<tr class='dayrow'><td class='day' colspan='{ncols}'>"
                        f"{_day_heading(d, ctx['today'])}</td></tr>")
             last = d
+        low = ""
         if r["points"] and r["score"] is not None:
-            pct = f"{r['score'] / r['points'] * 100:.1f}%"
-            raw = f"{r['score']:g}/{r['points']:g}"
+            pval = r["score"] / r["points"] * 100
+            pct, raw = f"{pval:.1f}%", f"{r['score']:g}/{r['points']:g}"
+            low = _low_class(pval)
         else:
             pct = f"{r['score']:g}" if r["score"] is not None else "—"
             raw = "—"
@@ -808,7 +926,8 @@ def _view_recent(student, ctx) -> str:
             f"<tr><td>{escape(r['name'])}</td>"
             + (f"<td class='small' data-label='Course'>"
                f"{escape(r['course_title'])}</td>" if with_course else "")
-            + f"<td class='num' data-label='Score'>{escape(pct)}</td>"
+            + f"<td class='num{' ' + low if low else ''}' data-label='Score'>"
+            f"{escape(pct)}</td>"
             f"<td class='raw' data-label='Points'>{escape(raw)}</td></tr>")
     older = ""
     if len(rows) > 20:
@@ -854,7 +973,8 @@ def _course_card(course, rows, ctx) -> str:
                     reverse=True)
 
     def tr(a) -> str:
-        return (f"<tr><td>{escape(a['name'])}</td>"
+        attrs, lead = _row_mark(a["status"])
+        return (f"<tr{attrs}><td>{lead}{escape(a['name'])}</td>"
                 f"<td data-label='Type'>{escape(a['kind'] or '—')}</td>"
                 f"<td data-label='Due'>{escape(a['due_date'] or '—')}</td>"
                 f"<td class='num' data-label='Score'>{_score(a)}</td>"
@@ -922,11 +1042,31 @@ def render_student(student, ctx, nav_students=()) -> str:
     return _page(student["name"], "".join(parts), nav_students=nav_students)
 
 
-def render_alerts(alerts, watcher_list=(), nav_students=()) -> str:
-    if not alerts:
+def render_alerts(alerts, counts=(), watcher_list=(), nav_students=(),
+                  page: int = 1, alert_type: str = "", more: bool = False,
+                  today: date | None = None) -> str:
+    if not counts:
         body = "<h1>Alerts</h1><p>No alerts yet — quiet is good.</p>"
         return _page("Alerts", body, nav_students=nav_students)
     import json as _json
+
+    today = today or date.today()
+
+    def href(t: str, p: int = 1) -> str:
+        q = ([f"type={quote(t)}"] if t else []) + ([f"page={p}"] if p > 1 else [])
+        return "/alerts" + ("?" + "&".join(q) if q else "")
+
+    # Type-group chips: one door per alert type present, with counts. The
+    # active chip marks the filter; "all" clears it.
+    total = sum(c["n"] for c in counts)
+    unacked_total = sum(c["unacked"] or 0 for c in counts)
+    chips = [f"<a class='chip{'' if alert_type else ' active'}' "
+             f"href='/alerts'>all <b>{total}</b></a>"]
+    chips += [
+        f"<a class='chip{' active' if c['type'] == alert_type else ''}' "
+        f"href='{href(c['type'])}'>"
+        f"{escape(c['type'].replace('_', ' '))} <b>{c['n']}</b></a>"
+        for c in counts]
 
     options = "".join(f"<option>{escape(w.name)}</option>" for w in watcher_list)
     rows = []
@@ -946,29 +1086,49 @@ def render_alerts(alerts, watcher_list=(), nav_students=()) -> str:
         else:
             ack_cell = "<span class='small'>—</span>"
         rows.append(
-            f"<tr><td>{escape(detail)}</td>"
-            f"<td class='small' data-label='When'>{escape(al['created_at'])}</td>"
+            f"<tr{' class=\'unacked\'' if not al['acked_at'] else ''}>"
+            f"<td>{escape(detail)}</td>"
+            f"<td class='small' data-label='When'>"
+            f"{_when_html(al['created_at'], today)}</td>"
             f"<td data-label='Student'>{escape(al['student_name'])}</td>"
             f"<td data-label='Type'>{escape(al['type'].replace('_', ' '))}</td>"
             f"<td data-label='Ack'>{ack_cell}</td></tr>")
+    table = ("<table class='alerts'><tr class='head'><th>Detail</th><th>When</th>"
+             "<th>Student</th><th>Type</th><th>Ack</th></tr>"
+             + "".join(rows) + "</table>"
+             if rows else "<p class='small'>Nothing on this page.</p>")
+
+    pager = ""
+    if page > 1 or more:
+        newer = (f"<a href='{href(alert_type, page - 1)}'>← newer</a>"
+                 if page > 1 else "<span></span>")
+        older = (f"<a href='{href(alert_type, page + 1)}'>older →</a>"
+                 if more else "<span></span>")
+        pager = f"<div class='pager'>{newer}{older}</div>"
+
+    note = ("An ack is shared: one person marking an alert handled marks it "
+            "for everyone.")
+    if unacked_total:
+        note = (f"{unacked_total} unacknowledged — surfaced first. " + note)
+    heading = "Recent alerts" if page == 1 else f"Alerts — page {page}"
     return _page("Alerts", "<h1>Alerts</h1><div class='card tablecard'>"
-                 "<h2>Recent alerts</h2><p class='small'>An ack is shared: one "
-                 "person marking an alert handled marks it for everyone.</p>"
-                 "<table><tr class='head'><th>Detail</th><th>When (UTC)</th>"
-                 "<th>Student</th><th>Type</th><th>Ack</th></tr>"
-                 + "".join(rows) + "</table></div>", nav_students=nav_students)
+                 f"<h2>{heading}</h2>"
+                 f"<div class='chips'>{''.join(chips)}</div>"
+                 f"<p class='small'>{note}</p>"
+                 + table + pager + "</div>", nav_students=nav_students)
 
 
 def render_history(rows, course_rows=(), nav_students=()) -> str:
     if not rows and not course_rows:
         return _page("History", "<h1>Grade history</h1><p>No changes recorded yet.</p>",
                      nav_students=nav_students)
+    today = date.today()
     parts = ["<h1>Grade history</h1>"]
     if course_rows:
         c_rows = "".join(
             f"<tr><td>{escape(r['course_title'])} "
             f"<span class='small'>{escape(r['term'])}</span></td>"
-            f"<td class='small' data-label='When'>{escape(r['seen_at'])}</td>"
+            f"<td class='small' data-label='When'>{_when_html(r['seen_at'], today)}</td>"
             f"<td data-label='Student'>{escape(r['student_name'])}</td>"
             f"<td data-label='Field'>{escape(r['field'])}</td>"
             f"<td data-label='Change'>"
@@ -976,13 +1136,13 @@ def render_history(rows, course_rows=(), nav_students=()) -> str:
             f"{escape(r['new_value'] if r['new_value'] is not None else '—')}</td></tr>"
             for r in course_rows)
         parts.append("<div class='card tablecard'><h2>Course grades</h2>"
-                     "<table><tr class='head'><th>Course</th><th>When (UTC)</th>"
+                     "<table><tr class='head'><th>Course</th><th>When</th>"
                      "<th>Student</th><th>Field</th><th>Change</th></tr>"
                      + c_rows + "</table></div>")
     if rows:
         body_rows = "".join(
             f"<tr><td>{escape(r['assignment_name'])}</td>"
-            f"<td class='small' data-label='When'>{escape(r['seen_at'])}</td>"
+            f"<td class='small' data-label='When'>{_when_html(r['seen_at'], today)}</td>"
             f"<td data-label='Student'>{escape(r['student_name'])}</td>"
             f"<td data-label='Course'>{escape(r['course_title'])}</td>"
             f"<td data-label='Field'>{escape(r['field'])}</td>"
@@ -991,7 +1151,7 @@ def render_history(rows, course_rows=(), nav_students=()) -> str:
             f"{escape(r['new_value'] if r['new_value'] is not None else '—')}</td></tr>"
             for r in rows)
         parts.append("<div class='card tablecard'><h2>Assignments</h2>"
-                     "<table><tr class='head'><th>Assignment</th><th>When (UTC)</th>"
+                     "<table><tr class='head'><th>Assignment</th><th>When</th>"
                      "<th>Student</th><th>Course</th><th>Field</th>"
                      "<th>Change</th></tr>" + body_rows + "</table></div>")
     return _page("History", "".join(parts), nav_students=nav_students)
@@ -1240,12 +1400,20 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
                               nav_students=students)
         ctx = build_student_ctx(conn, student,
                                 (query.get("view") or [""])[0],
-                                (query.get("course") or [""])[0])
+                                (query.get("course") or [""])[0],
+                                (query.get("status") or [""])[0])
         return 200, render_student(student, ctx, nav_students=students)
     if path == "/alerts":
-        return 200, render_alerts(fetch_alerts(conn),
+        try:
+            page = max(1, int((query.get("page") or ["1"])[0]))
+        except ValueError:
+            page = 1
+        alert_type = (query.get("type") or [""])[0]
+        alert_rows, more = fetch_alerts(conn, page, alert_type)
+        return 200, render_alerts(alert_rows, fetch_alert_counts(conn),
                                   watchermod.list_watchers(conn),
-                                  nav_students=students)
+                                  nav_students=students, page=page,
+                                  alert_type=alert_type, more=more)
     if path == "/history":
         return 200, render_history(fetch_history(conn), fetch_course_history(conn),
                                    nav_students=students)
