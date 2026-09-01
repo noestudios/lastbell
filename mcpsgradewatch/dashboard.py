@@ -145,16 +145,37 @@ _THEME_JS = """
 """
 
 
+# Feather-style 24-viewbox stroke icons; shown in place of nav labels below
+# the narrow-nav breakpoint (styled entirely by CSS, stroke follows text color).
+_SVG = ("<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' "
+        "stroke-width='2' stroke-linecap='round' stroke-linejoin='round' "
+        "aria-hidden='true'>{}</svg>")
+_NAV_ITEMS = (
+    ("/", "Students",
+     "<path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/>"),
+    ("/alerts", "Alerts",
+     "<path d='M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9'/>"
+     "<path d='M13.7 21a2 2 0 0 1-3.4 0'/>"),
+    ("/history", "History",
+     "<circle cx='12' cy='12' r='10'/><polyline points='12 6 12 12 16 14'/>"),
+    ("/watchers", "Watchers",
+     "<path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/>"
+     "<circle cx='12' cy='12' r='3'/>"),
+)
+
+
 def _page(title: str, body: str) -> str:
+    links = "".join(
+        f"<a href='{href}' title='{label}'>{_SVG.format(icon)}"
+        f"<span class='lbl'>{label}</span></a>"
+        for href, label, icon in _NAV_ITEMS)
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
         f"<title>{escape(title)} · MCPSGradeWatch</title>"
         "<link rel='stylesheet' href='/static/style.css'>"
         f"<script>{_THEME_JS}</script></head><body>"
-        "<nav><a class='brand' href='/'>MCPSGradeWatch</a>"
-        "<a href='/'>Students</a><a href='/alerts'>Alerts</a>"
-        "<a href='/history'>History</a><a href='/watchers'>Watchers</a>"
+        f"<nav><a class='brand' href='/'>MCPSGradeWatch</a>{links}"
         "<button id='themetoggle' title='Theme: follows your system unless "
         "you pick one (saved in this browser)'>◐ auto</button></nav>"
         f"{body}</body></html>"
@@ -200,9 +221,9 @@ def render_overview(students, courses_by_student, counts_by_student) -> str:
         counts = counts_by_student.get(s["id"], {})
         rows = "".join(
             f"<tr><td><a href='/student/{escape(s['agu'])}'>{escape(c['title'])}</a></td>"
-            f"<td>{escape(c['teacher'])}</td>"
-            f"<td class='num'>{escape(_pct(c['percent']))}</td>"
-            f"<td>{escape(c['mark'] or '')}</td></tr>"
+            f"<td data-label='Teacher'>{escape(c['teacher'])}</td>"
+            f"<td class='num' data-label='%'>{escape(_pct(c['percent']))}</td>"
+            f"<td data-label='Mark'>{escape(c['mark'] or '—')}</td></tr>"
             for c in courses)
         flags = []
         if counts.get("missing"):
@@ -216,7 +237,7 @@ def render_overview(students, courses_by_student, counts_by_student) -> str:
             f"{escape(s['name'])}</a></h3>"
             f"<div class='small'>{escape(s['school'])}</div>"
             f"<div>{' '.join(flags) or '<span class=small>all clear</span>'}</div>"
-            f"<table class='courses'><tr><th>Course</th><th>Teacher</th>"
+            f"<table class='courses'><tr class='head'><th>Course</th><th>Teacher</th>"
             f"<th>%</th><th>Mark</th></tr>{rows}</table></div>")
     return _page("Students", "<h1>Students</h1><div class='cards'>" + "".join(cards) + "</div>")
 
@@ -254,11 +275,13 @@ def _render_term_courses(courses_with_assignments) -> str:
             body = "<p class='small'>No assignments recorded.</p>"
         else:
             rows = "".join(
-                f"<tr><td>{escape(a['name'])}</td><td>{escape(a['kind'] or '')}</td>"
-                f"<td>{escape(a['due_date'] or '—')}</td>"
-                f"<td class='num'>{_score(a)}</td><td>{_badge(a['status'])}</td></tr>"
+                f"<tr><td>{escape(a['name'])}</td>"
+                f"<td data-label='Type'>{escape(a['kind'] or '—')}</td>"
+                f"<td data-label='Due'>{escape(a['due_date'] or '—')}</td>"
+                f"<td class='num' data-label='Score'>{_score(a)}</td>"
+                f"<td data-label='Status'>{_badge(a['status'])}</td></tr>"
                 for a in assignments)
-            body = ("<table class='assignments'><tr><th>Assignment</th><th>Type</th>"
+            body = ("<table class='assignments'><tr class='head'><th>Assignment</th><th>Type</th>"
                     "<th>Due</th><th>Score</th><th>Status</th></tr>" + rows + "</table>")
         parts.append(f"<div class='card tablecard'>{header}{body}</div>")
     return "".join(parts)
@@ -288,15 +311,16 @@ def render_alerts(alerts, watcher_list=()) -> str:
         else:
             ack_cell = "<span class='small'>—</span>"
         rows.append(
-            f"<tr><td class='small'>{escape(al['created_at'])}</td>"
-            f"<td>{escape(al['student_name'])}</td>"
-            f"<td>{escape(al['type'].replace('_', ' '))}</td>"
-            f"<td>{escape(detail)}</td><td>{ack_cell}</td></tr>")
+            f"<tr><td>{escape(detail)}</td>"
+            f"<td class='small' data-label='When'>{escape(al['created_at'])}</td>"
+            f"<td data-label='Student'>{escape(al['student_name'])}</td>"
+            f"<td data-label='Type'>{escape(al['type'].replace('_', ' '))}</td>"
+            f"<td data-label='Ack'>{ack_cell}</td></tr>")
     return _page("Alerts", "<h1>Alerts</h1><div class='card tablecard'>"
                  "<h2>Recent alerts</h2><p class='small'>An ack is shared: one "
                  "person marking an alert handled marks it for everyone.</p>"
-                 "<table><tr><th>When (UTC)</th><th>Student</th>"
-                 "<th>Type</th><th>Detail</th><th>Ack</th></tr>"
+                 "<table><tr class='head'><th>Detail</th><th>When (UTC)</th>"
+                 "<th>Student</th><th>Type</th><th>Ack</th></tr>"
                  + "".join(rows) + "</table></div>")
 
 
@@ -306,28 +330,33 @@ def render_history(rows, course_rows=()) -> str:
     parts = ["<h1>Grade history</h1>"]
     if course_rows:
         c_rows = "".join(
-            f"<tr><td class='small'>{escape(r['seen_at'])}</td>"
-            f"<td>{escape(r['student_name'])}</td>"
-            f"<td>{escape(r['course_title'])} <span class='small'>{escape(r['term'])}</span></td>"
-            f"<td>{escape(r['field'])}</td>"
-            f"<td>{escape(r['old_value'] if r['old_value'] is not None else '—')} → "
+            f"<tr><td>{escape(r['course_title'])} "
+            f"<span class='small'>{escape(r['term'])}</span></td>"
+            f"<td class='small' data-label='When'>{escape(r['seen_at'])}</td>"
+            f"<td data-label='Student'>{escape(r['student_name'])}</td>"
+            f"<td data-label='Field'>{escape(r['field'])}</td>"
+            f"<td data-label='Change'>"
+            f"{escape(r['old_value'] if r['old_value'] is not None else '—')} → "
             f"{escape(r['new_value'] if r['new_value'] is not None else '—')}</td></tr>"
             for r in course_rows)
         parts.append("<div class='card tablecard'><h2>Course grades</h2>"
-                     "<table><tr><th>When (UTC)</th>"
-                     "<th>Student</th><th>Course</th><th>Field</th><th>Change</th></tr>"
+                     "<table><tr class='head'><th>Course</th><th>When (UTC)</th>"
+                     "<th>Student</th><th>Field</th><th>Change</th></tr>"
                      + c_rows + "</table></div>")
     if rows:
         body_rows = "".join(
-            f"<tr><td class='small'>{escape(r['seen_at'])}</td>"
-            f"<td>{escape(r['student_name'])}</td><td>{escape(r['course_title'])}</td>"
-            f"<td>{escape(r['assignment_name'])}</td><td>{escape(r['field'])}</td>"
-            f"<td>{escape(r['old_value'] if r['old_value'] is not None else '—')} → "
+            f"<tr><td>{escape(r['assignment_name'])}</td>"
+            f"<td class='small' data-label='When'>{escape(r['seen_at'])}</td>"
+            f"<td data-label='Student'>{escape(r['student_name'])}</td>"
+            f"<td data-label='Course'>{escape(r['course_title'])}</td>"
+            f"<td data-label='Field'>{escape(r['field'])}</td>"
+            f"<td data-label='Change'>"
+            f"{escape(r['old_value'] if r['old_value'] is not None else '—')} → "
             f"{escape(r['new_value'] if r['new_value'] is not None else '—')}</td></tr>"
             for r in rows)
         parts.append("<div class='card tablecard'><h2>Assignments</h2>"
-                     "<table><tr><th>When (UTC)</th>"
-                     "<th>Student</th><th>Course</th><th>Assignment</th><th>Field</th>"
+                     "<table><tr class='head'><th>Assignment</th><th>When (UTC)</th>"
+                     "<th>Student</th><th>Course</th><th>Field</th>"
                      "<th>Change</th></tr>" + body_rows + "</table></div>")
     return _page("History", "".join(parts))
 
@@ -342,23 +371,26 @@ def render_watchers(watcher_list, subscriptions) -> str:
         return "—"
 
     w_rows = "".join(
-        f"<tr><td>{escape(w.name)}</td><td>{escape(w.kind.value)}</td>"
-        f"<td>{escape(', '.join(w.channels) or '—')}</td>"
-        f"<td>{escape(quiet(w))}</td></tr>"
+        f"<tr><td>{escape(w.name)}</td>"
+        f"<td data-label='Kind'>{escape(w.kind.value)}</td>"
+        f"<td data-label='Channels'>{escape(', '.join(w.channels) or '—')}</td>"
+        f"<td data-label='Quiet hours'>{escape(quiet(w))}</td></tr>"
         for w in watcher_list)
     s_rows = "".join(
-        f"<tr><td>{escape(s.watcher_name)}</td><td>{escape(s.student_name)}</td>"
-        f"<td>{escape('all' if s.alert_type == '*' else s.alert_type.replace('_', ' '))}</td>"
-        f"<td>{escape('all configured' if s.channel == '*' else s.channel)}</td>"
-        f"<td>{escape(f'daily at {s.send_at}' if s.send_at else 'immediate')}</td></tr>"
+        f"<tr><td>{escape(s.watcher_name)} ⇒ {escape(s.student_name)}</td>"
+        f"<td data-label='Alerts'>"
+        f"{escape('all' if s.alert_type == '*' else s.alert_type.replace('_', ' '))}</td>"
+        f"<td data-label='Via'>{escape('all configured' if s.channel == '*' else s.channel)}</td>"
+        f"<td data-label='Delivery'>"
+        f"{escape(f'daily at {s.send_at}' if s.send_at else 'immediate')}</td></tr>"
         for s in subscriptions)
     return _page("Watchers",
                  "<h1>Watchers</h1>"
                  "<div class='card tablecard'><h2>Watchers</h2>"
-                 "<table><tr><th>Name</th><th>Kind</th>"
+                 "<table><tr class='head'><th>Name</th><th>Kind</th>"
                  "<th>Channels</th><th>Quiet hours</th></tr>" + w_rows + "</table></div>"
                  "<div class='card tablecard'><h2>Subscriptions</h2>"
-                 + ("<table><tr><th>Watcher</th><th>Student</th><th>Alerts</th>"
+                 + ("<table><tr class='head'><th>Watcher ⇒ Student</th><th>Alerts</th>"
                     "<th>Via</th><th>Delivery</th></tr>" + s_rows + "</table>"
                     if subscriptions else "<p class='small'>No subscriptions yet.</p>")
                  + "</div>")

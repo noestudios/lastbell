@@ -67,6 +67,26 @@
   --card-shadow: none;
 }
 
+/* A forced theme must also force the UA's own colors (form controls, native
+ * selection) — otherwise OS-dark + forced-light pages get the browser's dark
+ * selection behind our dark text. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"]  { color-scheme: dark; }
+
+/* Explicit selection colors from the palette: airy teal in light mode so
+ * dark text stays readable; translucent teal in dark mode. */
+::selection { background: #b2f5ea; color: #1f2733; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) ::selection {
+    background: rgba(79, 209, 197, 0.35);
+    color: #f7fafc;
+  }
+}
+:root[data-theme="dark"] ::selection {
+  background: rgba(79, 209, 197, 0.35);
+  color: #f7fafc;
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -94,8 +114,10 @@ nav {
   flex-wrap: wrap;
   gap: 1.1rem;
 }
-nav a { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
+nav a { color: var(--text-muted); font-weight: 600; font-size: 0.8rem;
+        display: inline-flex; align-items: center; gap: 0.35rem; }
 nav a:hover { color: var(--text); text-decoration: none; }
+nav a svg { display: none; width: 17px; height: 17px; flex: none; }
 nav .brand {
   color: var(--text);
   font-weight: 800;
@@ -228,3 +250,46 @@ table.courses th:nth-child(4) { width: 3.6rem; }    /* mark    */
   cursor: pointer;
 }
 .ackform button:hover { background: var(--accent-strong); }
+
+/* ── responsive ─────────────────────────────────────────────────────── */
+
+/* Student cards go single-column well before they'd crush their tables. */
+@media (max-width: 56rem) {
+  .cards { flex-direction: column; }
+  .card { min-width: 0; }
+}
+
+/* Narrow nav: labels give way to icons (full labeled nav returns on wide). */
+@media (max-width: 48rem) {
+  nav { gap: 0.9rem; padding: 0.7rem 1rem; }
+  nav a svg { display: inline-block; }
+  nav a .lbl { display: none; }
+  nav .brand { font-size: 0.75rem; }
+}
+
+/* Phone width: tables stack. The header row hides and each row becomes a
+ * block; labeled cells re-grow their column name from data-label. Cells
+ * without a label (the row's identity — assignment/course name) read as the
+ * block's title line. */
+@media (max-width: 40rem) {
+  table, tbody, tr, td { display: block; width: 100%; }
+  tr.head { display: none; }
+  table { table-layout: auto; }
+  tr { padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+  tr:last-child { border-bottom: none; }
+  td { border: none; padding: 0.12rem 0; }
+  td[data-label] { display: flex; justify-content: space-between;
+                   align-items: baseline; gap: 1rem; }
+  td[data-label]::before {
+    content: attr(data-label);
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    flex: none;
+  }
+  td:not([data-label]) { font-weight: 600; }
+  td.num { text-align: right; }
+  table.assignments th, table.courses th { width: auto; }
+}
