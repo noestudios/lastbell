@@ -318,8 +318,8 @@
   /* ── alert-types multiselect ────────────────────────────────────────
    * 'all alerts' is exclusive, at least one box stays checked, and the
    * summary mirrors the selection. Registered before trackDirty so the
-   * dirty scan sees the reconciled checkboxes. Open popovers close on an
-   * outside click. */
+   * dirty scan sees the reconciled checkboxes. Open popovers (this
+   * multiselect and the nav student menu) close on an outside click. */
   function onTypeToggle(cb) {
     var det = cb.closest("details.msel");
     if (!det) return;
@@ -346,7 +346,7 @@
   });
   document.addEventListener("click", function (e) {
     Array.prototype.forEach.call(
-      document.querySelectorAll("details.msel[open]"),
+      document.querySelectorAll("details.msel[open], details.smenu[open]"),
       function (det) {
         if (!det.contains(e.target)) det.removeAttribute("open");
       });

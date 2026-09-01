@@ -22,7 +22,7 @@ import requests
 
 from . import __version__
 
-USER_AGENT = f"mcpsgradewatch/{__version__}"
+USER_AGENT = f"lastbell/{__version__}"
 
 
 class ParentVueError(RuntimeError):

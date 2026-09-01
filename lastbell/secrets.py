@@ -6,7 +6,7 @@ Passwords never live in config files, the database, or the source tree — only 
   keyring  the OS keyring (macOS Keychain, Windows Credential Manager,
            Linux Secret Service) via the ``keyring`` library. Recommended for
            bare-metal installs.
-  env      read from ``MCPSGRADEWATCH_PASSWORD``, where the value is injected by a
+  env      read from ``LASTBELL_PASSWORD``, where the value is injected by a
            secret store (Docker secrets, CI). For containerized installs.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ from __future__ import annotations
 import getpass
 import os
 
-SERVICE = "mcpsgradewatch"
+SERVICE = "lastbell"
 
 
 class SecretError(RuntimeError):
@@ -23,10 +23,10 @@ class SecretError(RuntimeError):
 
 def get_password(username: str, backend: str = "keyring") -> str:
     if backend == "env":
-        value = os.environ.get("MCPSGRADEWATCH_PASSWORD")
+        value = os.environ.get("LASTBELL_PASSWORD")
         if not value:
             raise SecretError(
-                "MCPSGRADEWATCH_SECRET_BACKEND=env but MCPSGRADEWATCH_PASSWORD is unset."
+                "LASTBELL_SECRET_BACKEND=env but LASTBELL_PASSWORD is unset."
             )
         return value
 
@@ -36,12 +36,12 @@ def get_password(username: str, backend: str = "keyring") -> str:
         except ImportError as exc:  # pragma: no cover
             raise SecretError(
                 "keyring is not installed. `pip install keyring`, or set "
-                "MCPSGRADEWATCH_SECRET_BACKEND=env."
+                "LASTBELL_SECRET_BACKEND=env."
             ) from exc
         value = keyring.get_password(SERVICE, username)
         if not value:
             raise SecretError(
-                f"No password stored for {username!r}. Run: mcpsgradewatch set-password"
+                f"No password stored for {username!r}. Run: lastbell set-password"
             )
         return value
 

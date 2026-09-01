@@ -1,4 +1,4 @@
--- mcpsgradewatch schema (SQLite). Two join tables carry the design:
+-- lastbell schema (SQLite). Two join tables carry the design:
 --   watcher_student     -> multi-watcher (many people per student)
 --   credential_student  -> multi-account (many ParentVUE logins per household)
 

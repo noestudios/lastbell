@@ -130,7 +130,7 @@ def send_due(conn: sqlite3.Connection, *, lookahead_days: int = 7,
             if sub["channel"] == watchers.ALL else [sub["channel"]]
         body = build(conn, sub["student_id"], sub["initials"],
                      lookahead_days=lookahead_days, today=now.date())
-        subject = f"[MCPSGradeWatch] Daily summary for {sub['initials'] or sub['agu']}"
+        subject = f"[Last Bell] Daily summary for {sub['initials'] or sub['agu']}"
         delivered = False
         for ch_name in channel_names:
             to = addresses.get(ch_name)

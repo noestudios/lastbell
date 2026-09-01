@@ -1,8 +1,8 @@
 """Differ tests: events are keyed on the Edupoint GUID, baselines stay quiet."""
 from __future__ import annotations
 
-from mcpsgradewatch.differ import diff
-from mcpsgradewatch.models import (
+from lastbell.differ import diff
+from lastbell.models import (
     AlertType,
     Assignment,
     AssignmentStatus,

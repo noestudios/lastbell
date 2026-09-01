@@ -5,9 +5,9 @@ import datetime
 
 import pytest
 
-from mcpsgradewatch import dashboard, store, watchers
-from mcpsgradewatch.differ import Event
-from mcpsgradewatch.models import (
+from lastbell import dashboard, store, watchers
+from lastbell.differ import Event
+from lastbell.models import (
     AlertType,
     Assignment,
     AssignmentStatus,
@@ -115,13 +115,13 @@ def test_settings_page(populated):
     assert "Mom" in html
     assert "all configured" in html
     # a real web UI: forms for every write path, not CLI listings
-    assert "mcpsgradewatch watcher" not in html
-    assert "mcpsgradewatch subscribe" not in html
+    assert "lastbell watcher" not in html
+    assert "lastbell subscribe" not in html
     for action in ("watcher-add", "watcher-remove", "channel", "channel-remove",
                    "subscribe", "subscription-update", "unsubscribe"):
         assert f"action='/settings/{action}'" in html
     # env-owned config is absent: if it can't be changed here, don't show it
-    assert "MCPSGRADEWATCH_POLL_MINUTES" not in html
+    assert "LASTBELL_POLL_MINUTES" not in html
     assert "Polling" not in html
     # quiet hours are descoped from the web UI (CLI only)
     assert "quiet" not in html.lower()
@@ -200,7 +200,7 @@ def test_settings_subscription_row_preselects_current_values(populated):
 
 
 def test_stylesheet_exists_and_is_linked(populated):
-    from mcpsgradewatch.dashboard import _STYLE_PATH
+    from lastbell.dashboard import _STYLE_PATH
 
     css = _STYLE_PATH.read_text(encoding="utf-8")
     assert ":root" in css and "--accent" in css and "--bg" in css
@@ -209,11 +209,11 @@ def test_stylesheet_exists_and_is_linked(populated):
 
 
 def test_theme_toggle_present_and_css_supports_override(populated):
-    from mcpsgradewatch.dashboard import _STYLE_PATH
+    from lastbell.dashboard import _STYLE_PATH
 
     _, html = _get(populated, "/")
     assert "id='themetoggle'" in html
-    assert "mcpsgradewatch-theme" in html      # localStorage key in the script
+    assert "lastbell-theme" in html      # localStorage key in the script
     css = _STYLE_PATH.read_text(encoding="utf-8")
     assert ':root[data-theme="dark"]' in css
     assert ':root:not([data-theme="light"])' in css
@@ -241,6 +241,43 @@ def test_responsive_markup_hooks(populated):
     _, home = _get(populated, "/")
     assert home.count("<svg") >= 4              # nav icons for narrow widths
     assert "class='lbl'" in home
+
+
+def test_nav_links_students_by_name_on_every_page(populated):
+    """Decision 2: student names are direct nav links; the redundant
+    top-level Students item is gone (the brand covers the overview)."""
+    for path in ("/", "/student/1", "/alerts", "/history", "/settings",
+                 "/student/999"):          # even the 404 keeps the nav whole
+        _, html = _get(populated, path)
+        nav = html.split("</nav>")[0]
+        assert "class='navstudents'" in nav, path
+        # first name inline, full name on the title attribute
+        assert ">Jasper</a>" in nav, path
+        assert "title='Jasper P. Hays'" in nav, path
+        assert "href='/student/1'" in nav, path
+        assert ">Students</span>" not in nav, path   # old nav item is gone
+
+
+def test_nav_student_menu_for_narrow_widths(populated):
+    from lastbell.dashboard import _STYLE_PATH
+
+    _, html = _get(populated, "/")
+    nav = html.split("</nav>")[0]
+    assert "details class='smenu'" in nav       # icon menu markup
+    assert "aria-label='Students'" in nav
+    assert "Jasper P. Hays</a>" in nav          # menu carries full names
+    css = _STYLE_PATH.read_text(encoding="utf-8")
+    assert "nav .navstudents { display: none; }" in css     # collapse rule
+    assert "nav details.smenu { display: inline-block; }" in css
+
+
+def test_nav_first_names_fall_back_to_full_on_collision():
+    from lastbell.dashboard import _nav_names
+
+    rows = [{"name": "Jasper P. Hays"}, {"name": "Willa R. Hays"}]
+    assert _nav_names(rows) == ["Jasper", "Willa"]
+    rows = [{"name": "Jasper P. Hays"}, {"name": "Jasper Q. Hays"}]
+    assert _nav_names(rows) == ["Jasper P. Hays", "Jasper Q. Hays"]
 
 
 # ── settings write paths (POST /settings/<action>) ────────────────────
@@ -408,7 +445,7 @@ def test_settings_rows_carry_ids_and_gated_update_buttons(populated):
 
 
 def test_app_js_exists_and_is_linked(populated):
-    from mcpsgradewatch.dashboard import _APPJS_PATH
+    from lastbell.dashboard import _APPJS_PATH
 
     js = _APPJS_PATH.read_text(encoding="utf-8")
     assert "toast" in js and "dirty" in js and "prefers-reduced-motion" in js

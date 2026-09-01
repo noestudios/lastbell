@@ -1,13 +1,13 @@
 """Email notifier over SMTP (stdlib only).
 
 Email is the universal default channel: every device on every OS already has it,
-no extra app to install. Configure via the MCPSGRADEWATCH_SMTP_* environment vars.
+no extra app to install. Configure via the LASTBELL_SMTP_* environment vars.
 It also carries SMS for free — send to a carrier's email→SMS gateway address
 (e.g. ``3015551234@vtext.com``).
 
 Two faces on one transport:
 
-* ``EmailNotifier`` — Phase-1 global fallback with a fixed MCPSGRADEWATCH_SMTP_TO.
+* ``EmailNotifier`` — Phase-1 global fallback with a fixed LASTBELL_SMTP_TO.
 * ``EmailChannel`` — Phase-3 per-watcher channel; the recipient comes from the
   watcher's address (``{"to": "kid@example.com"}``) at send time.
 """
@@ -37,11 +37,11 @@ class SmtpTransport:
     @classmethod
     def from_env(cls) -> "SmtpTransport":
         return cls(
-            host=_need("MCPSGRADEWATCH_SMTP_HOST"),
-            port=int(os.environ.get("MCPSGRADEWATCH_SMTP_PORT", "587")),
-            user=os.environ.get("MCPSGRADEWATCH_SMTP_USER", ""),
-            password=os.environ.get("MCPSGRADEWATCH_PASSWORD_SMTP", ""),
-            sender=_need("MCPSGRADEWATCH_SMTP_FROM"),
+            host=_need("LASTBELL_SMTP_HOST"),
+            port=int(os.environ.get("LASTBELL_SMTP_PORT", "587")),
+            user=os.environ.get("LASTBELL_SMTP_USER", ""),
+            password=os.environ.get("LASTBELL_PASSWORD_SMTP", ""),
+            sender=_need("LASTBELL_SMTP_FROM"),
         )
 
     def deliver(self, recipient: str, subject: str, body: str) -> None:
@@ -59,7 +59,7 @@ class SmtpTransport:
 
 @dataclass
 class EmailNotifier:
-    """Global fallback: one fixed recipient from MCPSGRADEWATCH_SMTP_TO."""
+    """Global fallback: one fixed recipient from LASTBELL_SMTP_TO."""
 
     transport: SmtpTransport
     recipient: str
@@ -67,7 +67,7 @@ class EmailNotifier:
     @classmethod
     def from_env(cls) -> "EmailNotifier":
         return cls(transport=SmtpTransport.from_env(),
-                   recipient=_need("MCPSGRADEWATCH_SMTP_TO"))
+                   recipient=_need("LASTBELL_SMTP_TO"))
 
     def send(self, subject: str, body: str) -> None:
         self.transport.deliver(self.recipient, subject, body)

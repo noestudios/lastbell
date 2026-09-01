@@ -1,10 +1,10 @@
 services:
-  mcpsgradewatch:
+  lastbell:
     build: .
     # Non-secret settings come from your git-ignored .env.
     env_file: .env
     environment:
-      MCPSGRADEWATCH_SECRET_BACKEND: env
+      LASTBELL_SECRET_BACKEND: env
     # The ParentVUE password is a secret — inject it, don't put it in .env or here.
     secrets:
       - parentvue_password

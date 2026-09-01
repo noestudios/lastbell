@@ -1,4 +1,4 @@
-"""Command-line entrypoint: ``mcpsgradewatch <command>``."""
+"""Command-line entrypoint: ``lastbell <command>``."""
 from __future__ import annotations
 
 import argparse
@@ -149,11 +149,11 @@ def _run_once(client, conn, notifier, conf) -> int:
     # After students are persisted: an install with zero watchers gets one
     # for the credential holder, subscribed to everyone (UX decision 3).
     w = watchers.ensure_default_watcher(
-        conn, conf.username, os.environ.get("MCPSGRADEWATCH_SMTP_TO"))
+        conn, conf.username, os.environ.get("LASTBELL_SMTP_TO"))
     if w is not None:
         print(f"created default watcher {w.name!r} (guardian, via "
               f"{', '.join(w.channels)}), subscribed to all students — "
-              f"adjust with `mcpsgradewatch watcher` / `subscribe`")
+              f"adjust with `lastbell watcher` / `subscribe`")
     return total
 
 
@@ -274,7 +274,7 @@ def _cmd_watcher_list(args: argparse.Namespace) -> int:
     try:
         rows = watchers.list_watchers(conn)
         if not rows:
-            print("no watchers yet — add one with `mcpsgradewatch watcher add`")
+            print("no watchers yet — add one with `lastbell watcher add`")
             return 0
         for w in rows:
             chans = ", ".join(f"{k}={list(v.values())[0] if v else '·'}"
@@ -372,7 +372,7 @@ def _cmd_alerts(args: argparse.Namespace) -> int:
             print(f"  {r['id'][:8]}  {r['created_at']}  {r['initials'] or r['student_name']:8}"
                   f"  {ack:12}  {detail}")
         if not args.open:
-            print("\n(✓ = acknowledged; ack one with: mcpsgradewatch ack <id> --by <watcher>)")
+            print("\n(✓ = acknowledged; ack one with: lastbell ack <id> --by <watcher>)")
         return 0
     finally:
         conn.close()
@@ -441,7 +441,7 @@ def _cmd_subscriptions(args: argparse.Namespace) -> int:
     try:
         subs = watchers.list_subscriptions(conn)
         if not subs:
-            print("no subscriptions yet — create one with `mcpsgradewatch subscribe`")
+            print("no subscriptions yet — create one with `lastbell subscribe`")
             return 0
         for s in subs:
             alert = "all alerts" if s.alert_type == "*" else s.alert_type
@@ -464,8 +464,8 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="mcpsgradewatch", description="Self-hosted ParentVUE grade monitor")
-    parser.add_argument("--version", action="version", version=f"mcpsgradewatch {__version__}")
+    parser = argparse.ArgumentParser(prog="lastbell", description="Self-hosted ParentVUE grade monitor")
+    parser.add_argument("--version", action="version", version=f"lastbell {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("set-password", help="store a credential's password in the OS keyring").set_defaults(func=_cmd_set_password)
@@ -492,7 +492,7 @@ def main() -> None:
 
     p_run = sub.add_parser("run", help="collect, diff against the last run, and alert")
     p_run.add_argument("--loop", action="store_true",
-                       help="keep polling every MCPSGRADEWATCH_POLL_MINUTES")
+                       help="keep polling every LASTBELL_POLL_MINUTES")
     p_run.set_defaults(func=_cmd_run)
 
     # Phase 3: watcher accounts + subscriptions + dashboard

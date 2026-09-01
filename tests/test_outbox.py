@@ -5,10 +5,10 @@ import datetime
 
 import pytest
 
-from mcpsgradewatch import outbox, store, watchers
-from mcpsgradewatch.differ import Event
-from mcpsgradewatch.models import AlertType, Snapshot, Student, WatcherKind
-from mcpsgradewatch.router import Delivery
+from lastbell import outbox, store, watchers
+from lastbell.differ import Event
+from lastbell.models import AlertType, Snapshot, Student, WatcherKind
+from lastbell.router import Delivery
 
 NOON = datetime.datetime(2026, 9, 1, 12, 0)
 QUIET = {"start": "21:00", "end": "07:00"}

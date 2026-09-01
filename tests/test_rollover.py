@@ -6,8 +6,8 @@ import datetime
 
 import pytest
 
-from mcpsgradewatch import dashboard, differ, store, summary
-from mcpsgradewatch.models import (
+from lastbell import dashboard, differ, store, summary
+from lastbell.models import (
     AlertType,
     Assignment,
     AssignmentStatus,

@@ -3,8 +3,8 @@ self-hosted ntfy server. Zero-signup: a watcher just subscribes to a topic in
 the ntfy app, and their address here is ``{"topic": "my-secret-topic"}``.
 
 Topic names are effectively passwords (anyone who knows one can read it), so
-pick unguessable topics. MCPSGRADEWATCH_NTFY_SERVER overrides the public server;
-MCPSGRADEWATCH_NTFY_TOKEN adds auth for protected self-hosted instances.
+pick unguessable topics. LASTBELL_NTFY_SERVER overrides the public server;
+LASTBELL_NTFY_TOKEN adds auth for protected self-hosted instances.
 """
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ class NtfyChannel:
     @classmethod
     def from_env(cls) -> "NtfyChannel":
         return cls(
-            server=os.environ.get("MCPSGRADEWATCH_NTFY_SERVER", "https://ntfy.sh").rstrip("/"),
-            token=os.environ.get("MCPSGRADEWATCH_NTFY_TOKEN", ""),
+            server=os.environ.get("LASTBELL_NTFY_SERVER", "https://ntfy.sh").rstrip("/"),
+            token=os.environ.get("LASTBELL_NTFY_TOKEN", ""),
         )
 
     def send(self, to: dict, subject: str, body: str) -> None:

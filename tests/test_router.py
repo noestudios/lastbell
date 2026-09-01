@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-from mcpsgradewatch import router, store, watchers
-from mcpsgradewatch.differ import Event
-from mcpsgradewatch.models import AlertType, Snapshot, Student, WatcherKind
+from lastbell import router, store, watchers
+from lastbell.differ import Event
+from lastbell.models import AlertType, Snapshot, Student, WatcherKind
 
 
 @pytest.fixture
@@ -92,12 +92,12 @@ def test_dispatch_sends_and_isolates_failures(conn):
     assert len(warnings) == 1 and "Jasper" in warnings[0]
     ((to, subject, body),) = channels["email"].calls
     assert to == {"to": "mom@example.com"}
-    assert subject == "[MCPSGradeWatch] 1 update for J.P.H."
+    assert subject == "[Last Bell] 1 update for J.P.H."
     assert "quiz graded" in body
 
 
 def test_subject_pluralizes():
-    assert router.subject("J.P.H.", [GRADE, MISSING]).startswith("[MCPSGradeWatch] 2 updates")
+    assert router.subject("J.P.H.", [GRADE, MISSING]).startswith("[Last Bell] 2 updates")
 
 
 def test_urgent_now_beats_the_digest_hour(conn):
@@ -131,5 +131,5 @@ def test_sms_channel_rides_the_email_transport(conn):
     assert sent == 1 and send_warnings == []
     assert fake.calls[0][0] == {"to": "3015551234@vtext.com"}
     # the real registry maps sms to the email transport class
-    from mcpsgradewatch.notify import ADDRESS_KEY
+    from lastbell.notify import ADDRESS_KEY
     assert ADDRESS_KEY["sms"] == "to"

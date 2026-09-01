@@ -1,7 +1,7 @@
 """Telegram channel — messages from your own bot.
 
 One-time setup: create a bot with @BotFather, put its token in
-MCPSGRADEWATCH_TELEGRAM_TOKEN, have each watcher message the bot once (bots
+LASTBELL_TELEGRAM_TOKEN, have each watcher message the bot once (bots
 can't initiate), and read their chat id from ``getUpdates``. The watcher's
 address is ``{"chat_id": "123456789"}``.
 """
@@ -20,10 +20,10 @@ class TelegramChannel:
 
     @classmethod
     def from_env(cls) -> "TelegramChannel":
-        token = os.environ.get("MCPSGRADEWATCH_TELEGRAM_TOKEN")
+        token = os.environ.get("LASTBELL_TELEGRAM_TOKEN")
         if not token:
             raise ValueError(
-                "MCPSGRADEWATCH_TELEGRAM_TOKEN is required for the telegram channel "
+                "LASTBELL_TELEGRAM_TOKEN is required for the telegram channel "
                 "(create a bot with @BotFather).")
         return cls(token=token)
 

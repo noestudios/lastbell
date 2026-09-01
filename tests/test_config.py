@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from mcpsgradewatch import config as cfg
+from lastbell import config as cfg
 
 
 def test_missing_required_raises(monkeypatch):
-    monkeypatch.delenv("MCPSGRADEWATCH_DISTRICT", raising=False)
-    monkeypatch.delenv("MCPSGRADEWATCH_USERNAME", raising=False)
+    monkeypatch.delenv("LASTBELL_DISTRICT", raising=False)
+    monkeypatch.delenv("LASTBELL_USERNAME", raising=False)
     # Prevent a stray .env on the dev box from satisfying the requirement.
     monkeypatch.setattr(cfg, "load_dotenv", lambda *a, **k: None, raising=False)
     with pytest.raises(cfg.ConfigError):
@@ -16,8 +16,8 @@ def test_missing_required_raises(monkeypatch):
 
 
 def test_base_url_normalizes_host(monkeypatch):
-    monkeypatch.setenv("MCPSGRADEWATCH_DISTRICT", "https://md-mcps-psv.edupoint.com/")
-    monkeypatch.setenv("MCPSGRADEWATCH_USERNAME", "someone")
+    monkeypatch.setenv("LASTBELL_DISTRICT", "https://md-mcps-psv.edupoint.com/")
+    monkeypatch.setenv("LASTBELL_USERNAME", "someone")
     conf = cfg.load()
     assert conf.base_url == "https://md-mcps-psv.edupoint.com"
 
@@ -36,14 +36,14 @@ def test_no_hardcoded_credentials_in_source():
         assert ".edupoint.com" not in src, f"{name}: no district host may be hard-coded"
         assert 'default="' not in src, f"{name}: no argparse credential defaults"
     # preflight is a general tool (Phase 5): district/username come from flags
-    # or the MCPSGRADEWATCH_* environment, never literals in source.
+    # or the LASTBELL_* environment, never literals in source.
     src = (pkg / "preflight.py").read_text()
-    assert "MCPSGRADEWATCH_DISTRICT" in src
-    assert "MCPSGRADEWATCH_USERNAME" in src
+    assert "LASTBELL_DISTRICT" in src
+    assert "LASTBELL_USERNAME" in src
 
 
 def test_placeholder_username_rejected(monkeypatch):
-    monkeypatch.setenv("MCPSGRADEWATCH_DISTRICT", "md-mcps-psv.edupoint.com")
-    monkeypatch.setenv("MCPSGRADEWATCH_USERNAME", "your_parentvue_username")
+    monkeypatch.setenv("LASTBELL_DISTRICT", "md-mcps-psv.edupoint.com")
+    monkeypatch.setenv("LASTBELL_USERNAME", "your_parentvue_username")
     with pytest.raises(cfg.ConfigError, match="placeholder"):
         cfg.load()

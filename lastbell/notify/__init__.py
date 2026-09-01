@@ -1,7 +1,7 @@
 """Pluggable notification channels.
 
 Delivery is push-*out*: a channel sends to a person's inbox/phone. No one signs
-into mcpsgradewatch to receive an alert. Payloads are low-PII by default (initials +
+into lastbell to receive an alert. Payloads are low-PII by default (initials +
 course + score, never a child's full name).
 
 Two layers:
@@ -122,4 +122,4 @@ def get(channel_name: str) -> Notifier:
     raise ValueError(
         f"Unknown notify channel: {channel_name!r} (the global fallback supports "
         f"console and email; per-watcher channels are configured with "
-        f"`mcpsgradewatch watcher` + `subscribe`)")
+        f"`lastbell watcher` + `subscribe`)")

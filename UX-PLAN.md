@@ -14,7 +14,7 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
 3. **Default watcher**: whoever installs with a username/password IS a watcher
    by default. Setup (or the first `run` with zero watchers) creates a guardian
    watcher for the credential holder, subscribes them to all discovered
-   students, and seeds their email channel from `MCPSGRADEWATCH_SMTP_TO` when
+   students, and seeds their email channel from `LASTBELL_SMTP_TO` when
    set. Ack and the viewer identity picker therefore always have someone to
    attribute to; watcher CRUD is in both the CLI and (since the Phase B
    settings build-out) the dashboard's Settings page.
@@ -22,7 +22,7 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
    the end of every `run` pass — a no-op once any watcher exists. Console
    channel when SMTP_TO is unset, mirroring the old no-watcher fallback.
 4. **Score cutoff**: one global display threshold
-   (`MCPSGRADEWATCH_SCORE_CUTOFF`), used to tint graded rows below it.
+   (`LASTBELL_SCORE_CUTOFF`), used to tint graded rows below it.
    Per-student cutoffs are a later maybe.
 
 ## Phases
@@ -53,8 +53,15 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
   subscriptions add in one step ("all students" fans out) and edit in place
   per row (type/channel/time + update/remove). Validation errors redirect
   back as a banner (`?err=`). Quiet hours are descoped from the web UI
-  (owner's call 2026-09-01) — CLI only. Student-name nav links (decision 2)
-  are still open.
+  (owner's call 2026-09-01) — CLI only.
+- Student-name nav links (decision 2): **done (2026-09-01)** — the nav shows
+  each student as a direct link between the brand and Alerts/History (first
+  names, falling back to full names if two students share one; the full name
+  rides the title attribute), and the top-level "Students" item is gone. At
+  the narrow-nav breakpoint the name links collapse into a `<details>` menu
+  behind the students icon (no JS to open; app.js closes it on an outside
+  click, same as the alert-types popover). Every page renders the links —
+  `_handle` fetches students once per request and threads them to `_page`.
 - Delivery cadence (owner's call 2026-09-01): the default is ONE daily
   digest at 16:00, with an "urgent now" checkbox (per subscription,
   `urgent_now` column) that sends urgent alert types immediately —
@@ -129,7 +136,7 @@ dozens per class (× 7 classes, × students, plus a term of alerts/history).
 The overview-vs-detail split must be decided against *that* volume, not
 week-one data. Before locking Phase C layouts:
 
-- Build a **demo-data seeder** (e.g. `mcpsgradewatch seed-demo` into a
+- Build a **demo-data seeder** (e.g. `lastbell seed-demo` into a
   throwaway DB, or a script) that fabricates a realistic quarter-end state:
   ~25–40 assignments per class with plausible types/dates/scores, a few
   missing/past-due, weeks of grade history and alerts, two terms.
@@ -173,5 +180,5 @@ inline SVG keeps it JS-free.
 - Exact token values cross-checked against the template's open-source Chakra
   theme (creativetimofficial/purity-ui-dashboard, MIT — attribution in README
   Credits and style.css).
-- Phase A status: **done** — tokens live in `mcpsgradewatch/style.css`,
+- Phase A status: **done** — tokens live in `lastbell/style.css`,
   served at `/static/style.css`.

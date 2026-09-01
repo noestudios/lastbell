@@ -5,8 +5,8 @@ from __future__ import annotations
 import datetime
 import pathlib
 
-from mcpsgradewatch.gradebook import parse_class_details, parse_school_classes
-from mcpsgradewatch.models import AssignmentStatus
+from lastbell.gradebook import parse_class_details, parse_school_classes
+from lastbell.models import AssignmentStatus
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
@@ -64,7 +64,7 @@ def test_parse_class_details_sample():
 
 def test_secondary_graded_row_recovers_points_from_score_text():
     """Live secondary rows leave GBPoints empty; "3 out of 4.0000" carries both."""
-    from mcpsgradewatch.gradebook import _row_to_assignment
+    from lastbell.gradebook import _row_to_assignment
 
     a = _row_to_assignment(
         {"GBScore": '{"value": "3 out of 4.0000", "dataType": "LinkColumn"}',

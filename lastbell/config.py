@@ -61,25 +61,25 @@ class Config:
 
 def load() -> Config:
     """Build a Config from the environment. Raises ConfigError on missing values."""
-    username = _get("MCPSGRADEWATCH_USERNAME", required=True)
+    username = _get("LASTBELL_USERNAME", required=True)
     if username == "your_parentvue_username":
         raise ConfigError(
-            "MCPSGRADEWATCH_USERNAME is still the placeholder from .env.example. "
+            "LASTBELL_USERNAME is still the placeholder from .env.example. "
             "Edit .env and set your real ParentVUE username. (Careful not to re-run "
             "`cp .env.example .env` afterward — it overwrites your edits.)"
         )
     return Config(
-        district=_get("MCPSGRADEWATCH_DISTRICT", required=True),
+        district=_get("LASTBELL_DISTRICT", required=True),
         username=username,
-        secret_backend=_get("MCPSGRADEWATCH_SECRET_BACKEND", "keyring"),
-        poll_minutes=int(_get("MCPSGRADEWATCH_POLL_MINUTES", "180")),
-        db_path=Path(_get("MCPSGRADEWATCH_DB_PATH", "data/mcpsgradewatch.db")),
-        snapshot_dir=Path(_get("MCPSGRADEWATCH_SNAPSHOT_DIR", "data/snapshots")),
-        snapshot_retention_days=int(_get("MCPSGRADEWATCH_SNAPSHOT_RETENTION_DAYS", "90")),
-        notify_channel=_get("MCPSGRADEWATCH_NOTIFY_CHANNEL", "console"),
-        lookahead_days=int(_get("MCPSGRADEWATCH_LOOKAHEAD_DAYS", "7")),
-        ungraded_grace_days=int(_get("MCPSGRADEWATCH_UNGRADED_GRACE_DAYS", "3")),
-        dashboard_host=_get("MCPSGRADEWATCH_DASHBOARD_HOST", "127.0.0.1"),
-        dashboard_port=int(_get("MCPSGRADEWATCH_DASHBOARD_PORT", "8321")),
-        grade_drop_points=float(_get("MCPSGRADEWATCH_GRADE_DROP_POINTS", "5")),
+        secret_backend=_get("LASTBELL_SECRET_BACKEND", "keyring"),
+        poll_minutes=int(_get("LASTBELL_POLL_MINUTES", "180")),
+        db_path=Path(_get("LASTBELL_DB_PATH", "data/lastbell.db")),
+        snapshot_dir=Path(_get("LASTBELL_SNAPSHOT_DIR", "data/snapshots")),
+        snapshot_retention_days=int(_get("LASTBELL_SNAPSHOT_RETENTION_DAYS", "90")),
+        notify_channel=_get("LASTBELL_NOTIFY_CHANNEL", "console"),
+        lookahead_days=int(_get("LASTBELL_LOOKAHEAD_DAYS", "7")),
+        ungraded_grace_days=int(_get("LASTBELL_UNGRADED_GRACE_DAYS", "3")),
+        dashboard_host=_get("LASTBELL_DASHBOARD_HOST", "127.0.0.1"),
+        dashboard_port=int(_get("LASTBELL_DASHBOARD_PORT", "8321")),
+        grade_drop_points=float(_get("LASTBELL_GRADE_DROP_POINTS", "5")),
     )

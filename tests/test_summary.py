@@ -5,9 +5,9 @@ import datetime
 
 import pytest
 
-from mcpsgradewatch import store, summary, watchers
-from mcpsgradewatch.differ import Event
-from mcpsgradewatch.models import (
+from lastbell import store, summary, watchers
+from lastbell.differ import Event
+from lastbell.models import (
     AlertType,
     Assignment,
     AssignmentStatus,
@@ -87,7 +87,7 @@ def test_send_due_fires_once_per_day(conn):
     assert sent == 1 and warnings == []
     ((to, subject, body),) = ch.calls
     assert to == {"to": "mom@example.com"}
-    assert subject == "[MCPSGradeWatch] Daily summary for J.P.H."
+    assert subject == "[Last Bell] Daily summary for J.P.H."
     assert "Missing (1):" in body
 
     # same day again: gated by last_sent_on

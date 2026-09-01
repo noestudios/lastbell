@@ -1,4 +1,4 @@
-# MCPSGradeWatch
+# Last Bell
 
 A self-hosted **ParentVUE grade & assignment monitor**. It watches your own
 students' gradebooks and pushes alerts — missing assignments, new or changed
@@ -9,7 +9,7 @@ already use.
 > Not affiliated with Edupoint. It uses **your** credentials to read **your**
 > students' data, and everything runs on hardware you control.
 
-**Status: all roadmap phases complete.** `mcpsgradewatch run` sweeps **every class** per
+**Status: all roadmap phases complete.** `lastbell run` sweeps **every class** per
 student (via each class row's own `data-focus` payload, the same drill-down
 the portal UI performs), persists a snapshot keyed on the Edupoint assignment
 GUID, diffs against the previous run, and alerts on **score changes,
@@ -31,9 +31,9 @@ against MCPS (`md-mcps-psv.edupoint.com`, 2026-08-31).
 ## Why scraping (and not the SOAP API)
 
 The legacy Edupoint SOAP mobile API is disabled on a growing number of districts
-(MCPS returns `UPD5304-00`, Loudoun `D5517`). MCPSGradeWatch talks to the PXP2 **web
+(MCPS returns `UPD5304-00`, Loudoun `D5517`). Last Bell talks to the PXP2 **web
 portal** instead: an ASP.NET form login, then the `PXP2_Gradebook.aspx/LoadControl`
-page method the gradebook UI itself calls. Run `mcpsgradewatch preflight` to see what
+page method the gradebook UI itself calls. Run `lastbell preflight` to see what
 your district allows.
 
 ## Quickstart
@@ -43,30 +43,30 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 
 cp .env.example .env          # then edit: district + username (NOT the password)
-mcpsgradewatch set-password       # stores the password in your OS keyring
-mcpsgradewatch preflight          # district go/no-go check (values redacted)
+lastbell set-password       # stores the password in your OS keyring
+lastbell preflight          # district go/no-go check (values redacted)
 
-mcpsgradewatch run                # one pass: snapshot, diff, alert (first run = baseline)
-mcpsgradewatch run --loop         # keep polling every MCPSGRADEWATCH_POLL_MINUTES
-mcpsgradewatch collect            # read-only JSON dump of what a run would persist
+lastbell run                # one pass: snapshot, diff, alert (first run = baseline)
+lastbell run --loop         # keep polling every LASTBELL_POLL_MINUTES
+lastbell collect            # read-only JSON dump of what a run would persist
 ```
 
 Then route alerts to the people who should get them (Phase 3):
 
 ```bash
-mcpsgradewatch watcher add Mom --kind guardian --channel email=mom@example.com
-mcpsgradewatch watcher add Jasper --kind student --channel ntfy=some-long-secret-topic
-mcpsgradewatch subscribe Mom jasper                 # all alert types, all her channels
-mcpsgradewatch subscribe Jasper jasper \
+lastbell watcher add Mom --kind guardian --channel email=mom@example.com
+lastbell watcher add Jasper --kind student --channel ntfy=some-long-secret-topic
+lastbell subscribe Mom jasper                 # all alert types, all her channels
+lastbell subscribe Jasper jasper \
     --types assignment_missing,upcoming_deadline    # students see nudges, not grades
-mcpsgradewatch subscriptions                        # who gets what
-mcpsgradewatch dashboard                            # web UI on 127.0.0.1:8321
+lastbell subscriptions                        # who gets what
+lastbell dashboard                            # web UI on 127.0.0.1:8321
 ```
 
 Students are referenced by AGU or any unique name/initials prefix; watchers by
 the name you gave them. You start with one automatically: the first `run`
 creates a guardian watcher named after the credential holder, subscribed to
-every student — email seeded from `MCPSGRADEWATCH_SMTP_TO` when set, console
+every student — email seeded from `LASTBELL_SMTP_TO` when set, console
 otherwise. Its delivery follows the considerate default: one daily digest at
 4pm, with urgent alert types (missing assignment, upcoming deadline, grade
 drop) sent immediately. Rename or remove it freely; it's only re-created if
@@ -75,12 +75,12 @@ the watcher list is ever empty again.
 And shape *when and how much* each person hears (Phase 4):
 
 ```bash
-mcpsgradewatch subscribe Mom jasper --at 17:00      # batch her alerts into a 5pm digest
-mcpsgradewatch subscribe Mom jasper --types daily_summary --at 07:00   # morning report
-mcpsgradewatch watcher quiet-hours Jasper 21:00-07:00   # held overnight, never dropped
-mcpsgradewatch alerts                               # the log, with ack state
-mcpsgradewatch ack 6e383bac --by Mom                # "handled" — for everyone
-mcpsgradewatch flush                                # send due digests/summaries now
+lastbell subscribe Mom jasper --at 17:00      # batch her alerts into a 5pm digest
+lastbell subscribe Mom jasper --types daily_summary --at 07:00   # morning report
+lastbell watcher quiet-hours Jasper 21:00-07:00   # held overnight, never dropped
+lastbell alerts                               # the log, with ack state
+lastbell ack 6e383bac --by Mom                # "handled" — for everyone
+lastbell flush                                # send due digests/summaries now
 ```
 
 In `run --loop`, the portal is polled every `POLL_MINUTES` but the outbox and
@@ -98,8 +98,8 @@ a *reference* to where the secret lives:
 
 | Install        | Secret store                                                        |
 |----------------|---------------------------------------------------------------------|
-| Bare-metal     | OS keyring — macOS Keychain / Windows Credential Manager / Secret Service (`mcpsgradewatch set-password`) |
-| Docker / CI    | `MCPSGRADEWATCH_PASSWORD`, injected from Docker secrets or a CI secret store |
+| Bare-metal     | OS keyring — macOS Keychain / Windows Credential Manager / Secret Service (`lastbell set-password`) |
+| Docker / CI    | `LASTBELL_PASSWORD`, injected from Docker secrets or a CI secret store |
 
 Cross-platform by construction: plain Python (Windows/macOS/Linux), no OS-native
 hooks. SQLite by default; ship it as a container to run identically on a Pi, NAS,
@@ -107,7 +107,7 @@ or VPS. It needs an **always-on host** to poll and push.
 
 ## How alerts reach people
 
-Push-**out**, not pull-in: nobody signs into MCPSGradeWatch to receive an alert.
+Push-**out**, not pull-in: nobody signs into Last Bell to receive an alert.
 A *watcher* is just a name plus addresses; *subscriptions* say which student's
 events reach them, over which channels, filtered by alert type. One poll, one
 message per watcher-channel — a watcher subscribed to three alert types gets a
@@ -115,14 +115,14 @@ single message listing everything.
 
 | Channel    | Watcher address        | Transport setup (env)                      |
 |------------|------------------------|--------------------------------------------|
-| `email`    | `email=who@example.com`| `MCPSGRADEWATCH_SMTP_*` (any SMTP account) |
+| `email`    | `email=who@example.com`| `LASTBELL_SMTP_*` (any SMTP account) |
 | *SMS*      | carrier gateway addr, e.g. `email=3015551234@vtext.com` | same as email |
 | `ntfy`     | `ntfy=secret-topic`    | none (public ntfy.sh) or `NTFY_SERVER/TOKEN` |
-| `telegram` | `telegram=<chat_id>`   | `MCPSGRADEWATCH_TELEGRAM_TOKEN` (@BotFather bot) |
-| `pushover` | `pushover=<user_key>`  | `MCPSGRADEWATCH_PUSHOVER_TOKEN` (app token) |
+| `telegram` | `telegram=<chat_id>`   | `LASTBELL_TELEGRAM_TOKEN` (@BotFather bot) |
+| `pushover` | `pushover=<user_key>`  | `LASTBELL_PUSHOVER_TOKEN` (app token) |
 | `console`  | —                      | none; prints to the run's stdout           |
 
-The web dashboard (`mcpsgradewatch dashboard`) is for looking things up on
+The web dashboard (`lastbell dashboard`) is for looking things up on
 demand — students, assignments, alert log, grade history, watcher routing —
 never required to get a notification. It's stdlib-only and binds `127.0.0.1`
 unless you deliberately widen it; unlike alert payloads it shows full names,
@@ -141,10 +141,10 @@ or touching a `.env`:
 
 ```bash
 # Anonymous: public endpoints only, no credentials sent anywhere
-mcpsgradewatch preflight --district your-host.example --report
+lastbell preflight --district your-host.example --report
 
 # Full: login + data path + this repo's actual parsers against your fragments
-mcpsgradewatch preflight --district your-host.example --username you --report
+lastbell preflight --district your-host.example --username you --report
 ```
 
 It checks, in order: the PXP2 login form exists → the legacy SOAP API's status
@@ -173,12 +173,12 @@ returns server-rendered fragments; assignments arrive as a DevExpress grid
 `dataSource` JSON array (`Date`, `GBAssignment`, `GBScore`, `GBPoints`, … with
 LinkColumn cells wrapping display text and a ready-made
 `Gradebook_AssignmentDetails` drill-down focus). The parsers in
-[`mcpsgradewatch/gradebook.py`](mcpsgradewatch/gradebook.py) are wired against
+[`lastbell/gradebook.py`](lastbell/gradebook.py) are wired against
 real captured fragments from both school types.
 
 ```bash
-mcpsgradewatch preflight --dump   # go/no-go check; saves fragments to data/debug/
-mcpsgradewatch collect            # normalized JSON for every student and class
+lastbell preflight --dump   # go/no-go check; saves fragments to data/debug/
+lastbell collect            # normalized JSON for every student and class
 ```
 
 Phase 1 built the watch loop on top of that path: each class row's `data-focus`
@@ -201,7 +201,7 @@ and duplicate screen/print row variants fetched once).
 ## Credits
 
 The dashboard's visual design (colors, type, card and badge styling in
-[`mcpsgradewatch/style.css`](mcpsgradewatch/style.css)) is derived from
+[`lastbell/style.css`](lastbell/style.css)) is derived from
 [Purity UI Dashboard](https://github.com/creativetimofficial/purity-ui-dashboard)
 — Copyright (c) 2021 Creative Tim, released under the MIT license; its
 copyright and permission notice applies to those derived styles.
@@ -209,7 +209,7 @@ copyright and permission notice applies to those derived styles.
 The web-portal approach (ASP.NET form login, embedded child-list JSON) was
 first demonstrated by [dmc5179/ParentVUE](https://github.com/dmc5179/ParentVUE)
 (GPLv3), which served as prior art and reference during this project's district
-recon. MCPSGradeWatch's code is written independently against the portal itself, but
+recon. Last Bell's code is written independently against the portal itself, but
 that repo deserves the credit for proving the post-SOAP path first. Community
 documentation of the (now largely deprecated) SOAP API lives at
 [StudentVue/docs](https://github.com/StudentVue/docs).
