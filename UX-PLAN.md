@@ -140,12 +140,15 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
   pseudo-element/`data-tip` attribute), no JS dependency.
   **Built:** `[data-tip]` + `::after` bubble, hover/decay on the fast
   tier; card tables get `overflow: visible` so bubbles escape (their radius
-  is 0, hidden bought nothing). **Extended app-wide (owner's call
-  2026-09-01):** NO native `title` bubble anywhere — nav, settings forms,
-  buttons, everything rides `data-tip`, with placement variants (`tip-b`
-  below for the nav row, `tip-e`/`tip-s` end/start-aligned for edge
-  elements) and wrapping for long text. A regression test asserts no
-  `title=` in any page body.
+  is 0, hidden bought nothing). **Extended app-wide (owner's calls
+  2026-09-01):** NO native `title` bubble anywhere, and no tooltip at all
+  on plain labeled links (nav items, gear, remove buttons) — a tooltip
+  must REVEAL something: raw points, full timestamp, the full name behind
+  a nav first name, what a filter/urgent-now/digest-time/address field
+  does, the theme state. Normal-weight text, a slow-tier delay before
+  showing (instant hide), placement variants (`tip-b` below for the nav
+  row, `tip-e`/`tip-s` end/start-aligned), wrapping for long text. A
+  regression test asserts no `title=` in any page body.
 
 ### D. Interaction — ack
 - One-time viewer identity picker (choose your watcher), remembered in

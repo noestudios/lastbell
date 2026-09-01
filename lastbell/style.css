@@ -776,7 +776,9 @@ span.tip { cursor: help; }
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
   padding: 0.28rem 0.6rem;
   font-size: 0.72rem;
-  font-weight: 600;
+  font-weight: 400;
+  line-height: 1.5;    /* the host's line-height must not leak in
+                          (the icon-only theme button uses 0) */
   width: max-content;
   max-width: 18rem;
   white-space: normal;
@@ -787,7 +789,13 @@ span.tip { cursor: help; }
   transition: opacity var(--dur-fast) var(--ease),
               visibility var(--dur-fast) var(--ease);
 }
-[data-tip]:hover::after { opacity: 1; visibility: visible; }
+/* Reveal after a beat (slow tier) — a tooltip that fires instantly on
+ * every mouse-cross is noise. Hiding stays immediate. */
+[data-tip]:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: var(--dur-slow);
+}
 /* Placement variants: below (nav row — above would leave the viewport),
  * end-aligned (right-edge controls), start-aligned (first-column links). */
 .tip-b::after { bottom: auto; top: calc(100% + 7px); }

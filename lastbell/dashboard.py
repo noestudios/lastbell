@@ -506,14 +506,14 @@ def _nav_students(students) -> str:
         f"<a href='/student/{escape(s['agu'])}'>{escape(s['name'])}</a>"
         for s in students)
     return (f"<span class='navstudents'>{inline}</span>"
-            f"<details class='smenu'><summary class='tip-b' data-tip='Students' "
+            f"<details class='smenu'><summary "
             f"aria-label='Students'>{_SVG.format(_STUDENTS_ICON)}</summary>"
             f"<div class='smenu-list'>{menu}</div></details>")
 
 
 def _page(title: str, body: str, nav_students=()) -> str:
     links = "".join(
-        f"<a class='tip-b' href='{href}' data-tip='{label}'>{_SVG.format(icon)}"
+        f"<a href='{href}' aria-label='{label}'>{_SVG.format(icon)}"
         f"<span class='lbl'>{label}</span></a>"
         for href, label, icon in _NAV_ITEMS)
     return (
@@ -525,7 +525,7 @@ def _page(title: str, body: str, nav_students=()) -> str:
         "<script src='/static/app.js' defer></script></head><body>"
         f"<nav><a class='brand' href='/'>Last Bell</a>"
         f"{_nav_students(nav_students)}{links}"
-        f"<a class='gear tip-b tip-e' href='/settings' data-tip='Settings' "
+        f"<a class='gear' href='/settings' "
         f"aria-label='Settings'>{_GEAR_ICON}</a>"
         f"<button id='themetoggle' class='tip-b tip-e' "
         f"aria-label='Theme'>{_THEME_ICON_AUTO}</button></nav>"
@@ -1315,9 +1315,7 @@ def render_settings(watcher_list, subscriptions, students=(),
                 f"<form method='post' action='/settings/watcher-remove' "
                 f"class='rowform' data-group='{escape(w.id)}'>"
                 f"<input type='hidden' name='name' value='{escape(w.name)}'>"
-                f"<button class='ghost tip-e' "
-                f"data-tip='remove watcher {escape(w.name)}'>"
-                f"remove</button></form>"
+                f"<button class='ghost'>remove</button></form>"
                 f"</td></tr>")
             for cname, addr in w.channels.items():
                 fid = f"ch-{escape(w.id)}-{escape(cname)}"
@@ -1325,8 +1323,7 @@ def render_settings(watcher_list, subscriptions, students=(),
                           f"<input type='hidden' name='channel' value='{escape(cname)}'>")
                 if notify.ADDRESS_KEY.get(cname) is None:   # console: no address
                     addr_cell = "—"
-                    buttons = ("<button class='ghost tip-e' "
-                               "data-tip='remove this channel'>remove</button>")
+                    buttons = "<button class='ghost'>remove</button>"
                     form = (f"<form id='{fid}' method='post' "
                             f"action='/settings/channel-remove' class='rowform'>"
                             f"{hidden}{buttons}</form>")
@@ -1342,9 +1339,9 @@ def render_settings(watcher_list, subscriptions, students=(),
                     form = (f"<form id='{fid}' method='post' "
                             f"action='/settings/channel' class='rowform'>{hidden}"
                             f"<button class='upd'>Update</button> "
-                            f"<button class='ghost tip-e' "
-                            f"formaction='/settings/channel-remove' "
-                            f"data-tip='remove this channel'>remove</button></form>")
+                            f"<button class='ghost' "
+                            f"formaction='/settings/channel-remove'>"
+                            f"remove</button></form>")
                 w_rows.append(
                     f"<tr class='chrow' id='row-{fid}' data-w='{escape(w.id)}'>"
                     f"<td class='chname'>{escape(channel_label.get(cname, cname))}</td>"
@@ -1425,8 +1422,8 @@ def render_settings(watcher_list, subscriptions, students=(),
                 f"class='rowform'>"
                 f"<input type='hidden' name='ids' value='{escape(ids)}'>"
                 f"<button class='upd'>Update</button> "
-                f"<button class='ghost tip-e' formaction='/settings/unsubscribe' "
-                f"data-tip='remove this subscription'>remove</button></form></td></tr>")
+                f"<button class='ghost' formaction='/settings/unsubscribe'>"
+                f"remove</button></form></td></tr>")
         s_body = ("<table class='manage'><tr class='head'><th>Watcher ⇒ Student</th>"
                   "<th>Alerts</th><th>Via</th><th>Delivery</th><th></th></tr>"
                   + "".join(s_rows) + "</table>")
