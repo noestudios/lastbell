@@ -40,8 +40,12 @@
   --card-pad:    22px;
 }
 
+/* Dark palette. Three theme states: an explicit choice stamps
+ * data-theme="dark"/"light" on <html> (the nav toggle, saved per browser);
+ * with no choice, the system preference decides. The same token values
+ * appear twice so the manual choice wins in both directions. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg:         #1a202c;
     --surface:    #1f2733;
     --surface-2:  #2d3748;
@@ -50,6 +54,15 @@
     --border:     rgba(255, 255, 255, 0.08);
     --card-shadow: none;
   }
+}
+:root[data-theme="dark"] {
+  --bg:         #1a202c;
+  --surface:    #1f2733;
+  --surface-2:  #2d3748;
+  --text:       #f7fafc;
+  --text-muted: #a0aec0;
+  --border:     rgba(255, 255, 255, 0.08);
+  --card-shadow: none;
 }
 
 * { box-sizing: border-box; }
@@ -89,6 +102,19 @@ nav .brand {
   text-transform: uppercase;
   margin-right: 0.6rem;
 }
+#themetoggle {
+  margin-left: auto;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+}
+#themetoggle:hover { color: var(--text); }
 
 /* ── type ───────────────────────────────────────────────────────────── */
 

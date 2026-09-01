@@ -162,3 +162,14 @@ def test_stylesheet_exists_and_is_linked(populated):
     assert ":root" in css and "--accent" in css and "--bg" in css
     _, html = _get(populated, "/")
     assert "/static/style.css" in html
+
+
+def test_theme_toggle_present_and_css_supports_override(populated):
+    from mcpsgradewatch.dashboard import _STYLE_PATH
+
+    _, html = _get(populated, "/")
+    assert "id='themetoggle'" in html
+    assert "mcpsgradewatch-theme" in html      # localStorage key in the script
+    css = _STYLE_PATH.read_text(encoding="utf-8")
+    assert ':root[data-theme="dark"]' in css
+    assert ':root:not([data-theme="light"])' in css
