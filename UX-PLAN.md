@@ -62,6 +62,26 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
 - With decision 3, a fresh install always has at least one watcher, so the
   ack UI never silently disappears (its current failure mode).
 
+### Open design question — density at end-of-quarter scale
+Today each class holds a handful of assignments; by quarter's end it will be
+dozens per class (× 7 classes, × students, plus a term of alerts/history).
+The overview-vs-detail split must be decided against *that* volume, not
+week-one data. Before locking Phase C layouts:
+
+- Build a **demo-data seeder** (e.g. `mcpsgradewatch seed-demo` into a
+  throwaway DB, or a script) that fabricates a realistic quarter-end state:
+  ~25–40 assignments per class with plausible types/dates/scores, a few
+  missing/past-due, weeks of grade history and alerts, two terms.
+- Design against it, then decide:
+  - what an overview card earns at that scale (currently full course table —
+    probably: overall grade + open-issue flags + maybe a trend, nothing more);
+  - student detail: default sort (due date vs. recently-graded first),
+    whether graded backlog collapses ("last 5 + view all"), per-course
+    collapse, and whether closed terms collapse by default;
+  - whether alerts/history need paging.
+- The seeder stays useful afterward for screenshots, docs, and demoing
+  without exposing real student data.
+
 ### Cross-cutting — human-readable errors
 - Inventory every user-facing failure (dashboard error page, CLI poll
   warnings, channel delivery failures, collect errors) and rewrite as plain
