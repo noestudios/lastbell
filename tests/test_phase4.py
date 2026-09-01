@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from mcpsgradewatch import differ, router, store, watchers
-from mcpsgradewatch.differ import Event
-from mcpsgradewatch.models import (
+from lastbell import differ, router, store, watchers
+from lastbell.differ import Event
+from lastbell.models import (
     AlertType,
     Course,
     Snapshot,
@@ -60,7 +60,7 @@ def test_unparseable_percent_falls_back_to_grade_changed():
 
 
 def test_percent_display_rule():
-    from mcpsgradewatch.models import format_percent
+    from lastbell.models import format_percent
 
     assert format_percent("87.20%") == "87.2"
     assert format_percent("0%") == "0.0"

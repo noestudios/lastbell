@@ -62,7 +62,7 @@ def plan(conn: sqlite3.Connection, student_id: str,
             if watcher.channels.get(ch) is None and ch != "console":
                 warnings.append(
                     f"watcher {watcher.name!r} is subscribed via {ch!r} but has no "
-                    f"{ch} address — set one with: mcpsgradewatch watcher set-channel "
+                    f"{ch} address — set one with: lastbell watcher set-channel "
                     f"{watcher.name} {ch}=…")
                 continue
             slot = matched_map.setdefault((watcher.id, ch), {})
@@ -128,4 +128,4 @@ def dispatch(deliveries: list[Delivery], student_initials: str,
 
 def subject(student_initials: str, events: list[Event]) -> str:
     n = len(events)
-    return f"[MCPSGradeWatch] {n} update{'s' if n != 1 else ''} for {student_initials}"
+    return f"[Last Bell] {n} update{'s' if n != 1 else ''} for {student_initials}"

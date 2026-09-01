@@ -8,7 +8,7 @@ no build step. Pages are SELECTs; the write paths are the shared-ack button on
 (``POST /settings/<action>``) — household bookkeeping only, never grade data.
 
 It binds 127.0.0.1 by default. To share it on your LAN set
-MCPSGRADEWATCH_DASHBOARD_HOST=0.0.0.0 — and know that unlike alert payloads it
+LASTBELL_DASHBOARD_HOST=0.0.0.0 — and know that unlike alert payloads it
 shows full names (and, on /settings, watcher addresses), so treat the bind
 address as the access control; the write paths carry no auth of their own.
 """
@@ -122,7 +122,7 @@ def fetch_history(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Ro
 # statement runs before paint so a saved choice never flashes the wrong theme.
 _THEME_JS = """
 (function(){
-  var KEY='mcpsgradewatch-theme', root=document.documentElement, choice=null;
+  var KEY='lastbell-theme', root=document.documentElement, choice=null;
   try { choice = localStorage.getItem(KEY); } catch (e) {}
   function apply(){
     if (choice==='light'||choice==='dark') root.setAttribute('data-theme', choice);
@@ -154,9 +154,12 @@ _THEME_JS = """
 _SVG = ("<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' "
         "stroke-width='2' stroke-linecap='round' stroke-linejoin='round' "
         "aria-hidden='true'>{}</svg>")
+# The students icon fronts the narrow-width student menu; the old top-level
+# "Students" nav item is gone (the brand already links to the overview) and
+# students appear as direct name links instead.
+_STUDENTS_ICON = (
+    "<path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/>")
 _NAV_ITEMS = (
-    ("/", "Students",
-     "<path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/>"),
     ("/alerts", "Alerts",
      "<path d='M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9'/>"
      "<path d='M13.7 21a2 2 0 0 1-3.4 0'/>"),
@@ -181,7 +184,36 @@ _GEAR_ICON = _SVG.format(
     " 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z'/>")
 
 
-def _page(title: str, body: str) -> str:
+def _nav_names(students) -> list[str]:
+    """Nav display names: first names, unless two students share one — then
+    everyone gets their full name (the title attribute always carries it)."""
+    firsts = [(s["name"] or "").split()[0] or s["name"] for s in students]
+    if len(set(firsts)) < len(firsts):
+        return [s["name"] for s in students]
+    return firsts
+
+
+def _nav_students(students) -> str:
+    """Student links for the nav: names inline at desktop width; on narrow
+    they give way to a <details> menu behind the students icon (no JS to
+    open — app.js only adds outside-click close)."""
+    if not students:
+        return ""
+    names = _nav_names(students)
+    inline = "".join(
+        f"<a href='/student/{escape(s['agu'])}' title='{escape(s['name'])}'>"
+        f"{escape(n)}</a>"
+        for s, n in zip(students, names))
+    menu = "".join(
+        f"<a href='/student/{escape(s['agu'])}'>{escape(s['name'])}</a>"
+        for s in students)
+    return (f"<span class='navstudents'>{inline}</span>"
+            f"<details class='smenu'><summary title='Students' "
+            f"aria-label='Students'>{_SVG.format(_STUDENTS_ICON)}</summary>"
+            f"<div class='smenu-list'>{menu}</div></details>")
+
+
+def _page(title: str, body: str, nav_students=()) -> str:
     links = "".join(
         f"<a href='{href}' title='{label}'>{_SVG.format(icon)}"
         f"<span class='lbl'>{label}</span></a>"
@@ -189,11 +221,12 @@ def _page(title: str, body: str) -> str:
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        f"<title>{escape(title)} · MCPSGradeWatch</title>"
+        f"<title>{escape(title)} · Last Bell</title>"
         "<link rel='stylesheet' href='/static/style.css'>"
         f"<script>{_THEME_JS}</script>"
         "<script src='/static/app.js' defer></script></head><body>"
-        f"<nav><a class='brand' href='/'>MCPSGradeWatch</a>{links}"
+        f"<nav><a class='brand' href='/'>Last Bell</a>"
+        f"{_nav_students(nav_students)}{links}"
         f"<a class='gear' href='/settings' title='Settings' "
         f"aria-label='Settings'>{_GEAR_ICON}</a>"
         "<button id='themetoggle' title='Theme: follows your system unless "
@@ -233,7 +266,7 @@ def _score(row) -> str:
 def render_overview(students, courses_by_student, counts_by_student) -> str:
     if not students:
         return _page("Students",
-                     "<h1>No students yet</h1><p>Run <code>mcpsgradewatch run</code> "
+                     "<h1>No students yet</h1><p>Run <code>lastbell run</code> "
                      "once to establish a baseline.</p>")
     cards = []
     for s in students:
@@ -259,10 +292,11 @@ def render_overview(students, courses_by_student, counts_by_student) -> str:
             f"<div>{' '.join(flags) or '<span class=small>all clear</span>'}</div>"
             f"<table class='courses'><tr class='head'><th>Course</th><th>Teacher</th>"
             f"<th>%</th><th>Mark</th></tr>{rows}</table></div>")
-    return _page("Students", "<h1>Students</h1><div class='cards'>" + "".join(cards) + "</div>")
+    return _page("Students", "<h1>Students</h1><div class='cards'>" + "".join(cards) + "</div>",
+                 nav_students=students)
 
 
-def render_student(student, sections) -> str:
+def render_student(student, sections, nav_students=()) -> str:
     """``sections`` is [(term, [(course, assignments), …]), …], current term
     first. Term headings appear only once a second term exists — a
     single-quarter database looks exactly as it did before rollover."""
@@ -277,7 +311,7 @@ def render_student(student, sections) -> str:
             parts.append(f"<h2 class='small' style='text-transform:uppercase;"
                          f"letter-spacing:.06em'>{escape(label)}</h2>")
         parts.append(_render_term_courses(courses_with_assignments))
-    return _page(student["name"], "".join(parts))
+    return _page(student["name"], "".join(parts), nav_students=nav_students)
 
 
 def _render_term_courses(courses_with_assignments) -> str:
@@ -307,10 +341,10 @@ def _render_term_courses(courses_with_assignments) -> str:
     return "".join(parts)
 
 
-def render_alerts(alerts, watcher_list=()) -> str:
+def render_alerts(alerts, watcher_list=(), nav_students=()) -> str:
     if not alerts:
         body = "<h1>Alerts</h1><p>No alerts yet — quiet is good.</p>"
-        return _page("Alerts", body)
+        return _page("Alerts", body, nav_students=nav_students)
     import json as _json
 
     options = "".join(f"<option>{escape(w.name)}</option>" for w in watcher_list)
@@ -341,12 +375,13 @@ def render_alerts(alerts, watcher_list=()) -> str:
                  "person marking an alert handled marks it for everyone.</p>"
                  "<table><tr class='head'><th>Detail</th><th>When (UTC)</th>"
                  "<th>Student</th><th>Type</th><th>Ack</th></tr>"
-                 + "".join(rows) + "</table></div>")
+                 + "".join(rows) + "</table></div>", nav_students=nav_students)
 
 
-def render_history(rows, course_rows=()) -> str:
+def render_history(rows, course_rows=(), nav_students=()) -> str:
     if not rows and not course_rows:
-        return _page("History", "<h1>Grade history</h1><p>No changes recorded yet.</p>")
+        return _page("History", "<h1>Grade history</h1><p>No changes recorded yet.</p>",
+                     nav_students=nav_students)
     parts = ["<h1>Grade history</h1>"]
     if course_rows:
         c_rows = "".join(
@@ -378,7 +413,7 @@ def render_history(rows, course_rows=()) -> str:
                      "<table><tr class='head'><th>Assignment</th><th>When (UTC)</th>"
                      "<th>Student</th><th>Course</th><th>Field</th>"
                      "<th>Change</th></tr>" + body_rows + "</table></div>")
-    return _page("History", "".join(parts))
+    return _page("History", "".join(parts), nav_students=nav_students)
 
 
 def _type_multiselect(fid, selected) -> str:
@@ -593,7 +628,8 @@ def render_settings(watcher_list, subscriptions, students=(),
     # settings-main is the region app.js swaps in place after a fetch-based
     # form post — banner, cards, and toast all live inside it.
     return _page("Settings", "<h1>Settings</h1><div id='settings-main'>"
-                 + banner + w_card + s_card + toast + "</div>")
+                 + banner + w_card + s_card + toast + "</div>",
+                 nav_students=students)
 
 
 # ── http plumbing ─────────────────────────────────────────────────────
@@ -606,8 +642,9 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
 
     parsed = urlparse(path)
     path, query = parsed.path, parse_qs(parsed.query)
+    # Every page's nav carries the student links, so fetch once up front.
+    students = fetch_students(conn)
     if path == "/":
-        students = fetch_students(conn)
         # The overview is "right now": only the current term's courses/counts.
         courses = {s["id"]: fetch_courses(conn, s["id"], term=s["current_term"])
                    for s in students}
@@ -618,7 +655,8 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
         agu = path[len("/student/"):]
         student = fetch_student(conn, agu)
         if student is None:
-            return 404, _page("Not found", "<h1>Unknown student</h1>")
+            return 404, _page("Not found", "<h1>Unknown student</h1>",
+                              nav_students=students)
         all_courses = fetch_courses(conn, student["id"])
         current = student["current_term"] or ""
         terms: list[str] = []
@@ -631,21 +669,24 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
             (t, [(c, fetch_assignments(conn, c["id"]))
                  for c in all_courses if c["term"] == t])
             for t in ordered]
-        return 200, render_student(student, sections)
+        return 200, render_student(student, sections, nav_students=students)
     if path == "/alerts":
         return 200, render_alerts(fetch_alerts(conn),
-                                  watchermod.list_watchers(conn))
+                                  watchermod.list_watchers(conn),
+                                  nav_students=students)
     if path == "/history":
-        return 200, render_history(fetch_history(conn), fetch_course_history(conn))
+        return 200, render_history(fetch_history(conn), fetch_course_history(conn),
+                                   nav_students=students)
     if path == "/settings":
         return 200, render_settings(watchermod.list_watchers(conn),
                                     watchermod.list_subscriptions(conn),
-                                    fetch_students(conn),
+                                    students,
                                     error=(query.get("err") or [""])[0],
                                     notice=(query.get("ok") or [""])[0])
     if path == "/watchers":   # pre-Settings URL; keep old bookmarks working
         return 301, "/settings"
-    return 404, _page("Not found", "<h1>404</h1><p>No such page.</p>")
+    return 404, _page("Not found", "<h1>404</h1><p>No such page.</p>",
+                      nav_students=students)
 
 
 def _handle_ack(conn: sqlite3.Connection, form: dict) -> tuple[int, str]:
@@ -657,11 +698,13 @@ def _handle_ack(conn: sqlite3.Connection, form: dict) -> tuple[int, str]:
     watcher_name = (form.get("watcher") or [""])[0]
     w = watchermod.get_watcher(conn, watcher_name) if watcher_name else None
     if not alert_id or w is None:
-        return 400, _page("Bad request", "<h1>Bad ack</h1><p>Missing alert or watcher.</p>")
+        return 400, _page("Bad request", "<h1>Bad ack</h1><p>Missing alert or watcher.</p>",
+                          nav_students=fetch_students(conn))
     try:
         store.ack_alert(conn, alert_id, w.id)
     except store.AckError as e:
-        return 400, _page("Bad request", f"<h1>Bad ack</h1><p>{escape(str(e))}</p>")
+        return 400, _page("Bad request", f"<h1>Bad ack</h1><p>{escape(str(e))}</p>",
+                          nav_students=fetch_students(conn))
     return 303, "/alerts"   # redirect target, not a body
 
 
@@ -767,7 +810,8 @@ def _handle_settings_post(conn: sqlite3.Connection, action: str,
             for sub_id in ids:
                 watchermod.remove_subscription(conn, sub_id)
             return done("Subscription removed")
-        return 404, _page("Not found", "<h1>404</h1><p>No such action.</p>")
+        return 404, _page("Not found", "<h1>404</h1><p>No such action.</p>",
+                          nav_students=fetch_students(conn))
     except (watchermod.WatcherError, ValueError) as e:
         return 303, "/settings?err=" + quote(str(e))
 

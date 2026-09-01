@@ -7,7 +7,7 @@ A planned delivery either goes now or gets a ``send_after`` timestamp:
 * both -> digest time first, then nudged out of the quiet window.
 
 Deferred events are queued as rows and the flusher — called every loop tick
-and by ``mcpsgradewatch flush`` — groups what's due into one message per
+and by ``lastbell flush`` — groups what's due into one message per
 (watcher, channel). Addresses are resolved at *flush* time, so a watcher who
 changes their email mid-day gets the digest at the new address. A failed send
 stays unsent and simply retries next tick.
@@ -159,8 +159,8 @@ def _subject_for(group: list[sqlite3.Row]) -> str:
     initials = sorted({r["initials"] or r["student_id"] for r in group})
     n = len(group)
     if len(initials) == 1:
-        return f"[MCPSGradeWatch] {n} update{'s' if n != 1 else ''} for {initials[0]}"
-    return f"[MCPSGradeWatch] digest: {n} updates for {', '.join(initials)}"
+        return f"[Last Bell] {n} update{'s' if n != 1 else ''} for {initials[0]}"
+    return f"[Last Bell] digest: {n} updates for {', '.join(initials)}"
 
 
 def _body_for(group: list[sqlite3.Row]) -> str:

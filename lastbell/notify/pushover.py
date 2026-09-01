@@ -1,6 +1,6 @@
 """Pushover channel — https://pushover.net (one-time $5 app, no subscription).
 
-MCPSGRADEWATCH_PUSHOVER_TOKEN holds the application token (register one app for
+LASTBELL_PUSHOVER_TOKEN holds the application token (register one app for
 your install); each watcher's address is their own user key:
 ``{"user_key": "u…"}``.
 """
@@ -19,10 +19,10 @@ class PushoverChannel:
 
     @classmethod
     def from_env(cls) -> "PushoverChannel":
-        token = os.environ.get("MCPSGRADEWATCH_PUSHOVER_TOKEN")
+        token = os.environ.get("LASTBELL_PUSHOVER_TOKEN")
         if not token:
             raise ValueError(
-                "MCPSGRADEWATCH_PUSHOVER_TOKEN is required for the pushover channel "
+                "LASTBELL_PUSHOVER_TOKEN is required for the pushover channel "
                 "(register an application at pushover.net).")
         return cls(token=token)
 

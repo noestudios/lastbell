@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from mcpsgradewatch import store, watchers
-from mcpsgradewatch.models import Snapshot, Student, WatcherKind
+from lastbell import store, watchers
+from lastbell.models import Snapshot, Student, WatcherKind
 
 
 @pytest.fixture

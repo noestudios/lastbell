@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import datetime
 
-from mcpsgradewatch.differ import apply_time_rules, diff
-from mcpsgradewatch.models import AlertType, Assignment, AssignmentStatus, Course, Snapshot
+from lastbell.differ import apply_time_rules, diff
+from lastbell.models import AlertType, Assignment, AssignmentStatus, Course, Snapshot
 
 TODAY = datetime.date(2026, 9, 15)
 

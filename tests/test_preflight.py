@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from mcpsgradewatch import preflight
-from mcpsgradewatch.client import LoginError, ParentVueError
-from mcpsgradewatch.preflight import (
+from lastbell import preflight
+from lastbell.client import LoginError, ParentVueError
+from lastbell.preflight import (
     FAIL,
     PASS,
     SKIP,
@@ -195,7 +195,7 @@ def test_markdown_report_is_paste_ready():
 
 
 def test_main_requires_a_district(monkeypatch, capsys):
-    monkeypatch.delenv("MCPSGRADEWATCH_DISTRICT", raising=False)
+    monkeypatch.delenv("LASTBELL_DISTRICT", raising=False)
     assert preflight.main([]) == 2
     assert "--district" in capsys.readouterr().err
 

@@ -1,7 +1,7 @@
 """Watcher accounts and subscriptions (Phase 3).
 
 A *watcher* is a person who receives alerts — a guardian or the student
-themselves. Watchers are not logins: nobody signs into mcpsgradewatch. A watcher
+themselves. Watchers are not logins: nobody signs into lastbell. A watcher
 is a name plus a set of reachable addresses (``channels`` JSON, e.g. an email
 address or an ntfy topic), and *subscriptions* say which student's events reach
 them, filtered by alert type, over which channel. ``'*'`` means "all".
@@ -124,7 +124,7 @@ def ensure_default_watcher(conn: sqlite3.Connection, username: str,
     With zero watchers, create a guardian named after the credential holder
     and subscribe them to every student in the database — so ack and the
     viewer identity picker always have someone to attribute to. The email
-    channel comes from ``email`` (MCPSGRADEWATCH_SMTP_TO) when set; otherwise
+    channel comes from ``email`` (LASTBELL_SMTP_TO) when set; otherwise
     console, matching the old no-watcher fallback. Delivery defaults to the
     considerate cadence: one 16:00 daily digest, with urgent alert types
     (missing / due soon / grade drop) sent immediately. Returns the new
@@ -151,7 +151,7 @@ def resolve_student(conn: sqlite3.Connection, ref: str) -> sqlite3.Row:
     rows = conn.execute("SELECT * FROM students").fetchall()
     if not rows:
         raise WatcherError(
-            "no students in the database yet — run `mcpsgradewatch run` once "
+            "no students in the database yet — run `lastbell run` once "
             "(it establishes the baseline and records each student)."
         )
     exact = [r for r in rows if r["agu"] == ref]

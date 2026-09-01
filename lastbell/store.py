@@ -258,7 +258,7 @@ def ack_alert(conn: sqlite3.Connection, alert_id_prefix: str, watcher_id: str) -
     ).fetchall()
     if not rows:
         raise AckError(f"no alert with id starting {alert_id_prefix!r} "
-                       f"(see `mcpsgradewatch alerts`)")
+                       f"(see `lastbell alerts`)")
     if len(rows) > 1:
         ids = ", ".join(r["id"][:8] for r in rows[:5])
         raise AckError(f"{alert_id_prefix!r} matches {len(rows)} alerts ({ids}…) — "

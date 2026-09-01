@@ -5,9 +5,9 @@ import datetime
 
 import pytest
 
-from mcpsgradewatch import store
-from mcpsgradewatch.differ import Event
-from mcpsgradewatch.models import (
+from lastbell import store
+from lastbell.differ import Event
+from lastbell.models import (
     AlertType,
     Assignment,
     AssignmentStatus,
