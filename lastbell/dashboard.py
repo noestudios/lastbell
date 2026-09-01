@@ -391,18 +391,43 @@ def fetch_history(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Ro
 # ── rendering (pure: rows in, html out) ───────────────────────────────
 
 
-# Theme toggle: cycles auto → light → dark, saved per browser. The first
-# statement runs before paint so a saved choice never flashes the wrong theme.
+# Theme toggle: cycles auto → light → dark, saved per browser. Icon-only,
+# gear-sized (auto = half-filled circle, light = sun, dark = moon); the
+# state rides the title/aria-label. The first statement runs before paint
+# so a saved choice never flashes the wrong theme.
+_THEME_SVG_OPEN = ("<svg viewBox='0 0 24 24' fill='none' stroke='currentColor'"
+                   " stroke-width='2' stroke-linecap='round'"
+                   " stroke-linejoin='round' aria-hidden='true'>")
+_THEME_ICON_AUTO = (_THEME_SVG_OPEN + "<circle cx='12' cy='12' r='10'/>"
+                    "<path d='M12 2a10 10 0 0 0 0 20z' fill='currentColor' "
+                    "stroke='none'/></svg>")
 _THEME_JS = """
 (function(){
   var KEY='lastbell-theme', root=document.documentElement, choice=null;
+  var OPEN = "%s";
+  var ICON = {
+    auto: OPEN + "<circle cx='12' cy='12' r='10'/>"
+        + "<path d='M12 2a10 10 0 0 0 0 20z' fill='currentColor' stroke='none'/></svg>",
+    light: OPEN + "<circle cx='12' cy='12' r='5'/>"
+        + "<line x1='12' y1='1' x2='12' y2='3'/><line x1='12' y1='21' x2='12' y2='23'/>"
+        + "<line x1='4.22' y1='4.22' x2='5.64' y2='5.64'/>"
+        + "<line x1='18.36' y1='18.36' x2='19.78' y2='19.78'/>"
+        + "<line x1='1' y1='12' x2='3' y2='12'/><line x1='21' y1='12' x2='23' y2='12'/>"
+        + "<line x1='4.22' y1='19.78' x2='5.64' y2='18.36'/>"
+        + "<line x1='18.36' y1='5.64' x2='19.78' y2='4.22'/></svg>",
+    dark: OPEN + "<path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'/></svg>"
+  };
   try { choice = localStorage.getItem(KEY); } catch (e) {}
   function apply(){
     if (choice==='light'||choice==='dark') root.setAttribute('data-theme', choice);
     else root.removeAttribute('data-theme');
     var b=document.getElementById('themetoggle');
-    if (b) b.textContent = choice==='light' ? '\\u2600 light'
-                         : choice==='dark' ? '\\u263e dark' : '\\u25d0 auto';
+    if (!b) return;
+    var state = choice || 'auto';
+    b.innerHTML = ICON[state];
+    b.setAttribute('data-tip', 'Theme: '
+                   + (choice || 'auto (follows your system)'));
+    b.setAttribute('aria-label', 'Theme: ' + state);
   }
   apply();
   window.addEventListener('DOMContentLoaded', function(){
@@ -419,7 +444,7 @@ _THEME_JS = """
     });
   });
 })();
-"""
+""" % _THEME_SVG_OPEN.replace('"', '\\"')
 
 
 # Feather-style 24-viewbox stroke icons; shown in place of nav labels below
@@ -474,21 +499,21 @@ def _nav_students(students) -> str:
         return ""
     names = _nav_names(students)
     inline = "".join(
-        f"<a href='/student/{escape(s['agu'])}' title='{escape(s['name'])}'>"
-        f"{escape(n)}</a>"
+        f"<a class='tip-b' href='/student/{escape(s['agu'])}' "
+        f"data-tip='{escape(s['name'])}'>{escape(n)}</a>"
         for s, n in zip(students, names))
     menu = "".join(
         f"<a href='/student/{escape(s['agu'])}'>{escape(s['name'])}</a>"
         for s in students)
     return (f"<span class='navstudents'>{inline}</span>"
-            f"<details class='smenu'><summary title='Students' "
+            f"<details class='smenu'><summary class='tip-b' data-tip='Students' "
             f"aria-label='Students'>{_SVG.format(_STUDENTS_ICON)}</summary>"
             f"<div class='smenu-list'>{menu}</div></details>")
 
 
 def _page(title: str, body: str, nav_students=()) -> str:
     links = "".join(
-        f"<a href='{href}' title='{label}'>{_SVG.format(icon)}"
+        f"<a class='tip-b' href='{href}' data-tip='{label}'>{_SVG.format(icon)}"
         f"<span class='lbl'>{label}</span></a>"
         for href, label, icon in _NAV_ITEMS)
     return (
@@ -500,10 +525,10 @@ def _page(title: str, body: str, nav_students=()) -> str:
         "<script src='/static/app.js' defer></script></head><body>"
         f"<nav><a class='brand' href='/'>Last Bell</a>"
         f"{_nav_students(nav_students)}{links}"
-        f"<a class='gear' href='/settings' title='Settings' "
+        f"<a class='gear tip-b tip-e' href='/settings' data-tip='Settings' "
         f"aria-label='Settings'>{_GEAR_ICON}</a>"
-        "<button id='themetoggle' title='Theme: follows your system unless "
-        "you pick one (saved in this browser)'>◐ auto</button></nav>"
+        f"<button id='themetoggle' class='tip-b tip-e' "
+        f"aria-label='Theme'>{_THEME_ICON_AUTO}</button></nav>"
         f"{body}</body></html>"
     )
 
@@ -597,8 +622,10 @@ def render_overview(students, courses_by_student, counts_by_student) -> str:
     for s in students:
         courses = courses_by_student.get(s["id"], [])
         counts = counts_by_student.get(s["id"], {})
+        # Course names deep-link to the student page scoped to that course.
         rows = "".join(
-            f"<tr><td><a href='/student/{escape(s['agu'])}'>{escape(c['title'])}</a></td>"
+            f"<tr><td><a href='/student/{escape(s['agu'])}"
+            f"?course={quote(c['edupoint_gu'])}'>{escape(c['title'])}</a></td>"
             f"<td data-label='Teacher'>{escape(c['teacher'])}</td>"
             f"<td class='num' data-label='%'>{escape(_pct(c['percent']))}</td>"
             f"<td data-label='Mark'>{escape(c['mark'] or '—')}</td></tr>"
@@ -826,7 +853,8 @@ def _course_strip(student, ctx) -> str:
             chips.append(f"<span class='badge warn'>{c['past_due']} past due</span>")
         rows.append(
             f"<tr{' class=\'scoped\'' if active else ''}>"
-            f"<td><a href='{href}' title='{escape(tip)}'>{escape(c['title'])}"
+            f"<td><a class='tip-s' href='{href}' data-tip='{escape(tip)}'>"
+            f"{escape(c['title'])}"
             f"{_CLEAR_ICON if active else _FILTER_ICON}</a></td>"
             f"<td data-label='Grade'>{grade}</td>"
             f"<td data-label='2 weeks'>{_delta_html(*ctx['deltas'][c['id']])}</td>"
@@ -858,7 +886,7 @@ def _course_strip(student, ctx) -> str:
     if scoped_title:
         tag = (f" <a class='striptag' "
                f"href='/student/{agu}?view={ctx['view']}&strip=open' "
-               f"title='show all courses'>{_FILTER_ICON}"
+               f"data-tip='show all courses'>{_FILTER_ICON}"
                f"{escape(scoped_title)}{_CLEAR_ICON}</a>")
     return (
         f"<details class='allcourses' id='allcourses'"
@@ -1120,6 +1148,20 @@ def render_alerts(alerts, counts=(), watcher_list=(), nav_students=(),
         for c in counts]
 
     options = "".join(f"<option>{escape(w.name)}</option>" for w in watcher_list)
+
+    # The catch-up control: ack every unacked alert in the current filter,
+    # from the Ack column's header. The count states the blast radius —
+    # it reaches past the visible page.
+    cur_unacked = (next((c["unacked"] or 0 for c in counts
+                         if c["type"] == alert_type), 0)
+                   if alert_type else unacked_total)
+    ack_head = "Ack"
+    if watcher_list and cur_unacked:
+        ack_head = (f"<form method='post' action='/ack-all' class='ackform'>"
+                    f"<input type='hidden' name='type' value='{escape(alert_type)}'>"
+                    f"<select name='watcher'>{options}</select> "
+                    f"<button>ack all {cur_unacked}</button></form>")
+
     rows = []
     for al in alerts:
         try:
@@ -1145,7 +1187,7 @@ def render_alerts(alerts, counts=(), watcher_list=(), nav_students=(),
             f"<td data-label='Type'>{escape(al['type'].replace('_', ' '))}</td>"
             f"<td data-label='Ack'>{ack_cell}</td></tr>")
     table = ("<table class='alerts'><tr class='head'><th>Detail</th><th>When</th>"
-             "<th>Student</th><th>Type</th><th>Ack</th></tr>"
+             f"<th>Student</th><th>Type</th><th>{ack_head}</th></tr>"
              + "".join(rows) + "</table>"
              if rows else "<p class='small'>Nothing on this page.</p>")
 
@@ -1274,7 +1316,8 @@ def render_settings(watcher_list, subscriptions, students=(),
                 f"<form method='post' action='/settings/watcher-remove' "
                 f"class='rowform' data-group='{escape(w.id)}'>"
                 f"<input type='hidden' name='name' value='{escape(w.name)}'>"
-                f"<button class='ghost' title='remove watcher {escape(w.name)}'>"
+                f"<button class='ghost tip-e' "
+                f"data-tip='remove watcher {escape(w.name)}'>"
                 f"remove</button></form>"
                 f"</td></tr>")
             for cname, addr in w.channels.items():
@@ -1283,8 +1326,8 @@ def render_settings(watcher_list, subscriptions, students=(),
                           f"<input type='hidden' name='channel' value='{escape(cname)}'>")
                 if notify.ADDRESS_KEY.get(cname) is None:   # console: no address
                     addr_cell = "—"
-                    buttons = ("<button class='ghost' "
-                               "title='remove this channel'>remove</button>")
+                    buttons = ("<button class='ghost tip-e' "
+                               "data-tip='remove this channel'>remove</button>")
                     form = (f"<form id='{fid}' method='post' "
                             f"action='/settings/channel-remove' class='rowform'>"
                             f"{hidden}{buttons}</form>")
@@ -1300,8 +1343,9 @@ def render_settings(watcher_list, subscriptions, students=(),
                     form = (f"<form id='{fid}' method='post' "
                             f"action='/settings/channel' class='rowform'>{hidden}"
                             f"<button class='upd'>Update</button> "
-                            f"<button class='ghost' formaction='/settings/channel-remove' "
-                            f"title='remove this channel'>remove</button></form>")
+                            f"<button class='ghost tip-e' "
+                            f"formaction='/settings/channel-remove' "
+                            f"data-tip='remove this channel'>remove</button></form>")
                 w_rows.append(
                     f"<tr class='chrow' id='row-{fid}' data-w='{escape(w.id)}'>"
                     f"<td class='chname'>{escape(channel_label.get(cname, cname))}</td>"
@@ -1319,7 +1363,7 @@ def render_settings(watcher_list, subscriptions, students=(),
                     f"<td data-label='Address'>"
                     f"<input name='to' form='{fid}' autocomplete='off' "
                     f"placeholder='name@example.com / 5551234567@vtext.com' "
-                    f"title='Email address — or, for text message, your carrier&#39;s "
+                    f"data-tip='Email address — or, for text message, your carrier&#39;s "
                     f"email-to-SMS gateway address'></td>"
                     f"<td data-label='Actions'>"
                     f"<form id='{fid}' method='post' action='/settings/channel' "
@@ -1339,7 +1383,7 @@ def render_settings(watcher_list, subscriptions, students=(),
         f"<select name='channel'>{_options([('', 'no channel yet')] + channel_opts)}</select>"
         "<input name='to' autocomplete='off' "
         "placeholder='name@example.com / 5551234567@vtext.com' "
-        "title='Email address — or, for text message, your carrier&#39;s "
+        "data-tip='Email address — or, for text message, your carrier&#39;s "
         "email-to-SMS gateway address'>"
         "<button>Add watcher</button></form>")
     w_card = ("<div class='card tablecard'><h2>Watchers</h2>"
@@ -1373,8 +1417,8 @@ def render_settings(watcher_list, subscriptions, students=(),
                 f"</select></td>"
                 f"<td data-label='Delivery'><input type='time' name='at' form='{fid}' "
                 f"value='{escape(first.send_at or '')}' "
-                f"title='Daily digest time — blank for immediate delivery'> "
-                f"<label class='urgent' title='{escape(urgent_tip)}'>"
+                f"data-tip='Daily digest time — blank for immediate delivery'> "
+                f"<label class='urgent' data-tip='{escape(urgent_tip)}'>"
                 f"<input type='checkbox' name='urgent' form='{fid}'"
                 f"{' checked' if first.urgent_now else ''}> urgent now</label></td>"
                 f"<td data-label='Actions'>"
@@ -1382,8 +1426,8 @@ def render_settings(watcher_list, subscriptions, students=(),
                 f"class='rowform'>"
                 f"<input type='hidden' name='ids' value='{escape(ids)}'>"
                 f"<button class='upd'>Update</button> "
-                f"<button class='ghost' formaction='/settings/unsubscribe' "
-                f"title='remove this subscription'>remove</button></form></td></tr>")
+                f"<button class='ghost tip-e' formaction='/settings/unsubscribe' "
+                f"data-tip='remove this subscription'>remove</button></form></td></tr>")
         s_body = ("<table class='manage'><tr class='head'><th>Watcher ⇒ Student</th>"
                   "<th>Alerts</th><th>Via</th><th>Delivery</th><th></th></tr>"
                   + "".join(s_rows) + "</table>")
@@ -1403,8 +1447,8 @@ def render_settings(watcher_list, subscriptions, students=(),
             "<span class='small'>via</span>"
             f"<select name='channel'>{_options([('*', 'all channels')] + channel_opts)}</select>"
             "<input type='time' name='at' value='16:00' "
-            "title='Daily digest time — clear for immediate delivery'>"
-            "<label class='urgent' title='Send urgent alerts (missing, due soon, "
+            "data-tip='Daily digest time — clear for immediate delivery'>"
+            "<label class='urgent' data-tip='Send urgent alerts (missing, due soon, "
             "grade drop) immediately instead of waiting for the digest'>"
             "<input type='checkbox' name='urgent' checked> urgent now</label>"
             "<button>Subscribe</button></form>")
@@ -1500,6 +1544,23 @@ def _handle_ack(conn: sqlite3.Connection, form: dict) -> tuple[int, str]:
     return 303, "/alerts"   # redirect target, not a body
 
 
+def _handle_ack_all(conn: sqlite3.Connection, form: dict) -> tuple[int, str]:
+    """POST /ack-all — the catch-up button: ack every unacked alert in the
+    current type filter (all of them when unfiltered), attributed to the
+    chosen watcher. Redirects back to the same filter."""
+    from . import store
+    from . import watchers as watchermod
+
+    watcher_name = (form.get("watcher") or [""])[0]
+    alert_type = (form.get("type") or [""])[0]
+    w = watchermod.get_watcher(conn, watcher_name) if watcher_name else None
+    if w is None:
+        return 400, _page("Bad request", "<h1>Bad ack</h1><p>Missing watcher.</p>",
+                          nav_students=fetch_students(conn))
+    store.ack_all_alerts(conn, w.id, alert_type)
+    return 303, "/alerts" + (f"?type={quote(alert_type)}" if alert_type else "")
+
+
 def _handle_settings_post(conn: sqlite3.Connection, action: str,
                           form: dict) -> tuple[int, str]:
     """POST /settings/<action> — the Settings page's write paths. Same trust
@@ -1538,6 +1599,14 @@ def _handle_settings_post(conn: sqlite3.Connection, action: str,
             target += "&new=" + ",".join(new_rows)
         return 303, target
 
+    # Toasts name who and what changed ("Removed Mom's email
+    # (mom@example.com)"), not just the verb — the reader shouldn't have to
+    # diff the table to learn what happened.
+    chlabel = {"email": "email", "sms": "text message"}
+
+    def _addr(update: dict, cname: str) -> str:
+        return next(iter((update.get(cname) or {}).values()), "")
+
     try:
         if action == "watcher-add":
             name = val("name")
@@ -1550,11 +1619,17 @@ def _handle_settings_post(conn: sqlite3.Connection, action: str,
                     raise watchermod.WatcherError(
                         f"the {val('channel')} channel needs an address")
             w = watchermod.add_watcher(conn, name, WatcherKind(val("kind")), channels)
-            return done(f"Added watcher {w.name}",
-                        (f"row-w-{w.id}", f"row-chadd-{w.id}"))
+            msg = f"Added watcher {w.name}"
+            if channels:
+                cname = next(iter(channels))
+                addr = _addr(channels, cname)
+                msg += f" with {chlabel.get(cname, cname)}"
+                msg += f" {addr}" if addr else ""
+            return done(msg, (f"row-w-{w.id}", f"row-chadd-{w.id}"))
         if action == "watcher-remove":
+            w = watchermod.get_watcher(conn, val("name"))
             watchermod.remove_watcher(conn, val("name"))
-            return done("Watcher removed")
+            return done(f"Removed watcher {w.name if w else val('name')}")
         if action == "channel":         # add or update; removal is its own action
             update = channel_update()
             if None in update.values():
@@ -1563,19 +1638,29 @@ def _handle_settings_post(conn: sqlite3.Connection, action: str,
             existing = watchermod.require_watcher(conn, val("watcher"))
             cname = next(iter(update))
             watchermod.set_channels(conn, val("watcher"), update)
+            label, addr = chlabel.get(cname, cname), _addr(update, cname)
             if cname in existing.channels:
-                return done(f"{cname} channel updated")
-            return done(f"{cname} channel added",
+                return done(f"Updated {existing.name}'s {label}"
+                            + (f": {addr}" if addr else ""))
+            return done(f"Added {label} for {existing.name}"
+                        + (f": {addr}" if addr else ""),
                         (f"row-ch-{existing.id}-{cname}",))
         if action == "channel-remove":
-            watchermod.set_channels(conn, val("watcher"), {val("channel"): None})
-            return done("Channel removed")
+            w = watchermod.require_watcher(conn, val("watcher"))
+            cname = val("channel")
+            old = next(iter((w.channels.get(cname) or {}).values()), "")
+            watchermod.set_channels(conn, val("watcher"), {cname: None})
+            return done(f"Removed {w.name}'s {chlabel.get(cname, cname)}"
+                        + (f" ({old})" if old else ""))
         if action == "subscribe":
             w = watchermod.require_watcher(conn, val("watcher"))
             if val("student") == "*":     # one step: every student at once
                 targets = [s["id"] for s in fetch_students(conn)]
+                target_desc = "all students"
             else:
-                targets = [watchermod.resolve_student(conn, val("student"))["id"]]
+                srow = watchermod.resolve_student(conn, val("student"))
+                targets = [srow["id"]]
+                target_desc = srow["name"]
             sub_types, channel = vals("type"), val("channel")
             added: list[str] = []
             for student_id in targets:
@@ -1586,22 +1671,32 @@ def _handle_settings_post(conn: sqlite3.Connection, action: str,
                     val("at") or None,
                     urgent_now=bool(val("urgent")))
             if not added:
-                return done("Already subscribed")
-            return done(f"Added {len(added)} subscription{'s' if len(added) != 1 else ''}",
+                return done(f"{w.name} is already subscribed to {target_desc}")
+            n = len(added)
+            return done(f"Subscribed {w.name} to {target_desc}"
+                        + (f" — {n} subscriptions" if n > 1 else ""),
                         tuple(f"row-sub-{i}" for i in added))
         if action == "subscription-update":
+            ids = [i for i in val("ids").split(",") if i]
+            named = next((s for s in watchermod.list_subscriptions(conn)
+                          if s.id in ids), None)
             watchermod.set_subscription_group(
-                conn, [i for i in val("ids").split(",") if i],
-                vals("type"), val("channel") or "*",
+                conn, ids, vals("type"), val("channel") or "*",
                 val("at") or None, urgent_now=bool(val("urgent")))
-            return done("Subscription updated")
+            return done(f"Updated {named.watcher_name}'s subscription for "
+                        f"{named.student_name}" if named
+                        else "Subscription updated")
         if action == "unsubscribe":
             ids = [i for i in val("ids").split(",") if i]
             if not ids:
                 raise watchermod.WatcherError("no subscription selected")
+            named = next((s for s in watchermod.list_subscriptions(conn)
+                          if s.id in ids), None)
             for sub_id in ids:
                 watchermod.remove_subscription(conn, sub_id)
-            return done("Subscription removed")
+            return done(f"Unsubscribed {named.watcher_name} from "
+                        f"{named.student_name}" if named
+                        else "Subscription removed")
         return 404, _page("Not found", "<h1>404</h1><p>No such action.</p>",
                           nav_students=fetch_students(conn))
     except (watchermod.WatcherError, ValueError) as e:
@@ -1656,7 +1751,7 @@ def serve(db_path: Path, host: str, port: int) -> None:
 
         def do_POST(self) -> None:  # noqa: N802 (stdlib name)
             path = urlparse(self.path).path
-            if path != "/ack" and not path.startswith("/settings/"):
+            if path not in ("/ack", "/ack-all") and not path.startswith("/settings/"):
                 self.send_error(404)
                 return
             length = int(self.headers.get("Content-Length") or 0)
@@ -1665,6 +1760,8 @@ def serve(db_path: Path, host: str, port: int) -> None:
             try:
                 if path == "/ack":
                     status, result = _handle_ack(conn, form)
+                elif path == "/ack-all":
+                    status, result = _handle_ack_all(conn, form)
                 else:
                     status, result = _handle_settings_post(
                         conn, path[len("/settings/"):], form)

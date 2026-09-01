@@ -270,3 +270,18 @@ def ack_alert(conn: sqlite3.Connection, alert_id_prefix: str, watcher_id: str) -
             (watcher_id, row["id"]))
         conn.commit()
     return conn.execute("SELECT * FROM alerts WHERE id = ?", (row["id"],)).fetchone()
+
+
+def ack_all_alerts(conn: sqlite3.Connection, watcher_id: str,
+                   alert_type: str = "") -> int:
+    """Ack every unacked alert (of one type, when given) in one shot —
+    the dashboard's catch-up button. Returns how many were acked."""
+    sql = ("UPDATE alerts SET acked_by = ?, acked_at = datetime('now') "
+           "WHERE acked_at IS NULL")
+    params: list = [watcher_id]
+    if alert_type:
+        sql += " AND type = ?"
+        params.append(alert_type)
+    n = conn.execute(sql, params).rowcount
+    conn.commit()
+    return n

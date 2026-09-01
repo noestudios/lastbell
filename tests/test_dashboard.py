@@ -209,7 +209,7 @@ def test_course_strip_scopes_the_active_view(conn):
     # the clear link carries strip=open — the JS-off fallback for "deselecting
     # doesn't collapse the bar the reader is working in"
     assert ("href='/student/1?view=problems&strip=open' "
-            "title='show all courses'") in html
+            "data-tip='show all courses'") in html
     _, html2 = _get(conn, "/student/1?view=problems&strip=open")
     assert "<details class='allcourses' id='allcourses' open>" in html2
     # stat-card links carry the scope along
@@ -449,7 +449,7 @@ def test_nav_links_students_by_name_on_every_page(populated):
         assert "class='navstudents'" in nav, path
         # first name inline, full name on the title attribute
         assert ">Jasper</a>" in nav, path
-        assert "title='Jasper P. Hays'" in nav, path
+        assert "data-tip='Jasper P. Hays'" in nav, path
         assert "href='/student/1'" in nav, path
         assert ">Students</span>" not in nav, path   # old nav item is gone
 
@@ -843,6 +843,75 @@ def test_alerts_page_older_paging_replaces_the_cap(populated):
     _, html = _get(populated, "/alerts?page=2")
     assert html.count("data-label='Ack'") == 5
     assert ">← newer</a>" in html and "older →" not in html
+
+
+def test_ack_all_button_and_write_path(populated):
+    conn = populated
+    watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
+    _alert(conn, "one")
+    _alert(conn, "two")
+    _alert(conn, "a drop", AlertType.GRADE_DROP)
+    # the catch-up control lives in the Ack column's header, with the count
+    _, html = _get(conn, "/alerts")
+    assert "action='/ack-all'" in html
+    assert "ack all 3" in html
+    # the filtered page scopes both the count and the posted type
+    _, html = _get(conn, "/alerts?type=grade_drop")
+    assert "ack all 1" in html
+    assert "name='type' value='grade_drop'" in html
+    # acking one type leaves the others alone and keeps the filter
+    status, target = dashboard._handle_ack_all(
+        conn, {"watcher": ["Mom"], "type": ["grade_drop"]})
+    assert (status, target) == (303, "/alerts?type=grade_drop")
+    unacked = lambda: conn.execute(  # noqa: E731
+        "SELECT COUNT(*) FROM alerts WHERE acked_at IS NULL").fetchone()[0]
+    assert unacked() == 2
+    # unfiltered catches the rest; with nothing unacked the control is gone
+    status, target = dashboard._handle_ack_all(conn, {"watcher": ["Mom"]})
+    assert (status, target) == (303, "/alerts")
+    assert unacked() == 0
+    _, html = _get(conn, "/alerts")
+    assert "action='/ack-all'" not in html
+
+
+def test_overview_course_names_deep_link_scoped(populated):
+    _, html = _get(populated, "/")
+    assert "<a href='/student/1?course=709775'>Math &lt;Adv&gt;</a>" in html
+
+
+def test_theme_toggle_is_icon_only(populated):
+    _, html = _get(populated, "/")
+    btn = html.split("id='themetoggle'")[1].split("</button>")[0]
+    assert "<svg" in btn and "auto" not in btn        # icon, not text
+    assert "aria-label='Theme'" in btn
+
+
+def test_no_native_title_hovers_anywhere(populated):
+    """Every hover is a design-system data-tip bubble; the browser's native
+    title speck appears nowhere in a page body."""
+    watchers.add_watcher(populated, "Mom", WatcherKind.GUARDIAN,
+                         {"email": {"to": "m@x.com"}})
+    for path in ("/", "/student/1", "/alerts", "/history", "/settings"):
+        _, html = _get(populated, path)
+        assert "title='" not in html.split("</head>")[1], path
+
+
+def test_settings_toasts_name_who_and_what(populated):
+    from urllib.parse import unquote
+
+    conn = populated
+    watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
+                         {"email": {"to": "mom@x.com"}})
+    _, target = _post(conn, "channel-remove", watcher="Mom", channel="email")
+    assert "Removed Mom's email (mom@x.com)" in unquote(target)
+    target = _ok(_post(conn, "subscribe", watcher="Mom", student="1",
+                       type="*", channel="*", at=""))
+    assert "Subscribed Mom to Jasper P. Hays" in unquote(target)
+    (sub,) = watchers.list_subscriptions(conn)
+    target = _ok(_post(conn, "unsubscribe", ids=sub.id))
+    assert "Unsubscribed Mom from Jasper P. Hays" in unquote(target)
+    target = _ok(_post(conn, "watcher-remove", name="Mom"))
+    assert "Removed watcher Mom" in unquote(target)
 
 
 def test_history_when_is_local_date_words(populated):
