@@ -246,20 +246,21 @@ def _render_term_courses(courses_with_assignments) -> str:
         pct = _pct(course["percent"]) if course["percent"] else ""
         overall = " · ".join(x for x in (pct and f"{pct}%", course["mark"]) if x)
         teacher = f" — {escape(course['teacher'])}" if course["teacher"] else ""
-        parts.append(
+        header = (
             f"<h2>{head}{teacher}"
             + (f" <span class='badge muted'>{escape(overall)}</span>" if overall else "")
             + "</h2>")
         if not assignments:
-            parts.append("<p class='small'>No assignments recorded.</p>")
-            continue
-        rows = "".join(
-            f"<tr><td>{escape(a['name'])}</td><td>{escape(a['kind'] or '')}</td>"
-            f"<td>{escape(a['due_date'] or '—')}</td>"
-            f"<td class='num'>{_score(a)}</td><td>{_badge(a['status'])}</td></tr>"
-            for a in assignments)
-        parts.append("<table class='assignments'><tr><th>Assignment</th><th>Type</th>"
-                     "<th>Due</th><th>Score</th><th>Status</th></tr>" + rows + "</table>")
+            body = "<p class='small'>No assignments recorded.</p>"
+        else:
+            rows = "".join(
+                f"<tr><td>{escape(a['name'])}</td><td>{escape(a['kind'] or '')}</td>"
+                f"<td>{escape(a['due_date'] or '—')}</td>"
+                f"<td class='num'>{_score(a)}</td><td>{_badge(a['status'])}</td></tr>"
+                for a in assignments)
+            body = ("<table class='assignments'><tr><th>Assignment</th><th>Type</th>"
+                    "<th>Due</th><th>Score</th><th>Status</th></tr>" + rows + "</table>")
+        parts.append(f"<div class='card tablecard'>{header}{body}</div>")
     return "".join(parts)
 
 
@@ -291,11 +292,12 @@ def render_alerts(alerts, watcher_list=()) -> str:
             f"<td>{escape(al['student_name'])}</td>"
             f"<td>{escape(al['type'].replace('_', ' '))}</td>"
             f"<td>{escape(detail)}</td><td>{ack_cell}</td></tr>")
-    return _page("Alerts", "<h1>Alerts</h1><p class='small'>An ack is shared: one "
+    return _page("Alerts", "<h1>Alerts</h1><div class='card tablecard'>"
+                 "<h2>Recent alerts</h2><p class='small'>An ack is shared: one "
                  "person marking an alert handled marks it for everyone.</p>"
                  "<table><tr><th>When (UTC)</th><th>Student</th>"
                  "<th>Type</th><th>Detail</th><th>Ack</th></tr>"
-                 + "".join(rows) + "</table>")
+                 + "".join(rows) + "</table></div>")
 
 
 def render_history(rows, course_rows=()) -> str:
@@ -311,9 +313,10 @@ def render_history(rows, course_rows=()) -> str:
             f"<td>{escape(r['old_value'] if r['old_value'] is not None else '—')} → "
             f"{escape(r['new_value'] if r['new_value'] is not None else '—')}</td></tr>"
             for r in course_rows)
-        parts.append("<h2>Course grades</h2><table><tr><th>When (UTC)</th>"
+        parts.append("<div class='card tablecard'><h2>Course grades</h2>"
+                     "<table><tr><th>When (UTC)</th>"
                      "<th>Student</th><th>Course</th><th>Field</th><th>Change</th></tr>"
-                     + c_rows + "</table>")
+                     + c_rows + "</table></div>")
     if rows:
         body_rows = "".join(
             f"<tr><td class='small'>{escape(r['seen_at'])}</td>"
@@ -322,9 +325,10 @@ def render_history(rows, course_rows=()) -> str:
             f"<td>{escape(r['old_value'] if r['old_value'] is not None else '—')} → "
             f"{escape(r['new_value'] if r['new_value'] is not None else '—')}</td></tr>"
             for r in rows)
-        parts.append("<h2>Assignments</h2><table><tr><th>When (UTC)</th>"
+        parts.append("<div class='card tablecard'><h2>Assignments</h2>"
+                     "<table><tr><th>When (UTC)</th>"
                      "<th>Student</th><th>Course</th><th>Assignment</th><th>Field</th>"
-                     "<th>Change</th></tr>" + body_rows + "</table>")
+                     "<th>Change</th></tr>" + body_rows + "</table></div>")
     return _page("History", "".join(parts))
 
 
@@ -349,12 +353,15 @@ def render_watchers(watcher_list, subscriptions) -> str:
         f"<td>{escape(f'daily at {s.send_at}' if s.send_at else 'immediate')}</td></tr>"
         for s in subscriptions)
     return _page("Watchers",
-                 "<h1>Watchers</h1><table><tr><th>Name</th><th>Kind</th>"
-                 "<th>Channels</th><th>Quiet hours</th></tr>" + w_rows + "</table>"
-                 "<h2>Subscriptions</h2>"
+                 "<h1>Watchers</h1>"
+                 "<div class='card tablecard'><h2>Watchers</h2>"
+                 "<table><tr><th>Name</th><th>Kind</th>"
+                 "<th>Channels</th><th>Quiet hours</th></tr>" + w_rows + "</table></div>"
+                 "<div class='card tablecard'><h2>Subscriptions</h2>"
                  + ("<table><tr><th>Watcher</th><th>Student</th><th>Alerts</th>"
                     "<th>Via</th><th>Delivery</th></tr>" + s_rows + "</table>"
-                    if subscriptions else "<p>No subscriptions yet.</p>"))
+                    if subscriptions else "<p class='small'>No subscriptions yet.</p>")
+                 + "</div>")
 
 
 # ── http plumbing ─────────────────────────────────────────────────────
