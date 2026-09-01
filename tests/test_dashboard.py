@@ -153,3 +153,12 @@ def test_watchers_page_shows_quiet_hours_and_schedule(populated):
     _, html = _get(conn, "/watchers")
     assert "21:00–07:00" in html
     assert "daily at 17:00" in html
+
+
+def test_stylesheet_exists_and_is_linked(populated):
+    from mcpsgradewatch.dashboard import _STYLE_PATH
+
+    css = _STYLE_PATH.read_text(encoding="utf-8")
+    assert ":root" in css and "--accent" in css and "--bg" in css
+    _, html = _get(populated, "/")
+    assert "/static/style.css" in html

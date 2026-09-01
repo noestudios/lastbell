@@ -195,6 +195,12 @@ and duplicate screen/print row variants fetched once).
 
 ## Credits
 
+The dashboard's visual design (colors, type, card and badge styling in
+[`mcpsgradewatch/style.css`](mcpsgradewatch/style.css)) is derived from
+[Purity UI Dashboard](https://github.com/creativetimofficial/purity-ui-dashboard)
+— Copyright (c) 2021 Creative Tim, released under the MIT license; its
+copyright and permission notice applies to those derived styles.
+
 The web-portal approach (ASP.NET form login, embedded child-list JSON) was
 first demonstrated by [dmc5179/ParentVUE](https://github.com/dmc5179/ParentVUE)
 (GPLv3), which served as prior art and reference during this project's district

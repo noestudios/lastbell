@@ -1,0 +1,181 @@
+/* MCPSGradeWatch dashboard theme.
+ *
+ * Design tokens extracted from the Purity UI Dashboard template —
+ * Copyright (c) 2021 Creative Tim, MIT license (see the Credits section of
+ * the README for the full notice reference) — via its Figma community file
+ * and open-source Chakra theme:
+ *   accent teal.300 #4FD1C5 · positive green.400 #48BB78 · negative red.400
+ *   #F56565 · warn orange.400 #ED8936 · text gray.700 #1F2733 (Purity's
+ *   override) · muted gray.400 #A0AEC0 · body gray.50 #F7FAFC · cards white,
+ *   radius 15px, shadow 0 3.5px 5.5px rgba(0,0,0,.02), padding 22px ·
+ *   font Roboto.
+ * Fonts stay local (LAN box, no internet): Roboto if installed, else the
+ * system stack. Every color routes through the custom properties below —
+ * restyling means editing tokens, not rules.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* palette */
+  --accent:        #4fd1c5;
+  --accent-strong: #38b2ac;
+  --ok:            #48bb78;
+  --warn:          #ed8936;
+  --bad:           #f56565;
+  --info:          #4fd1c5;
+
+  /* light surfaces */
+  --bg:         #f7fafc;
+  --surface:    #ffffff;
+  --surface-2:  #edf2f7;
+  --text:       #1f2733;
+  --text-muted: #a0aec0;
+  --border:     #e2e8f0;
+
+  /* shape + depth */
+  --radius:      15px;
+  --radius-sm:   12px;
+  --card-shadow: 0 3.5px 5.5px rgba(0, 0, 0, 0.02);
+  --card-pad:    22px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:         #1a202c;
+    --surface:    #1f2733;
+    --surface-2:  #2d3748;
+    --text:       #f7fafc;
+    --text-muted: #a0aec0;
+    --border:     rgba(255, 255, 255, 0.08);
+    --card-shadow: none;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font: 14px/1.55 Roboto, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  margin: 0 auto;
+  max-width: 68rem;
+  padding: 1.25rem 1.25rem 3rem;
+}
+
+a { color: var(--accent-strong); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── nav ────────────────────────────────────────────────────────────── */
+
+nav {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--card-shadow);
+  padding: 0.8rem 1.2rem;
+  margin-bottom: 1.4rem;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1.1rem;
+}
+nav a { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
+nav a:hover { color: var(--text); text-decoration: none; }
+nav .brand {
+  color: var(--text);
+  font-weight: 800;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin-right: 0.6rem;
+}
+
+/* ── type ───────────────────────────────────────────────────────────── */
+
+h1 { font-size: 1.15rem; font-weight: 700; margin: 0.2rem 0 0.8rem; }
+h2 { font-size: 0.95rem; font-weight: 700; margin: 1.6rem 0 0.4rem; }
+.small { font-size: 0.8rem; color: var(--text-muted); }
+code { background: var(--surface-2); padding: 0.1rem 0.35rem; border-radius: 6px; }
+
+/* ── cards ──────────────────────────────────────────────────────────── */
+
+.cards { display: flex; flex-wrap: wrap; gap: 1.1rem; }
+.card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--card-shadow);
+  padding: var(--card-pad);
+  min-width: 17rem;
+  flex: 1;
+}
+.card h3 { margin: 0 0 0.15rem; font-size: 0.95rem; }
+.card h3 a { color: var(--text); }
+
+/* ── tables ─────────────────────────────────────────────────────────── */
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5rem 0 1rem;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+.card table { box-shadow: none; border-radius: 0; }
+th, td {
+  text-align: left;
+  padding: 0.55rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+}
+tr:last-child td { border-bottom: none; }
+th {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ── status badges (solid pills, Purity-style) ──────────────────────── */
+
+.badge {
+  display: inline-block;
+  padding: 0.14rem 0.65rem;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  color: #fff;
+}
+.badge.ok    { background: var(--ok); }
+.badge.info  { background: var(--info); }
+.badge.warn  { background: var(--warn); }
+.badge.bad   { background: var(--bad); }
+.badge.muted { background: var(--surface-2); color: var(--text-muted); }
+
+/* ── forms (ack) ────────────────────────────────────────────────────── */
+
+.ackform { display: inline-flex; gap: 0.35rem; margin: 0; align-items: center; }
+.ackform select {
+  font-size: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.2rem 0.4rem;
+}
+.ackform button {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.32rem 0.75rem;
+  cursor: pointer;
+}
+.ackform button:hover { background: var(--accent-strong); }

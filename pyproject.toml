@@ -30,5 +30,8 @@ parentvue-preflight = "mcpsgradewatch.preflight:main"
 [tool.setuptools.packages.find]
 include = ["mcpsgradewatch*"]
 
+[tool.setuptools.package-data]
+mcpsgradewatch = ["schema.sql", "style.css"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
