@@ -266,22 +266,22 @@ code { background: var(--surface-2); padding: 0.1rem 0.35rem; border-radius: 6px
   min-width: 17rem;
   flex: 1;
 }
-.card h3 { margin: 0 0 0.15rem; font-size: 0.95rem; }
-.card h3 a { color: var(--text); }
+.card h2.cardname { margin: 0 0 0.15rem; font-size: 0.95rem; }
+.card .cardname a { color: var(--text); }
 
 /* Overview: student and course names are links and must read as links —
  * the same soft underline as the strip's filters. Course names deep-link
  * to the student page scoped to that course. */
-.card h3 a,
+.card .cardname a,
 table.courses td a {
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--accent-strong) 40%, transparent);
   text-underline-offset: 3px;
 }
-.card h3 a:hover,
+.card .cardname a:hover,
 table.courses td a:hover { text-decoration-color: currentColor; }
 /* Breathing room between the school line and the status badges. */
-.card h3 + .small { margin-bottom: 0.55rem; }
+.card .cardname + .small { margin-bottom: 0.55rem; }
 /* The school name links out to the school's own site — the app's only outbound
  * link. It inherits .small's muted color so the name stays quiet; the soft
  * underline (same treatment as the in-app links above) is the affordance. */
@@ -678,7 +678,8 @@ a.stat.active { border-color: var(--edge); }
                   text-overflow: ellipsis; white-space: nowrap; }
 
 /* Course summary strip: one compact row per current-term course. */
-.striphead { display: flex; align-items: baseline; gap: 0.6rem; }
+.striphead { display: flex; align-items: baseline; gap: 0.6rem;
+             font-size: 0.95rem; font-weight: 700; }
 .termtag { font-size: 0.7rem; font-weight: 600; color: var(--text-muted);
            text-transform: uppercase; letter-spacing: 0.06em; }
 table.strip { table-layout: fixed; }
@@ -749,6 +750,12 @@ table.assignments col.c-status { width: 9rem; }
 .allclear svg { width: 42px; height: 42px; margin-bottom: 0.7rem; }
 .allclear h2 { margin: 0 0 0.3rem; font-size: 1rem; }
 .allclear p { margin: 0; }
+.allclear p a {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--link) 50%, transparent);
+  text-underline-offset: 3px;
+}
+.allclear p a:hover { text-decoration-color: currentColor; }
 
 /* No-JS expanders: graded backlog ("Show all N graded"), closed terms, and
  * the All Courses strip. */
@@ -811,7 +818,7 @@ details.allcourses {
   padding: var(--card-pad);
   margin: 0 0 1.1rem;
 }
-details.allcourses summary h2 { margin: 0; }
+
 details.allcourses summary > svg { transform: rotate(-90deg); }
 details.allcourses[open] summary > svg { transform: rotate(0); }
 details.allcourses table { margin: 0.6rem 0 0; box-shadow: none;
