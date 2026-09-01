@@ -486,7 +486,8 @@ _GEAR_ICON = _SVG.format(
 
 def _nav_names(students) -> list[str]:
     """Nav display names: first names, unless two students share one — then
-    everyone gets their full name (the title attribute always carries it)."""
+    everyone gets their full name. When a first name stands in for a longer
+    full name, the nav link reveals the full name on hover (see _nav_students)."""
     firsts = [(s["name"] or "").split()[0] or s["name"] for s in students]
     if len(set(firsts)) < len(firsts):
         return [s["name"] for s in students]
@@ -501,8 +502,13 @@ def _nav_students(students) -> str:
         return ""
     names = _nav_names(students)
     inline = "".join(
-        f"<a class='tip-b' href='/student/{escape(s['agu'])}' "
-        f"data-tip='{escape(s['name'])}'>{escape(n)}</a>"
+        # The tooltip earns its place only when the nav abbreviates: it reveals
+        # the full name behind a first name. When the shown name already IS the
+        # full name, a tooltip would just echo it, so render a plain link.
+        (f"<a class='tip-b' href='/student/{escape(s['agu'])}' "
+         f"data-tip='{escape(s['name'])}'>{escape(n)}</a>"
+         if n != s["name"] else
+         f"<a href='/student/{escape(s['agu'])}'>{escape(n)}</a>")
         for s, n in zip(students, names))
     menu = "".join(
         f"<a href='/student/{escape(s['agu'])}'>{escape(s['name'])}</a>"
