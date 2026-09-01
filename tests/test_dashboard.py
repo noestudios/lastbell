@@ -359,29 +359,6 @@ def test_unknown_path_404s(conn):
     assert status == 404
 
 
-def test_alerts_page_offers_ack_form_and_shows_ack_state(populated):
-    conn = populated
-    watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
-    store.record_alert(conn, "1", Event(
-        type=AlertType.GRADE_CHANGED, student_agu="1", course_title="Math",
-        detail="Math: “Fractions Quiz” graded: 8/10"))
-    status, html = _get(conn, "/alerts")
-    assert "action='/ack'" in html and "<option>Mom</option>" in html
-
-    alert_id = conn.execute("SELECT id FROM alerts").fetchone()["id"]
-    status, target = dashboard._handle_ack(
-        conn, {"alert_id": [alert_id], "watcher": ["Mom"]})
-    assert (status, target) == (303, "/alerts")
-
-    _, html = _get(conn, "/alerts")
-    assert "✓ Mom" in html and "action='/ack'" not in html
-
-
-def test_bad_ack_is_rejected(populated):
-    status, html = dashboard._handle_ack(populated, {"alert_id": ["x"], "watcher": ["Nobody"]})
-    assert status == 400
-
-
 def test_settings_subscription_row_preselects_current_values(populated):
     conn = populated
     w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
@@ -820,58 +797,24 @@ def test_alerts_type_chips_group_and_filter(populated):
     assert "class='chip active' href='/alerts?type=grade_drop'" in html
 
 
-def test_alerts_unacked_surface_first(populated):
+def test_alerts_are_newest_first(populated):
     conn = populated
-    w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
-    _alert(conn, "older, never acked")
-    _alert(conn, "newer, already acked")
-    newer = conn.execute("SELECT id FROM alerts ORDER BY rowid DESC").fetchone()
-    store.ack_alert(conn, newer["id"], w.id)
+    _alert(conn, "older alert")
+    _alert(conn, "newer alert")
     _, html = _get(conn, "/alerts")
-    assert html.index("older, never acked") < html.index("newer, already acked")
-    assert "class='unacked'" in html
-    assert "1 unacknowledged" in html
+    assert html.index("newer alert") < html.index("older alert")
 
 
 def test_alerts_page_older_paging_replaces_the_cap(populated):
     for i in range(55):
         _alert(populated, f"alert number {i}")
     _, html = _get(populated, "/alerts")
-    assert html.count("data-label='Ack'") == 50
+    assert html.count("data-label='Type'") == 50
     assert ">older →</a>" in html and "?page=2" in html
     assert "← newer" not in html
     _, html = _get(populated, "/alerts?page=2")
-    assert html.count("data-label='Ack'") == 5
+    assert html.count("data-label='Type'") == 5
     assert ">← newer</a>" in html and "older →" not in html
-
-
-def test_ack_all_button_and_write_path(populated):
-    conn = populated
-    watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
-    _alert(conn, "one")
-    _alert(conn, "two")
-    _alert(conn, "a drop", AlertType.GRADE_DROP)
-    # the catch-up control lives in the Ack column's header, with the count
-    _, html = _get(conn, "/alerts")
-    assert "action='/ack-all'" in html
-    assert "ack all 3" in html
-    # the filtered page scopes both the count and the posted type
-    _, html = _get(conn, "/alerts?type=grade_drop")
-    assert "ack all 1" in html
-    assert "name='type' value='grade_drop'" in html
-    # acking one type leaves the others alone and keeps the filter
-    status, target = dashboard._handle_ack_all(
-        conn, {"watcher": ["Mom"], "type": ["grade_drop"]})
-    assert (status, target) == (303, "/alerts?type=grade_drop")
-    unacked = lambda: conn.execute(  # noqa: E731
-        "SELECT COUNT(*) FROM alerts WHERE acked_at IS NULL").fetchone()[0]
-    assert unacked() == 2
-    # unfiltered catches the rest; with nothing unacked the control is gone
-    status, target = dashboard._handle_ack_all(conn, {"watcher": ["Mom"]})
-    assert (status, target) == (303, "/alerts")
-    assert unacked() == 0
-    _, html = _get(conn, "/alerts")
-    assert "action='/ack-all'" not in html
 
 
 def test_overview_course_names_deep_link_scoped(populated):

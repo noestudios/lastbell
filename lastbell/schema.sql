@@ -106,9 +106,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
     type       TEXT NOT NULL,
     body       TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    acked_by   TEXT REFERENCES watchers(id) ON DELETE SET NULL,
-    acked_at   TEXT                       -- shared ack: one watcher acks for everyone
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Deferred deliveries (Phase 4): digests and quiet-hours holdbacks. A row is

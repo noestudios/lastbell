@@ -1,4 +1,4 @@
-"""Phase 4 odds and ends: grade-drop threshold, shared ack, schema migration,
+"""Phase 4 odds and ends: grade-drop threshold, schema migration,
 and schedule-aware routing."""
 from __future__ import annotations
 
@@ -70,54 +70,12 @@ def test_percent_display_rule():
     assert format_percent("") is None
 
 
-# ── shared ack ────────────────────────────────────────────────────────
-
-
-@pytest.fixture
-def with_alert(conn):
-    store.persist_snapshot(conn, Student(agu="1", name="Jasper P. Hays",
-                                         initials="J.P.H."),
-                           Snapshot(student_agu="1"))
-    store.record_alert(conn, "1", Event(
-        type=AlertType.GRADE_CHANGED, student_agu="1", course_title="Math",
-        detail="Math: quiz graded"))
-    return conn
-
-
-def test_ack_by_prefix_marks_for_everyone(with_alert):
-    conn = with_alert
-    w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
-    alert_id = conn.execute("SELECT id FROM alerts").fetchone()["id"]
-    row = store.ack_alert(conn, alert_id[:6], w.id)
-    assert row["acked_by"] == w.id and row["acked_at"] is not None
-
-    listed = store.list_alerts(conn)
-    assert listed[0]["acked_by_name"] == "Mom"
-    assert store.list_alerts(conn, only_open=True) == []
-
-
-def test_ack_unknown_prefix_errors(with_alert):
-    w = watchers.add_watcher(with_alert, "Mom", WatcherKind.GUARDIAN)
-    with pytest.raises(store.AckError, match="no alert"):
-        store.ack_alert(with_alert, "zzzz", w.id)
-
-
-def test_second_ack_does_not_steal_credit(with_alert):
-    conn = with_alert
-    mom = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
-    dad = watchers.add_watcher(conn, "Dad", WatcherKind.GUARDIAN)
-    alert_id = conn.execute("SELECT id FROM alerts").fetchone()["id"]
-    store.ack_alert(conn, alert_id, mom.id)
-    row = store.ack_alert(conn, alert_id, dad.id)   # already acked: no-op
-    assert row["acked_by"] == mom.id
-
-
 # ── migration ─────────────────────────────────────────────────────────
 
 
 def test_phase3_db_gains_new_columns(tmp_path):
-    """A database created before Phase 4 (no acked_at / last_sent_on) is
-    patched by ensure_schema instead of breaking."""
+    """A database created before later columns shipped (no last_sent_on /
+    current_term) is patched by ensure_schema instead of breaking."""
     import sqlite3
 
     path = tmp_path / "old.db"
@@ -141,8 +99,6 @@ def test_phase3_db_gains_new_columns(tmp_path):
 
     conn = store.connect(path)
     store.ensure_schema(conn)
-    cols = {r["name"] for r in conn.execute("PRAGMA table_info(alerts)")}
-    assert "acked_at" in cols
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(subscriptions)")}
     assert "last_sent_on" in cols
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(students)")}

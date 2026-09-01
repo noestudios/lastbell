@@ -58,13 +58,10 @@ def test_history_spans_months_for_trend_charts(demo):
     assert per_course and min(per_course) >= 10
 
 
-def test_alerts_are_dated_across_the_season_and_mostly_acked(demo):
+def test_alerts_are_dated_across_the_season(demo):
     lo, hi = demo.execute(
         "SELECT MIN(created_at), MAX(created_at) FROM alerts").fetchone()
     assert lo[:10] < hi[:10]                     # not all stamped "now"
-    total, acked = demo.execute(
-        "SELECT COUNT(*), SUM(acked_at IS NOT NULL) FROM alerts").fetchone()
-    assert 0 < acked < total                     # a mix, for the ack UI
     types = {r[0] for r in demo.execute("SELECT DISTINCT type FROM alerts")}
     assert {"grade_changed", "assignment_missing", "upcoming_deadline",
             "grade_drop", "term_final"} <= types

@@ -60,17 +60,13 @@ def test_build_lists_standing_state(conn):
     assert "Jasper" not in body   # low-PII: initials only, never the name
 
 
-def test_build_mentions_unacked_alerts_only(conn):
+def test_build_lists_recent_alerts(conn):
     store.record_alert(conn, "1", Event(
         type=AlertType.ASSIGNMENT_MISSING, student_agu="1", course_title="Math",
         detail="Math: “Collage” is marked missing"))
     body = summary.build(conn, "1", "J.P.H.", today=TODAY)
-    assert "Unacked alerts this week (1):" in body
-
-    w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
-    alert_id = conn.execute("SELECT id FROM alerts").fetchone()["id"]
-    store.ack_alert(conn, alert_id[:8], w.id)
-    assert "Unacked" not in summary.build(conn, "1", "J.P.H.", today=TODAY)
+    assert "Recent alerts this week (1):" in body
+    assert "Collage" in body
 
 
 def test_send_due_fires_once_per_day(conn):
