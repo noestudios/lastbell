@@ -182,7 +182,7 @@ def test_course_strip_scopes_the_active_view(conn):
     assert "Collage" in html and "Worksheet" in html
     # the strip is an All Courses collapsible ABOVE the stat cards,
     # collapsed by default (owner's call 2026-09-01)
-    assert "<details class='allcourses'><summary>" in html
+    assert "<details class='allcourses' id='allcourses'><summary>" in html
     assert "All Courses" in html
     assert html.index("allcourses") < html.index("class='stats'")
     # course names must read as filters: underline styling rides the CSS,
@@ -194,17 +194,40 @@ def test_course_strip_scopes_the_active_view(conn):
     _, html = _get(conn, "/student/1?course=g2")
     assert "Worksheet" in html and "Collage" not in html
     assert "class='scoped'" in html
-    assert "<details class='allcourses' open>" in html
+    assert "<details class='allcourses' id='allcourses' open>" in html
     # the scoped row's icon flips to an × — click again to clear
     assert "x1='18' y1='6'" in html
-    # the scoped row's link clears the filter — carrying strip=open, so
-    # deselecting doesn't collapse the bar the reader is working in
+    # the summary names the active filter, so it stays legible collapsed
+    assert "<span class='striptag'>" in html
+    tag = html.split("class='striptag'")[1].split("</span>")[0]
+    assert "Math" in tag
+    _, unscoped = _get(conn, "/student/1")
+    assert "striptag" not in unscoped
+    # the clear link carries strip=open — the JS-off fallback for "deselecting
+    # doesn't collapse the bar the reader is working in"
     assert ("href='/student/1?view=problems&strip=open' "
             "title='show all courses'") in html
     _, html2 = _get(conn, "/student/1?view=problems&strip=open")
-    assert "<details class='allcourses' open>" in html2
+    assert "<details class='allcourses' id='allcourses' open>" in html2
     # stat-card links carry the scope along
     assert "href='/student/1?view=due&course=g2'" in html
+
+
+def test_all_courses_state_is_the_readers_alone(conn):
+    """Only a manual toggle moves the strip: the saved per-browser choice is
+    the sole authority with JS (applied inline, both directions, before
+    paint); the server's open attribute is the JS-off fallback."""
+    _persist(conn, "1",
+             [Course(edupoint_gu="g1", title="Art", term="MP1"),
+              Course(edupoint_gu="g2", title="Math", term="MP1")],
+             [], term="MP1")
+    _, html = _get(conn, "/student/1")
+    assert "id='allcourses'" in html
+    # applied synchronously right after the element, saved on user toggles
+    strip_js = html.rsplit("</details>", 1)[1]     # after the strip itself
+    assert "localStorage.getItem('lastbell-courses')==='open'" in strip_js
+    assert "addEventListener('toggle'" in strip_js
+    assert "setItem('lastbell-courses'" in strip_js
 
 
 def test_single_course_student_skips_the_strip(populated):

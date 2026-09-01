@@ -837,15 +837,39 @@ def _course_strip(student, ctx) -> str:
     # Collapsed by default (owner's call 2026-09-01) — the stat cards are the
     # page's front door. Held open while a course scope is active so the
     # marked row (and the way to clear the filter) stays visible.
+    # The open/closed state is the READER's alone — only a manual toggle
+    # changes it, never scoping/clearing/view switches (owner's call
+    # 2026-09-01). The choice is saved per browser (localStorage, like the
+    # theme) and applied by the inline script below synchronously — no
+    # flash. With JS, the saved choice (default: closed) is the ONLY
+    # authority; the server-rendered open (scoped, or the clear link's
+    # ?strip=open) exists purely as the JS-off fallback, where losing the
+    # filter marker in a collapsed strip would be worse.
     is_open = bool(ctx["course_gu"]) or ctx["strip_open"]
+    # An active course filter must stay legible even with the strip closed:
+    # the summary carries a funnel tag naming the scoped course.
+    scoped_title = next(
+        (c["title"] for c in ctx["strip"]
+         if c["edupoint_gu"] == ctx["course_gu"]), "")
+    tag = (f" <span class='striptag'>{_FILTER_ICON}"
+           f"{escape(scoped_title)}</span>" if scoped_title else "")
     return (
-        f"<details class='allcourses'{' open' if is_open else ''}>"
+        f"<details class='allcourses' id='allcourses'"
+        f"{' open' if is_open else ''}>"
         f"<summary>{_CHEVRON}<h2 class='striphead'>All Courses"
         + (f" <span class='termtag'>{label}</span>" if label else "")
-        + "</h2></summary><table class='strip'>"
+        + tag + "</h2></summary><table class='strip'>"
           "<tr class='head'><th>Course</th><th>Grade</th><th>2 weeks</th>"
           "<th>Open</th><th>Last graded</th></tr>"
-        + "".join(rows) + "</table></details>")
+        + "".join(rows) + "</table></details>"
+        "<script>(function(){"
+        "var d=document.getElementById('allcourses');"
+        "try{d.open=localStorage.getItem('lastbell-courses')==='open';}"
+        "catch(e){}"
+        "d.addEventListener('toggle',function(){"
+        "try{localStorage.setItem('lastbell-courses',d.open?'open':'closed');}"
+        "catch(e){}});"
+        "})();</script>")
 
 
 def _show_course_col(ctx) -> bool:

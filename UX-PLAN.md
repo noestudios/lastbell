@@ -204,8 +204,15 @@ inline where reality forced a call.**
   `?course=` scope is active so the marked row and the way to clear the
   filter stay visible. Course names must READ as filters: underlined, with
   a funnel icon after each name that flips to an × on the scoped row.
-  Clearing the filter carries `?strip=open` so deselecting doesn't collapse
-  the bar the reader is working in.)* — grade + mark, 2-week delta (from
+  The open/closed state is the reader's ALONE — only a manual toggle moves
+  it, never scoping/clearing/view switches. Saved per browser
+  (localStorage, like the theme), applied inline before paint; with JS the
+  saved choice (default closed) is the only authority, and the server-side
+  open (scoped, or the clear link's `?strip=open`) is just the JS-off
+  fallback. A collapsed strip with an active filter names the scoped
+  course in its summary (funnel tag) so the filter never goes invisible.
+  Open/close eases via `::details-content` + `interpolate-size` —
+  progressive enhancement, instant where unsupported.)* — grade + mark, 2-week delta (from
   `course_history`), open-issue chips, last-graded recency. Clicking a
   row scopes the active view to that course (`?course=`). Rows now;
   the strip is where per-course sparklines land later (trends question).
