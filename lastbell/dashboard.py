@@ -46,17 +46,17 @@ _STATUS_LABELS = {
 # are feather-style paths (rendered via _SVG below); each colors through the
 # same token its badge uses.
 _STATUS_ROWS = {
-    "missing": ("st-missing", "var(--bad)",
+    "missing": ("st-missing", "var(--bad-ink)",
                 "<circle cx='12' cy='12' r='10'/>"
                 "<line x1='12' y1='8' x2='12' y2='12'/>"
                 "<line x1='12' y1='16' x2='12.01' y2='16'/>"),
     "ungraded_past_due": (
-        "st-late", "var(--warn)",
+        "st-late", "var(--warn-ink)",
         "<path d='M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0"
         " 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z'/>"
         "<line x1='12' y1='9' x2='12' y2='13'/>"
         "<line x1='12' y1='17' x2='12.01' y2='17'/>"),
-    "due": ("st-due", "var(--warn)",
+    "due": ("st-due", "var(--warn-ink)",
             "<circle cx='12' cy='12' r='10'/>"
             "<polyline points='12 6 12 12 16 14'/>"),
 }
@@ -740,7 +740,7 @@ def render_overview(students, courses_by_student, counts_by_student) -> str:
 # ── student page (C0): stat cards, course strip, four views ───────────
 
 
-_CHECK_BIG = ("<svg viewBox='0 0 24 24' fill='none' style='stroke:var(--accent)' "
+_CHECK_BIG = ("<svg viewBox='0 0 24 24' fill='none' style='stroke:var(--edge)' "
               "stroke-width='2' stroke-linecap='round' stroke-linejoin='round' "
               "aria-hidden='true'><path d='M22 11.08V12a10 10 0 1 1-5.93-9.14'/>"
               "<polyline points='22 4 12 14.01 9 11.01'/></svg>")
@@ -830,7 +830,7 @@ def _spark_bars(pcts) -> str:
     for i, p in enumerate(pcts[:10]):
         h = 4 + (min(max(p, 50.0), 100.0) - 50.0) / 50.0 * 26
         rects.append(f"<rect x='{4 + i * 12}' y='{34 - h:.1f}' width='6' "
-                     f"height='{h:.1f}' rx='2' style='fill:var(--accent)'/>")
+                     f"height='{h:.1f}' rx='2' style='fill:var(--edge)'/>")
     return ("<svg class='spark' viewBox='0 0 120 34' "
             "preserveAspectRatio='none' aria-hidden='true'>"
             + "".join(rects) + "</svg>")
@@ -869,12 +869,12 @@ def _stat_cards(student, ctx) -> str:
 
     wk = c["problems_week"]
     if wk > 0:
-        p_ctx = f"<b style='color:var(--bad)'>+{wk}</b> this week"
+        p_ctx = f"<b style='color:var(--bad-ink)'>+{wk}</b> this week"
     elif wk < 0:
-        p_ctx = f"<b style='color:var(--ok)'>−{-wk}</b> this week"
+        p_ctx = f"<b style='color:var(--ok-ink)'>−{-wk}</b> this week"
     else:
         p_ctx = "no change this week"
-    p_spark = (_spark_line(c["problems_series"], "var(--bad)", lo=0)
+    p_spark = (_spark_line(c["problems_series"], "var(--bad-ink)", lo=0)
                if max(c["problems_series"], default=0) > 0 else "")
     parts = [card("problems", "Problems", str(c["problems_count"]),
                   p_ctx, p_spark)]
@@ -905,7 +905,7 @@ def _stat_cards(student, ctx) -> str:
            if c["term_avg"] is not None else "—")
     n = c["courses"]
     e_ctx = f"term average · {n} course{'s' if n != 1 else ''}"
-    e_extra = (_spark_line(c["term_series"], "var(--accent)")
+    e_extra = (_spark_line(c["term_series"], "var(--edge)")
                if len(c["term_series"]) >= 2 else "")
     parts.append(card("everything", "Everything", big, e_ctx, e_extra))
     return "<div class='stats'>" + "".join(parts) + "</div>"
