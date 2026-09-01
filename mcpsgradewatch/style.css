@@ -40,6 +40,17 @@
   --radius-sm:   12px;
   --card-shadow: 0 3.5px 5.5px rgba(0, 0, 0, 0.06);
   --card-pad:    22px;
+
+  /* motion (tiers borrowed from jshq): fast = hover/press feedback,
+   * base = enter/exit fades, slow = larger movement (row collapse),
+   * linger = attention decay (toast fade-out). One symmetric curve
+   * because the same tokens drive enters AND exits. */
+  --dur-fast:   150ms;
+  --dur-base:   300ms;
+  --dur-slow:   400ms;
+  --dur-linger: 750ms;
+  --ease:       cubic-bezier(0.4, 0, 0.2, 1);
+  --rise:       14px;
 }
 
 /* Dark palette. Three theme states: an explicit choice stamps
@@ -126,8 +137,10 @@ nav .brand {
   text-transform: uppercase;
   margin-right: 0.6rem;
 }
+/* Settings is icon-only at every width, pushed right against the toggle. */
+nav a.gear { margin-left: auto; }
+nav a.gear svg { display: inline-block; }
 #themetoggle {
-  margin-left: auto;
   font: inherit;
   font-size: 0.75rem;
   font-weight: 600;
@@ -226,18 +239,42 @@ table.courses th:nth-child(4) { width: 3.6rem; }    /* mark    */
 .badge.bad   { background: var(--bad); }
 .badge.muted { background: var(--surface-2); color: var(--text-muted); }
 
-/* ── forms (ack) ────────────────────────────────────────────────────── */
+/* ── forms (ack + settings) ─────────────────────────────────────────── */
 
 .ackform { display: inline-flex; gap: 0.35rem; margin: 0; align-items: center; }
-.ackform select {
-  font-size: 0.75rem;
+/* Add forms sit apart from the rows they feed: an inset panel on the canvas
+ * color, so "create" and "manage" read as two zones. */
+form.edit {
+  display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center;
+  margin: 0.15rem 0 1.1rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+}
+form.rowform { display: inline; margin: 0; }
+.ackform select,
+form.edit select,
+form.edit input,
+td select,
+td input {
+  font: inherit;
+  font-size: 0.78rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
-  padding: 0.2rem 0.4rem;
+  padding: 0.28rem 0.5rem;
 }
-.ackform button {
+form.edit input { max-width: 13rem; }
+.formtitle {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  min-width: 4.6rem;
+}
+.ackform button, form.edit button, form.rowform button {
   font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -248,8 +285,236 @@ table.courses th:nth-child(4) { width: 3.6rem; }    /* mark    */
   border-radius: var(--radius-sm);
   padding: 0.32rem 0.75rem;
   cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease),
+              border-color var(--dur-fast) var(--ease),
+              color var(--dur-fast) var(--ease),
+              transform var(--dur-fast) var(--ease);
 }
-.ackform button:hover { background: var(--accent-strong); }
+.ackform button:hover, form.edit button:hover,
+form.rowform button:hover { background: var(--accent-strong); }
+.ackform button:active, form.edit button:active,
+form.rowform button:active { transform: translateY(1px); }
+
+/* Update buttons earn their place: absent until the row's fields differ
+ * from what the server rendered — app.js toggles .dirty on the row form.
+ * display:none (not visibility) so no phantom gap sits beside the
+ * right-aligned remove button; the fade-in runs on appearance. */
+@keyframes upd-in {
+  from { opacity: 0; }
+}
+form.rowform button.upd { display: none; }
+form.rowform.dirty button.upd {
+  display: inline-block;
+  animation: upd-in var(--dur-fast) var(--ease);
+}
+
+/* Action buttons hug the right edge of their row so the two manage tables
+ * (watchers, subscriptions) align with each other. */
+table.manage th:last-child,
+table.manage td:last-child { text-align: right; white-space: nowrap; }
+
+/* Alert-types multiselect: a <details> popover that reads like a select.
+ * The list floats over the rows below; the manage table must not clip it. */
+table.manage { overflow: visible; }
+details.msel { position: relative; display: inline-block; }
+details.msel summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 0.78rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.28rem 1.5rem 0.28rem 0.5rem;
+  white-space: nowrap;
+  position: relative;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+details.msel summary::-webkit-details-marker { display: none; }
+details.msel summary::after {
+  content: "";
+  position: absolute;
+  right: 0.55rem;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--text-muted);
+  border-bottom: 1.5px solid var(--text-muted);
+  transform: translateY(-70%) rotate(45deg);
+}
+details.msel[open] summary { border-color: var(--accent); }
+@keyframes msel-in {
+  from { opacity: 0; transform: translateY(calc(-0.5 * var(--rise))); }
+}
+details.msel .msel-list {
+  position: absolute;
+  z-index: 15;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 12rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
+  padding: 0.55rem 0.7rem;
+  animation: msel-in var(--dur-fast) var(--ease);
+}
+.msel-list label {
+  font-size: 0.78rem;
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.msel-list input { accent-color: var(--accent); margin: 0; }
+
+/* The urgent-now checkbox rides in the Delivery cell. */
+label.urgent {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+label.urgent input { accent-color: var(--accent); vertical-align: -2px; }
+/* A watcher's channels nest under it, one per row. */
+td.chname { padding-left: 1.9rem; color: var(--text-muted); font-weight: 600; }
+tr.chrow:not(:last-child) td { border-bottom: 1px dashed var(--border); }
+/* Quiet secondary/destructive actions (row removes).
+ * Declared after the accent rules so equal-specificity ties resolve here. */
+form button.ghost,
+.confirm button.ghost {
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.26rem 0.6rem;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease),
+              border-color var(--dur-fast) var(--ease),
+              color var(--dur-fast) var(--ease),
+              transform var(--dur-fast) var(--ease);
+}
+form button.ghost:hover { color: #fff; background: var(--bad); border-color: var(--bad); }
+form button.ghost:active { transform: translateY(1px); }
+/* Confirm's Cancel is a quiet neutral — hover must NOT read destructive. */
+.confirm button.ghost:hover { color: var(--text); border-color: var(--text-muted); background: none; }
+.confirm button.ghost:active { transform: translateY(1px); }
+#themetoggle { transition: color var(--dur-fast) var(--ease),
+                           border-color var(--dur-fast) var(--ease); }
+
+/* Validation feedback after a settings redirect (?err=…). */
+.banner {
+  border-radius: var(--radius);
+  padding: 0.65rem 1.1rem;
+  margin: 0 0 1.1rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.banner.bad { background: var(--bad); color: #fff; }
+
+/* ── toast (success feedback after a settings redirect ?ok=…) ───────── */
+
+/* Enter: rises from below on the base tier. The from-frame must carry the
+ * base rule's translateX(-50%) centering or the toast snaps sideways. */
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, var(--rise)); }
+}
+.toast {
+  position: fixed;
+  bottom: 1.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  animation: toast-in var(--dur-base) var(--ease);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--ok);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  padding: 0.6rem 1.1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  z-index: 20;
+  max-width: 30rem;
+}
+/* Exit: a dismissal is attention decaying, not movement — opacity only,
+ * on the linger tier. app.js adds the class and removes the node on a
+ * timeout (never animationend — hidden documents don't run animations). */
+@keyframes toast-out {
+  to { opacity: 0; transform: translateX(-50%); }
+}
+.toast.toast-exit {
+  animation: toast-out var(--dur-linger) var(--ease) forwards;
+  pointer-events: none;
+}
+
+/* ── confirm dialog (destructive removals) ──────────────────────────── */
+
+@keyframes scrim-in {
+  from { opacity: 0; }
+}
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(10, 13, 19, 0.55);
+  animation: scrim-in var(--dur-base) var(--ease);
+}
+/* Enter rises like the toast; the from-frame carries the base transform. */
+@keyframes confirm-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + var(--rise))); }
+}
+.confirm {
+  position: fixed;
+  z-index: 31;
+  left: 50%;
+  top: 38%;
+  transform: translate(-50%, -50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  padding: 1.1rem 1.3rem;
+  max-width: 24rem;
+  width: calc(100% - 2rem);
+  animation: confirm-in var(--dur-base) var(--ease);
+}
+.confirm p { margin: 0 0 0.9rem; font-size: 0.9rem; line-height: 1.5; }
+.confirm-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+.confirm button.danger {
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--bad);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.32rem 0.75rem;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease),
+              transform var(--dur-fast) var(--ease);
+}
+.confirm button.danger:hover { background: #e53e3e; }
+.confirm button.danger:active { transform: translateY(1px); }
+
+/* Respect reduced-motion: collapse every duration so states land instantly;
+ * app.js guards its scripted (inline-style) motion separately. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
 
 /* ── responsive ─────────────────────────────────────────────────────── */
 

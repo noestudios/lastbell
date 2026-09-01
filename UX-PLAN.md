@@ -16,7 +16,8 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
    watcher for the credential holder, subscribes them to all discovered
    students, and seeds their email channel from `MCPSGRADEWATCH_SMTP_TO` when
    set. Ack and the viewer identity picker therefore always have someone to
-   attribute to; watcher CRUD beyond that stays in the CLI for now.
+   attribute to; watcher CRUD is in both the CLI and (since the Phase B
+   settings build-out) the dashboard's Settings page.
    **Implemented (2026-08-31):** `watchers.ensure_default_watcher`, called at
    the end of every `run` pass — a no-op once any watcher exists. Console
    channel when SMTP_TO is unset, mirroring the old no-watcher fallback.
@@ -37,15 +38,68 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
 
 ### B. Structure — nav + settings
 - Nav per decision 2 (responsive: names on desktop, icons+menu on mobile).
-- Fold Watchers into a **Settings** page: watchers, subscriptions, quiet
-  hours, poll/threshold config shown read-only, each with the exact CLI
-  command to change it. Full web CRUD is deliberately deferred — growing the
-  write surface beyond ack raises the auth question (PIN/token) and the CLI
-  isn't chafing yet.
-- Settings status: **done (2026-08-31)** — `/settings` (gear icon in the
-  nav) replaces `/watchers`, which 301s there. Poll/threshold values render
-  from the environment when configured. Student-name nav links (decision 2)
+- Fold Watchers into a **Settings** page: watcher/subscription/quiet-hours
+  management as real web forms (owner's call 2026-08-31, superseding the
+  earlier read-only-with-CLI-hints deferral). Env-owned config (poll
+  cadence, thresholds) is deliberately absent: if it can't be changed from
+  the page, it isn't shown there (owner's call 2026-09-01). The write paths
+  follow ack's trust model: no auth of their own, the bind address is the
+  access control.
+- Settings status: **done (2026-09-01)** — `/settings` replaces `/watchers`
+  (301). The gear is set apart from the page links: always icon-only,
+  right-aligned against the theme toggle. Add-forms sit above their tables.
+  Watchers table nests one row per channel under each watcher (address
+  editable in place, add/remove per row, via the HTML form= attribute);
+  subscriptions add in one step ("all students" fans out) and edit in place
+  per row (type/channel/time + update/remove). Validation errors redirect
+  back as a banner (`?err=`). Quiet hours are descoped from the web UI
+  (owner's call 2026-09-01) — CLI only. Student-name nav links (decision 2)
   are still open.
+- Delivery cadence (owner's call 2026-09-01): the default is ONE daily
+  digest at 16:00, with an "urgent now" checkbox (per subscription,
+  `urgent_now` column) that sends urgent alert types immediately —
+  `URGENT_ALERT_TYPES` = missing assignment, upcoming deadline, grade drop.
+  Grade changes are informational and batch. The default watcher seeds
+  16:00 + urgent. Quiet hours still defer urgent sends downstream.
+- Channels (owner's call 2026-09-01): the web UI offers exactly **email**
+  and **text message** — sms is its own channel name riding the email
+  transport (carrier email→SMS gateway address). ntfy/telegram/pushover
+  stay in the codebase as CLI-only; Signal rejected (no official bot API;
+  signal-cli is brittle). Addresses are validated at entry
+  (`notify.validate_address`, dashboard + CLI): email/sms must look like
+  user@host, and the sms error teaches the carrier gateway format — a bare
+  phone number is the mistake it exists to catch.
+- Settings layout (owner's call 2026-09-01): add forms sit in an inset
+  panel ABOVE their tables (create vs manage zones); action buttons
+  right-align in the last column so the two tables line up; Update buttons
+  are display-gated (no phantom space) and fade in when the row dirties.
+- No-reload settings (owner's call 2026-09-01): app.js posts settings forms
+  over fetch and swaps `#settings-main` in place — no navigation, no scroll
+  reset; the URL never carries `?ok/?new`. The server contract is
+  unchanged (303 → fresh page; fetch follows it, outcome read from the
+  final URL's params), so JS-off still works as plain POST → redirect.
+- Alert types are a multiselect (owner's call 2026-09-01): the data model
+  stays one row per type (routing depends on it); the dashboard groups rows
+  by (watcher, student, channel, delivery, urgent) and shows the type SET
+  as a checkbox dropdown (a styled `<details>` popover — no JS to open).
+  `watchers.set_subscription_group` reconciles the selected set (insert new
+  types, delete de-selected, update kept — rolling back on a conflict).
+  app.js keeps "all alerts" exclusive, at least one box checked, and the
+  summary label fresh.
+- Removal confirmations (owner's call 2026-09-01): removing a watcher, or
+  a watcher's LAST subscription, pops a Cancel/Remove dialog (scrim +
+  surface card, toast-style enter) whose text states the consequence
+  plainly. Channel and non-final subscription removals stay one click.
+- Settings polish (2026-09-01): motion timings borrowed from jshq's tiers
+  (fast 150ms feedback / base 300ms fades / slow 400ms movement / linger
+  750ms decay, one symmetric ease). Row Update buttons appear only once the
+  row is dirtied (app.js, served at /static/app.js — progressive
+  enhancement, plain posts with JS off). Successes redirect with `?ok=`
+  (toast, bottom-center, 3s hold then opacity-only fade) and `?new=` (row
+  ids that slide down + fade in); removals fade + collapse client-side
+  before the form posts, so content below slides up with no reload jump.
+  Buttons have fast-tier hover transitions and a 1px press-down state.
+  `prefers-reduced-motion` collapses all of it.
 
 ### C. Signal — status visibility
 - Row tint + leading icon per status, from the same tokens as badges:

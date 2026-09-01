@@ -3,13 +3,14 @@
 The dashboard is for *looking things up on demand* — alerts are always pushed
 out, so nobody has to open this to find out something changed. It's stdlib
 ``http.server`` over the same SQLite file the watch loop writes: no framework,
-no build step. Every page is a SELECT; the one deliberate write path is the
-shared-ack button on /alerts (``POST /ack``), which only ever sets
-``acked_by``/``acked_at`` on an existing alert row.
+no build step. Pages are SELECTs; the write paths are the shared-ack button on
+/alerts (``POST /ack``) and the watcher/subscription forms on /settings
+(``POST /settings/<action>``) — household bookkeeping only, never grade data.
 
 It binds 127.0.0.1 by default. To share it on your LAN set
 MCPSGRADEWATCH_DASHBOARD_HOST=0.0.0.0 — and know that unlike alert payloads it
-shows full names, so treat the bind address as the access control.
+shows full names (and, on /settings, watcher addresses), so treat the bind
+address as the access control; the write paths carry no auth of their own.
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ import sqlite3
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 _STATUS_LABELS = {
     "graded": ("graded", "ok"),
@@ -29,7 +30,10 @@ _STATUS_LABELS = {
 
 # The theme lives in style.css next to this module (design tokens extracted
 # from the Purity UI Dashboard template) and is served at /static/style.css.
+# app.js is the page's one script: settings-form niceties (dirty tracking,
+# row enter/exit motion, toast dismissal) that degrade to plain form posts.
 _STYLE_PATH = Path(__file__).with_name("style.css")
+_APPJS_PATH = Path(__file__).with_name("app.js")
 
 
 # ── data (all read-only) ──────────────────────────────────────────────
@@ -158,20 +162,23 @@ _NAV_ITEMS = (
      "<path d='M13.7 21a2 2 0 0 1-3.4 0'/>"),
     ("/history", "History",
      "<circle cx='12' cy='12' r='10'/><polyline points='12 6 12 12 16 14'/>"),
-    ("/settings", "Settings",
-     "<circle cx='12' cy='12' r='3'/>"
-     "<path d='M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83"
-     " 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1"
-     " 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65"
-     " 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06"
-     "a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2"
-     " 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06"
-     "a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9"
-     "a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65"
-     " 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2"
-     " 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51"
-     " 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z'/>"),
 )
+
+# Settings sits apart from the page links: always icon-only (no label at any
+# width), right-aligned against the theme toggle.
+_GEAR_ICON = _SVG.format(
+    "<circle cx='12' cy='12' r='3'/>"
+    "<path d='M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83"
+    " 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1"
+    " 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65"
+    " 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06"
+    "a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2"
+    " 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06"
+    "a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9"
+    "a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65"
+    " 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2"
+    " 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51"
+    " 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z'/>")
 
 
 def _page(title: str, body: str) -> str:
@@ -184,8 +191,11 @@ def _page(title: str, body: str) -> str:
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
         f"<title>{escape(title)} · MCPSGradeWatch</title>"
         "<link rel='stylesheet' href='/static/style.css'>"
-        f"<script>{_THEME_JS}</script></head><body>"
+        f"<script>{_THEME_JS}</script>"
+        "<script src='/static/app.js' defer></script></head><body>"
         f"<nav><a class='brand' href='/'>MCPSGradeWatch</a>{links}"
+        f"<a class='gear' href='/settings' title='Settings' "
+        f"aria-label='Settings'>{_GEAR_ICON}</a>"
         "<button id='themetoggle' title='Theme: follows your system unless "
         "you pick one (saved in this browser)'>◐ auto</button></nav>"
         f"{body}</body></html>"
@@ -371,93 +381,231 @@ def render_history(rows, course_rows=()) -> str:
     return _page("History", "".join(parts))
 
 
-def render_settings(watcher_list, subscriptions, conf=None) -> str:
-    """The Settings page: watchers, subscriptions, and poll/threshold config,
-    all read-only — each section names the exact CLI command (or env var) that
-    changes it. Web CRUD beyond ack is deliberately deferred (auth question).
+def _type_multiselect(fid, selected) -> str:
+    """The alert-types control: a checkbox dropdown (<details> popover — the
+    browser handles open/close; app.js keeps the summary label fresh and
+    makes 'all alerts' exclusive). ``fid`` binds row-form controls; None
+    means the checkboxes sit inside their form already."""
+    from .models import AlertType
+
+    sel = set(selected)
+    if not sel or "*" in sel:
+        sel = {"*"}
+    opts = [("*", "all alerts")] + [
+        (t.value, t.value.replace("_", " ")) for t in AlertType]
+    if "*" in sel:
+        label = "all alerts"
+    elif len(sel) == 1:
+        label = next(iter(sel)).replace("_", " ")
+    else:
+        label = f"{len(sel)} types"
+    form_attr = f" form='{escape(fid)}'" if fid else ""
+    boxes = "".join(
+        f"<label><input type='checkbox' name='type' value='{escape(v)}'"
+        f"{form_attr}{' checked' if v in sel else ''}> {escape(lab)}</label>"
+        for v, lab in opts)
+    return (f"<details class='msel'><summary>{escape(label)}</summary>"
+            f"<div class='msel-list'>{boxes}</div></details>")
+
+
+def _options(pairs, selected="") -> str:
+    """``<option>`` list from (value, label) pairs."""
+    return "".join(
+        f"<option value='{escape(v)}'{' selected' if v == selected else ''}>"
+        f"{escape(label)}</option>"
+        for v, label in pairs)
+
+
+def render_settings(watcher_list, subscriptions, students=(),
+                    error="", notice="") -> str:
+    """The Settings page: full watcher/subscription CRUD as plain HTML forms
+    (same trust model as ack — the bind address is the access control).
+    Env-owned config (poll cadence, thresholds) is deliberately absent: if it
+    can't be changed from here, it isn't shown here.
     """
-    def quiet(w) -> str:
-        if w.quiet_hours.get("start") and w.quiet_hours.get("end"):
-            return f"{w.quiet_hours['start']}–{w.quiet_hours['end']}"
-        return "—"
+    from . import notify
+
+    watcher_opts = [(w.name, w.name) for w in watcher_list]
+    # The web UI offers email and text message only (sms rides the email
+    # transport but is its own field). Other channels stay CLI territory.
+    channel_opts = [("email", "email"), ("sms", "text message")]
+    channel_label = dict(channel_opts)
 
     if watcher_list:
-        w_rows = "".join(
-            f"<tr><td>{escape(w.name)}</td>"
-            f"<td data-label='Kind'>{escape(w.kind.value)}</td>"
-            f"<td data-label='Channels'>{escape(', '.join(w.channels) or '—')}</td>"
-            f"<td data-label='Quiet hours'>{escape(quiet(w))}</td></tr>"
-            for w in watcher_list)
-        w_body = ("<table><tr class='head'><th>Name</th><th>Kind</th>"
-                  "<th>Channels</th><th>Quiet hours</th></tr>" + w_rows + "</table>")
+        # One row per watcher, then one row per channel under it (each
+        # editable/removable in place), then an add-channel row for whatever
+        # channels the watcher doesn't have yet. Row forms live in the
+        # actions cell; the other cells' controls bind via form=.
+        w_rows = []
+        for w in watcher_list:
+            w_rows.append(
+                f"<tr id='row-w-{escape(w.id)}' data-w='{escape(w.id)}'>"
+                f"<td><strong>{escape(w.name)}</strong> "
+                f"<span class='small'>{escape(w.kind.value)}</span></td>"
+                f"<td></td>"
+                f"<td data-label='Actions'>"
+                f"<form method='post' action='/settings/watcher-remove' "
+                f"class='rowform' data-group='{escape(w.id)}'>"
+                f"<input type='hidden' name='name' value='{escape(w.name)}'>"
+                f"<button class='ghost' title='remove watcher {escape(w.name)}'>"
+                f"remove</button></form>"
+                f"</td></tr>")
+            for cname, addr in w.channels.items():
+                fid = f"ch-{escape(w.id)}-{escape(cname)}"
+                hidden = (f"<input type='hidden' name='watcher' value='{escape(w.name)}'>"
+                          f"<input type='hidden' name='channel' value='{escape(cname)}'>")
+                if notify.ADDRESS_KEY.get(cname) is None:   # console: no address
+                    addr_cell = "—"
+                    buttons = ("<button class='ghost' "
+                               "title='remove this channel'>remove</button>")
+                    form = (f"<form id='{fid}' method='post' "
+                            f"action='/settings/channel-remove' class='rowform'>"
+                            f"{hidden}{buttons}</form>")
+                else:
+                    address = next(iter(addr.values()), "")
+                    # name='to' (never 'address' — browsers autofill that as
+                    # a street address). Email rows opt into email autofill;
+                    # sms rows hold a carrier gateway, so no suggestions.
+                    autofill = "email" if cname == "email" else "off"
+                    addr_cell = (f"<input name='to' form='{fid}' "
+                                 f"value='{escape(address)}' "
+                                 f"autocomplete='{autofill}'>")
+                    form = (f"<form id='{fid}' method='post' "
+                            f"action='/settings/channel' class='rowform'>{hidden}"
+                            f"<button class='upd'>Update</button> "
+                            f"<button class='ghost' formaction='/settings/channel-remove' "
+                            f"title='remove this channel'>remove</button></form>")
+                w_rows.append(
+                    f"<tr class='chrow' id='row-{fid}' data-w='{escape(w.id)}'>"
+                    f"<td class='chname'>{escape(channel_label.get(cname, cname))}</td>"
+                    f"<td data-label='Address'>{addr_cell}</td>"
+                    f"<td data-label='Actions'>{form}</td></tr>")
+            remaining = [(c, label) for c, label in channel_opts
+                         if c not in w.channels]
+            if remaining:
+                fid = f"chadd-{escape(w.id)}"
+                w_rows.append(
+                    f"<tr class='chrow' id='row-{fid}' data-w='{escape(w.id)}'>"
+                    f"<td class='chname'>"
+                    f"<select name='channel' form='{fid}'>"
+                    f"{_options(remaining)}</select></td>"
+                    f"<td data-label='Address'>"
+                    f"<input name='to' form='{fid}' autocomplete='off' "
+                    f"placeholder='name@example.com / 5551234567@vtext.com' "
+                    f"title='Email address — or, for text message, your carrier&#39;s "
+                    f"email-to-SMS gateway address'></td>"
+                    f"<td data-label='Actions'>"
+                    f"<form id='{fid}' method='post' action='/settings/channel' "
+                    f"class='rowform'>"
+                    f"<input type='hidden' name='watcher' value='{escape(w.name)}'>"
+                    f"<button>Add channel</button></form></td></tr>")
+        w_body = ("<table class='manage'><tr class='head'><th>Watcher</th>"
+                  "<th>Address</th><th></th></tr>" + "".join(w_rows) + "</table>")
     else:
-        w_body = "<p class='small'>None yet.</p>"
-    w_card = (
-        "<div class='card tablecard'><h2>Watchers</h2>" + w_body +
-        "<p class='small'>Change with <code>mcpsgradewatch watcher add "
-        "NAME --channel email=addr</code>, <code>watcher set-channel</code>, "
-        "<code>watcher quiet-hours NAME 21:00-07:00</code>, "
-        "<code>watcher remove</code>.</p></div>")
+        w_body = "<p class='small'>None yet — add the first watcher above.</p>"
+
+    add_form = (
+        "<form method='post' action='/settings/watcher-add' class='edit'>"
+        "<span class='formtitle'>Add</span>"
+        "<input name='name' placeholder='Name' required autocomplete='off'>"
+        f"<select name='kind'>{_options([('guardian', 'guardian'), ('student', 'student')])}</select>"
+        f"<select name='channel'>{_options([('', 'no channel yet')] + channel_opts)}</select>"
+        "<input name='to' autocomplete='off' "
+        "placeholder='name@example.com / 5551234567@vtext.com' "
+        "title='Email address — or, for text message, your carrier&#39;s "
+        "email-to-SMS gateway address'>"
+        "<button>Add watcher</button></form>")
+    w_card = ("<div class='card tablecard'><h2>Watchers</h2>"
+              + add_form + w_body + "</div>")
 
     if subscriptions:
-        s_rows = "".join(
-            f"<tr><td>{escape(s.watcher_name)} ⇒ {escape(s.student_name)}</td>"
-            f"<td data-label='Alerts'>"
-            f"{escape('all' if s.alert_type == '*' else s.alert_type.replace('_', ' '))}</td>"
-            f"<td data-label='Via'>{escape('all configured' if s.channel == '*' else s.channel)}</td>"
-            f"<td data-label='Delivery'>"
-            f"{escape(f'daily at {s.send_at}' if s.send_at else 'immediate')}</td></tr>"
-            for s in subscriptions)
-        s_body = ("<table><tr class='head'><th>Watcher ⇒ Student</th><th>Alerts</th>"
-                  "<th>Via</th><th>Delivery</th></tr>" + s_rows + "</table>")
+        # A displayed row is a GROUP of single-type subscription rows sharing
+        # (watcher, student, channel, delivery, urgent); the Alerts cell is a
+        # multiselect over the group's types. A <form> can't span table
+        # cells, so each row's form lives in its actions cell and the cells'
+        # controls point at it via form=. Remove shares the form (formaction)
+        # — it only reads the hidden ids.
+        groups: dict = {}
+        for s in subscriptions:
+            key = (s.watcher_id, s.student_id, s.channel, s.send_at, s.urgent_now)
+            groups.setdefault(key, []).append(s)
+        s_rows = []
+        urgent_tip = ("Send urgent alerts (missing, due soon, grade drop) "
+                      "immediately instead of waiting for the digest")
+        for group in groups.values():
+            first = group[0]
+            fid = f"sub-{escape(first.id)}"
+            ids = ",".join(s.id for s in group)
+            s_rows.append(
+                f"<tr id='row-{fid}'>"
+                f"<td>{escape(first.watcher_name)} ⇒ {escape(first.student_name)}</td>"
+                f"<td data-label='Alerts'>"
+                f"{_type_multiselect(fid, [s.alert_type for s in group])}</td>"
+                f"<td data-label='Via'><select name='channel' form='{fid}'>"
+                f"{_options([('*', 'all configured')] + channel_opts, selected=first.channel)}"
+                f"</select></td>"
+                f"<td data-label='Delivery'><input type='time' name='at' form='{fid}' "
+                f"value='{escape(first.send_at or '')}' "
+                f"title='Daily digest time — blank for immediate delivery'> "
+                f"<label class='urgent' title='{escape(urgent_tip)}'>"
+                f"<input type='checkbox' name='urgent' form='{fid}'"
+                f"{' checked' if first.urgent_now else ''}> urgent now</label></td>"
+                f"<td data-label='Actions'>"
+                f"<form id='{fid}' method='post' action='/settings/subscription-update' "
+                f"class='rowform'>"
+                f"<input type='hidden' name='ids' value='{escape(ids)}'>"
+                f"<button class='upd'>Update</button> "
+                f"<button class='ghost' formaction='/settings/unsubscribe' "
+                f"title='remove this subscription'>remove</button></form></td></tr>")
+        s_body = ("<table class='manage'><tr class='head'><th>Watcher ⇒ Student</th>"
+                  "<th>Alerts</th><th>Via</th><th>Delivery</th><th></th></tr>"
+                  + "".join(s_rows) + "</table>")
     else:
         s_body = "<p class='small'>No subscriptions yet.</p>"
-    s_card = (
-        "<div class='card tablecard'><h2>Subscriptions</h2>" + s_body +
-        "<p class='small'>Change with <code>mcpsgradewatch subscribe WATCHER "
-        "STUDENT [--types T1,T2] [--channels C1,C2] [--at HH:MM]</code> and "
-        "<code>mcpsgradewatch unsubscribe</code>.</p></div>")
-
-    if conf is not None:
-        cfg_rows = (
-            ("Poll interval", f"every {conf.poll_minutes} min",
-             "MCPSGRADEWATCH_POLL_MINUTES"),
-            ("Due-soon lookahead", f"{conf.lookahead_days} days",
-             "MCPSGRADEWATCH_LOOKAHEAD_DAYS"),
-            ("Ungraded grace", f"{conf.ungraded_grace_days} days past due",
-             "MCPSGRADEWATCH_UNGRADED_GRACE_DAYS"),
-            ("Grade-drop threshold", f"{conf.grade_drop_points:g} points",
-             "MCPSGRADEWATCH_GRADE_DROP_POINTS"),
-            ("Default channel", conf.notify_channel,
-             "MCPSGRADEWATCH_NOTIFY_CHANNEL"),
-            ("Snapshot retention", f"{conf.snapshot_retention_days} days",
-             "MCPSGRADEWATCH_SNAPSHOT_RETENTION_DAYS"),
-        )
-        c_body = ("<table><tr class='head'><th>Setting</th><th>Value</th>"
-                  "<th>Change via</th></tr>"
-                  + "".join(
-                      f"<tr><td>{escape(label)}</td>"
-                      f"<td data-label='Value'>{escape(value)}</td>"
-                      f"<td data-label='Change via'><code>{escape(env)}</code></td></tr>"
-                      for label, value, env in cfg_rows)
-                  + "</table>"
-                  "<p class='small'>Set in <code>.env</code> (or the environment); "
-                  "restart the watch loop to apply.</p>")
+    if watcher_list and students:
+        student_opts = [("*", "all students")] + [
+            (s["agu"], s["name"]) for s in students]
+        s_form = (
+            "<form method='post' action='/settings/subscribe' class='edit'>"
+            "<span class='formtitle'>Add</span>"
+            f"<select name='watcher'>{_options(watcher_opts)}</select>"
+            "<span class='small'>gets</span>"
+            f"{_type_multiselect(None, ['*'])}"
+            "<span class='small'>for</span>"
+            f"<select name='student'>{_options(student_opts)}</select>"
+            "<span class='small'>via</span>"
+            f"<select name='channel'>{_options([('*', 'all channels')] + channel_opts)}</select>"
+            "<input type='time' name='at' value='16:00' "
+            "title='Daily digest time — clear for immediate delivery'>"
+            "<label class='urgent' title='Send urgent alerts (missing, due soon, "
+            "grade drop) immediately instead of waiting for the digest'>"
+            "<input type='checkbox' name='urgent' checked> urgent now</label>"
+            "<button>Subscribe</button></form>")
     else:
-        c_body = "<p class='small'>Environment not configured — values unavailable.</p>"
-    c_card = "<div class='card tablecard'><h2>Polling &amp; thresholds</h2>" + c_body + "</div>"
+        s_form = ("<p class='small'>Add a watcher first.</p>" if not watcher_list
+                  else "<p class='small'>Students appear after the first run.</p>")
+    s_card = ("<div class='card tablecard'><h2>Subscriptions</h2>"
+              + s_form + s_body + "</div>")
 
-    return _page("Settings", "<h1>Settings</h1>" + w_card + s_card + c_card)
+    banner = f"<div class='banner bad'>{escape(error)}</div>" if error else ""
+    toast = (f"<div class='toast' role='status' aria-live='polite'>"
+             f"{escape(notice)}</div>" if notice else "")
+    # settings-main is the region app.js swaps in place after a fetch-based
+    # form post — banner, cards, and toast all live inside it.
+    return _page("Settings", "<h1>Settings</h1><div id='settings-main'>"
+                 + banner + w_card + s_card + toast + "</div>")
 
 
 # ── http plumbing ─────────────────────────────────────────────────────
 
 
 def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
-    """Route one request. Returns (status, html) — or, for a 301, the
-    redirect target instead of a body."""
+    """Route one request (path may carry a query string). Returns
+    (status, html) — or, for a 301, the redirect target instead of a body."""
     from . import watchers as watchermod
 
+    parsed = urlparse(path)
+    path, query = parsed.path, parse_qs(parsed.query)
     if path == "/":
         students = fetch_students(conn)
         # The overview is "right now": only the current term's courses/counts.
@@ -490,14 +638,11 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
     if path == "/history":
         return 200, render_history(fetch_history(conn), fetch_course_history(conn))
     if path == "/settings":
-        from . import config as cfgmod
-
-        try:
-            conf = cfgmod.load()
-        except cfgmod.ConfigError:
-            conf = None
         return 200, render_settings(watchermod.list_watchers(conn),
-                                    watchermod.list_subscriptions(conn), conf)
+                                    watchermod.list_subscriptions(conn),
+                                    fetch_students(conn),
+                                    error=(query.get("err") or [""])[0],
+                                    notice=(query.get("ok") or [""])[0])
     if path == "/watchers":   # pre-Settings URL; keep old bookmarks working
         return 301, "/settings"
     return 404, _page("Not found", "<h1>404</h1><p>No such page.</p>")
@@ -520,6 +665,113 @@ def _handle_ack(conn: sqlite3.Connection, form: dict) -> tuple[int, str]:
     return 303, "/alerts"   # redirect target, not a body
 
 
+def _handle_settings_post(conn: sqlite3.Connection, action: str,
+                          form: dict) -> tuple[int, str]:
+    """POST /settings/<action> — the Settings page's write paths. Same trust
+    model as ack: the bind address is the access control. Always redirects
+    back to /settings; a validation failure carries the message in ?err= and
+    renders as a banner, with the tables (and the browser's back-button form
+    state) intact."""
+    from . import notify
+    from . import watchers as watchermod
+    from .models import WatcherKind
+
+    def val(key: str) -> str:
+        return (form.get(key) or [""])[0].strip()
+
+    def vals(key: str) -> list[str]:
+        return [v.strip() for v in (form.get(key) or []) if v.strip()]
+
+    def channel_update() -> dict:
+        name = val("channel")
+        if name not in notify.ADDRESS_KEY:
+            raise watchermod.WatcherError(
+                f"unknown channel {name!r} (valid: {', '.join(notify.CHANNEL_NAMES)})")
+        key = notify.ADDRESS_KEY[name]
+        if key is None:                       # console needs no address
+            return {name: {}}
+        address = val("to")
+        if address:
+            address = notify.validate_address(name, address)
+        return {name: {key: address} if address else None}
+
+    def done(message: str, new_rows: tuple = ()) -> tuple[int, str]:
+        """Success redirect: ?ok= becomes the toast, ?new= names the row
+        elements the client animates in."""
+        target = "/settings?ok=" + quote(message)
+        if new_rows:
+            target += "&new=" + ",".join(new_rows)
+        return 303, target
+
+    try:
+        if action == "watcher-add":
+            name = val("name")
+            if not name:
+                raise watchermod.WatcherError("the watcher needs a name")
+            channels = {}
+            if val("channel"):
+                channels = channel_update()
+                if None in channels.values():
+                    raise watchermod.WatcherError(
+                        f"the {val('channel')} channel needs an address")
+            w = watchermod.add_watcher(conn, name, WatcherKind(val("kind")), channels)
+            return done(f"Added watcher {w.name}",
+                        (f"row-w-{w.id}", f"row-chadd-{w.id}"))
+        if action == "watcher-remove":
+            watchermod.remove_watcher(conn, val("name"))
+            return done("Watcher removed")
+        if action == "channel":         # add or update; removal is its own action
+            update = channel_update()
+            if None in update.values():
+                raise watchermod.WatcherError(
+                    f"the {val('channel')} channel needs an address")
+            existing = watchermod.require_watcher(conn, val("watcher"))
+            cname = next(iter(update))
+            watchermod.set_channels(conn, val("watcher"), update)
+            if cname in existing.channels:
+                return done(f"{cname} channel updated")
+            return done(f"{cname} channel added",
+                        (f"row-ch-{existing.id}-{cname}",))
+        if action == "channel-remove":
+            watchermod.set_channels(conn, val("watcher"), {val("channel"): None})
+            return done("Channel removed")
+        if action == "subscribe":
+            w = watchermod.require_watcher(conn, val("watcher"))
+            if val("student") == "*":     # one step: every student at once
+                targets = [s["id"] for s in fetch_students(conn)]
+            else:
+                targets = [watchermod.resolve_student(conn, val("student"))["id"]]
+            sub_types, channel = vals("type"), val("channel")
+            added: list[str] = []
+            for student_id in targets:
+                added += watchermod.subscribe(
+                    conn, w, student_id,
+                    None if not sub_types or "*" in sub_types else sub_types,
+                    None if channel in ("", "*") else [channel],
+                    val("at") or None,
+                    urgent_now=bool(val("urgent")))
+            if not added:
+                return done("Already subscribed")
+            return done(f"Added {len(added)} subscription{'s' if len(added) != 1 else ''}",
+                        tuple(f"row-sub-{i}" for i in added))
+        if action == "subscription-update":
+            watchermod.set_subscription_group(
+                conn, [i for i in val("ids").split(",") if i],
+                vals("type"), val("channel") or "*",
+                val("at") or None, urgent_now=bool(val("urgent")))
+            return done("Subscription updated")
+        if action == "unsubscribe":
+            ids = [i for i in val("ids").split(",") if i]
+            if not ids:
+                raise watchermod.WatcherError("no subscription selected")
+            for sub_id in ids:
+                watchermod.remove_subscription(conn, sub_id)
+            return done("Subscription removed")
+        return 404, _page("Not found", "<h1>404</h1><p>No such action.</p>")
+    except (watchermod.WatcherError, ValueError) as e:
+        return 303, "/settings?err=" + quote(str(e))
+
+
 def serve(db_path: Path, host: str, port: int) -> None:
     from . import store
 
@@ -530,20 +782,26 @@ def serve(db_path: Path, host: str, port: int) -> None:
     boot.close()
 
     class Handler(BaseHTTPRequestHandler):
+        _STATIC = {
+            "/static/style.css": (_STYLE_PATH, "text/css; charset=utf-8"),
+            "/static/app.js": (_APPJS_PATH, "text/javascript; charset=utf-8"),
+        }
+
         def do_GET(self) -> None:  # noqa: N802 (stdlib name)
-            if urlparse(self.path).path == "/static/style.css":
-                css = _STYLE_PATH.read_bytes()
+            static = self._STATIC.get(urlparse(self.path).path)
+            if static:
+                payload = static[0].read_bytes()
                 self.send_response(200)
-                self.send_header("Content-Type", "text/css; charset=utf-8")
-                self.send_header("Content-Length", str(len(css)))
+                self.send_header("Content-Type", static[1])
+                self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
-                self.wfile.write(css)
+                self.wfile.write(payload)
                 return
             # A connection per request: cheap for SQLite, and thread-safe by
             # construction under ThreadingHTTPServer.
             conn = store.connect(db_path)
             try:
-                status, html = _handle(conn, urlparse(self.path).path)
+                status, html = _handle(conn, self.path)
             except sqlite3.OperationalError as e:
                 status, html = 500, _page("Error", f"<h1>Database error</h1><p>{escape(str(e))}</p>")
             finally:
@@ -561,14 +819,19 @@ def serve(db_path: Path, host: str, port: int) -> None:
             self.wfile.write(payload)
 
         def do_POST(self) -> None:  # noqa: N802 (stdlib name)
-            if urlparse(self.path).path != "/ack":
+            path = urlparse(self.path).path
+            if path != "/ack" and not path.startswith("/settings/"):
                 self.send_error(404)
                 return
             length = int(self.headers.get("Content-Length") or 0)
             form = parse_qs(self.rfile.read(length).decode("utf-8"))
             conn = store.connect(db_path)
             try:
-                status, result = _handle_ack(conn, form)
+                if path == "/ack":
+                    status, result = _handle_ack(conn, form)
+                else:
+                    status, result = _handle_settings_post(
+                        conn, path[len("/settings/"):], form)
             finally:
                 conn.close()
             if status == 303:
@@ -587,7 +850,7 @@ def serve(db_path: Path, host: str, port: int) -> None:
             pass  # keep the terminal quiet; this is a background convenience
 
     server = ThreadingHTTPServer((host, port), Handler)
-    print(f"dashboard: http://{host}:{port}/  (read-only; Ctrl-C to stop)")
+    print(f"dashboard: http://{host}:{port}/  (Ctrl-C to stop)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
