@@ -63,6 +63,11 @@ lastbell subscriptions                        # who gets what
 lastbell dashboard                            # web UI on 127.0.0.1:8321
 ```
 
+Want to see it populated before pointing it at your own kids? `lastbell
+seed-demo` fabricates a fake family at end-of-quarter volume (two marking
+periods, hundreds of assignments, months of history — no real student data)
+and `lastbell dashboard --db data/demo.db` serves it.
+
 Students are referenced by AGU or any unique name/initials prefix; watchers by
 the name you gave them. You start with one automatically: the first `run`
 creates a guardian watcher named after the credential holder, subscribed to
