@@ -847,12 +847,19 @@ def _course_strip(student, ctx) -> str:
     # filter marker in a collapsed strip would be worse.
     is_open = bool(ctx["course_gu"]) or ctx["strip_open"]
     # An active course filter must stay legible even with the strip closed:
-    # the summary carries a funnel tag naming the scoped course.
+    # the summary carries a funnel tag naming the scoped course — itself the
+    # clear control (small ×, matching the scoped row's treatment), so the
+    # filter can be dropped without opening the strip. A link inside a
+    # summary activates as a link, not a toggle.
     scoped_title = next(
         (c["title"] for c in ctx["strip"]
          if c["edupoint_gu"] == ctx["course_gu"]), "")
-    tag = (f" <span class='striptag'>{_FILTER_ICON}"
-           f"{escape(scoped_title)}</span>" if scoped_title else "")
+    tag = ""
+    if scoped_title:
+        tag = (f" <a class='striptag' "
+               f"href='/student/{agu}?view={ctx['view']}&strip=open' "
+               f"title='show all courses'>{_FILTER_ICON}"
+               f"{escape(scoped_title)}{_CLEAR_ICON}</a>")
     return (
         f"<details class='allcourses' id='allcourses'"
         f"{' open' if is_open else ''}>"

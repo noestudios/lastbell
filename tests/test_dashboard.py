@@ -197,10 +197,13 @@ def test_course_strip_scopes_the_active_view(conn):
     assert "<details class='allcourses' id='allcourses' open>" in html
     # the scoped row's icon flips to an × — click again to clear
     assert "x1='18' y1='6'" in html
-    # the summary names the active filter, so it stays legible collapsed
-    assert "<span class='striptag'>" in html
-    tag = html.split("class='striptag'")[1].split("</span>")[0]
+    # the summary names the active filter — legible collapsed, and itself
+    # the clear control (funnel · course · small ×)
+    assert ("<a class='striptag' "
+            "href='/student/1?view=problems&strip=open'") in html
+    tag = html.split("class='striptag'")[1].split("</a>")[0]
     assert "Math" in tag
+    assert "x1='18' y1='6'" in tag              # the little ×
     _, unscoped = _get(conn, "/student/1")
     assert "striptag" not in unscoped
     # the clear link carries strip=open — the JS-off fallback for "deselecting
