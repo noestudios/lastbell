@@ -24,6 +24,8 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
 4. **Score cutoff**: one global display threshold
    (`LASTBELL_SCORE_CUTOFF`), used to tint graded rows below it.
    Per-student cutoffs are a later maybe.
+   **Implemented (2026-09-01, Phase C):** default 70, `0` disables;
+   documented in `.env.example`. Read at render time by the dashboard only.
 
 ## Phases
 
@@ -109,19 +111,37 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
   `prefers-reduced-motion` collapses all of it.
 
 ### C. Signal — status visibility
+**Status: done (2026-09-01), together with the alerts-page ripple below.**
 - Row tint + leading icon per status, from the same tokens as badges:
   missing = bad, due soon = warn, ungraded past due = warn-strong,
   graded below the global cutoff = bad-tinted score.
+  **Built:** `tr.st-missing/st-late/st-due` classes + feather icons in the
+  first cell (alert-circle / alert-triangle / clock), tints via `color-mix`
+  so both themes derive from the same tokens. The cutoff is
+  `LASTBELL_SCORE_CUTOFF` (default 70, `0` disables; display-only, nothing
+  alerts on it) — the *score* tints, per decision 4.
 - Overview badges ("2 due soon", "1 missing") click through to
   `/student/<agu>?status=…`, which highlights and scrolls to matching rows.
+  **Built:** missing/past-due badges carry `&status=…#hit`; matching rows
+  get a decaying accent pulse and the first anchors the scroll (`id='hit'`,
+  `scroll-margin-top`). The due badge stays a plain `?view=due` link — the
+  view *is* the answer there, highlighting every row would say nothing.
 - Alerts list: local-time **dates** only (today/yesterday for recent), full
   local timestamp on hover. (Stored timestamps are UTC; the current
   "When (UTC)" column is the anti-pattern this replaces.)
+  **Built:** applied to /alerts and both /history tables (same helper —
+  leaving "When (UTC)" on History while fixing Alerts would be the same
+  anti-pattern half-fixed). Server-local time is household-local by design
+  (LAN box).
 - **Styled tooltips**: the score hover (raw points behind the percentage) —
   and any other hover reveal, e.g. the alert timestamp above — renders as a
   design-system tooltip (tokens: surface, radius, shadow), not the browser's
   tiny native `title` bubble. CSS-only where possible (positioned
   pseudo-element/`data-tip` attribute), no JS dependency.
+  **Built:** `.tip[data-tip]` + `::after` bubble, hover/decay on the fast
+  tier; card tables get `overflow: visible` so bubbles escape (their radius
+  is 0, hidden bought nothing). Native `title` remains only on controls
+  (nav, buttons), where it's a label, not a data reveal.
 
 ### D. Interaction — ack
 - One-time viewer identity picker (choose your watcher), remembered in
@@ -201,6 +221,12 @@ inline where reality forced a call.**
 - **Alerts page ripple**: same treatment later — type-group chips,
   unacked surfaced, "older →" paging instead of the silent 100-row cap,
   local dates per the existing Phase C item.
+  **Done (2026-09-01), shipped with Phase C:** chips are one pill per alert
+  type present, with counts ("all 1305 · grade changed 662 · …"), filtering
+  via `?type=`; unacked alerts sort first (stable ORDER BY, so offset paging
+  stays consistent) with the strip's inset accent bar and a "N
+  unacknowledged — surfaced first" note; 50 rows per page with ← newer /
+  older → links (`?page=`, filter preserved). No JS anywhere in it.
 
 Original pre-decision framing, kept for the record:
 

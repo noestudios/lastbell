@@ -666,6 +666,85 @@ h2.termhead { font-size: 0.8rem; color: var(--text-muted);
               text-transform: uppercase; letter-spacing: 0.06em;
               margin: 1.2rem 0 0.6rem; }
 
+/* ── Phase C: status signal ─────────────────────────────────────────── */
+
+/* Styled tooltips: any hover reveal renders as a design-system bubble
+ * (surface, radius, shadow tokens) via data-tip — never the browser's
+ * native title speck. CSS-only; visibility keeps the hidden bubble out of
+ * the accessibility tree. Card tables must not clip the bubble (their
+ * radius is 0, so overflow:hidden buys them nothing anyway). */
+.card table { overflow: visible; }
+.tip { position: relative; cursor: help; }
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  padding: 0.28rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  z-index: 25;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--dur-fast) var(--ease),
+              visibility var(--dur-fast) var(--ease);
+}
+.tip:hover::after { opacity: 1; visibility: visible; }
+
+/* Row tint + leading icon per status — the escalation ladder reads by color
+ * before it's read by text: due soon a light caution, ungraded past due a
+ * stronger one, missing red. Same tokens as the badges. */
+svg.rowicon { width: 13px; height: 13px; vertical-align: -2px;
+              margin-right: 0.4rem; flex: none; }
+tr.st-missing > td { background: color-mix(in srgb, var(--bad) 8%, transparent); }
+tr.st-late    > td { background: color-mix(in srgb, var(--warn) 10%, transparent); }
+tr.st-due     > td { background: color-mix(in srgb, var(--warn) 4%, transparent); }
+
+/* A graded score below the global cutoff (LASTBELL_SCORE_CUTOFF). */
+.low { color: var(--bad); font-weight: 700; }
+
+/* Badge click-through (?status=…#hit): matching rows pulse accent and decay
+ * to their normal tint; the first match anchors the scroll. */
+@keyframes hit-in {
+  from { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+}
+tr.hit > td { animation: hit-in calc(2 * var(--dur-linger)) var(--ease); }
+#hit { scroll-margin-top: 1rem; }
+
+/* ── alerts: type chips, unacked surfaced, paging ───────────────────── */
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.55rem 0 0.8rem; }
+a.chip {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease),
+              border-color var(--dur-fast) var(--ease);
+}
+a.chip:hover { color: var(--text); border-color: var(--text-muted);
+               text-decoration: none; }
+a.chip.active { color: #fff; background: var(--accent);
+                border-color: var(--accent); }
+a.chip b { font-weight: 700; opacity: 0.75; margin-left: 0.15rem; }
+
+/* Unacked alerts sort first and carry the accent bar (same mark as the
+ * course strip's scoped row: "this is the live one"). */
+table.alerts tr.unacked td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+
+.pager { display: flex; justify-content: space-between; margin-top: 0.8rem;
+         font-size: 0.8rem; font-weight: 600; }
+
 /* Respect reduced-motion: collapse every duration so states land instantly;
  * app.js guards its scripted (inline-style) motion separately. */
 @media (prefers-reduced-motion: reduce) {
