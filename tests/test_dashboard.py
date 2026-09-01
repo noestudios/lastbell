@@ -105,15 +105,15 @@ def test_view_switcher_is_stat_cards(populated):
     for view in ("problems", "due", "recent", "everything"):
         assert f"href='/student/1?view={view}'" in html
     # the active view's card carries the accent-border class
-    assert "<a class='stat active' href='/student/1?view=problems'" in html
+    assert "<a class='stat active' aria-current='true' href='/student/1?view=problems'" in html
     _, html = _get(populated, "/student/1?view=recent")
-    assert "<a class='stat active' href='/student/1?view=recent'" in html
+    assert "<a class='stat active' aria-current='true' href='/student/1?view=recent'" in html
 
 
 def test_unknown_view_falls_back_to_problems(populated):
     status, html = _get(populated, "/student/1?view=nonsense")
     assert status == 200
-    assert "<a class='stat active' href='/student/1?view=problems'" in html
+    assert "<a class='stat active' aria-current='true' href='/student/1?view=problems'" in html
 
 
 def test_problems_all_clear_with_due_soon_peek(conn):
@@ -445,7 +445,7 @@ def test_history_filters_by_class_and_change(conn):
     # Filter to score changes: Assignments shows, Course grades drops out.
     _, html = _get(conn, "/history?field=score")
     assert "7.0 → 9.0" in html and "Course grades" not in html
-    assert "class='chip active' href='/history?field=score'" in html
+    assert "class='chip active' aria-current='true' href='/history?field=score'" in html
 
     # Filter to percent (course) changes: the reverse.
     _, html = _get(conn, "/history?field=percent")
@@ -875,7 +875,7 @@ def test_alerts_type_chips_group_and_filter(populated):
     # filtering keeps only that type's rows and marks the chip active
     _, html = _get(populated, "/alerts?type=grade_drop")
     assert "Math slipped" in html and "quiz graded" not in html
-    assert "class='chip active' href='/alerts?type=grade_drop'" in html
+    assert "class='chip active' aria-current='true' href='/alerts?type=grade_drop'" in html
 
 
 def test_alerts_are_newest_first(populated):

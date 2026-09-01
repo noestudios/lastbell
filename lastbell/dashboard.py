@@ -28,6 +28,10 @@ from . import schools
 # The public home of the project — the settings-footer credit links here.
 _REPO_URL = "https://github.com/noestudios/lastbell"
 
+# Screen-reader marker for the engaged option in a set of links (active view
+# card, active filter chip): the visual accent alone doesn't announce.
+_CURRENT = " aria-current='true'"
+
 _STATUS_LABELS = {
     "graded": ("graded", "ok"),
     "not_due": ("not due yet", "muted"),
@@ -574,19 +578,20 @@ def _page(title: str, body: str, nav_students=()) -> str:
         f"<span class='lbl'>{label}</span></a>"
         for href, label, icon in _NAV_ITEMS)
     return (
-        "<!doctype html><html><head><meta charset='utf-8'>"
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
         f"<title>{escape(title)} · Last Bell</title>"
         "<link rel='stylesheet' href='/static/style.css'>"
         f"<script>{_THEME_JS}</script>"
         "<script src='/static/app.js' defer></script></head><body>"
+        "<a class='skip' href='#main'>Skip to content</a>"
         f"<nav><a class='brand' href='/'>Last Bell</a>"
         f"{_nav_students(nav_students)}{links}"
         f"<a class='gear' href='/settings' "
         f"aria-label='Settings'>{_GEAR_ICON}</a>"
         f"<button id='themetoggle' class='tip-b tip-e' "
         f"aria-label='Theme'>{_THEME_ICON_AUTO}</button></nav>"
-        f"{body}</body></html>"
+        f"<main id='main'>{body}</main></body></html>"
     )
 
 
@@ -835,9 +840,15 @@ def _delta_html(cur, base) -> str:
     if cur is None or base is None or abs(cur - base) < 0.05:
         return "<span class='delta flat'>—</span>"
     cls = "up" if cur > base else "down"
-    return (f"<span class='delta {cls}'><svg viewBox='0 0 12 12' "
+    # The sign is the information — spoken for screen readers (the arrow is
+    # decorative) and shown, since "+1.2" scans faster than arrow+1.2 anyway.
+    signed = f"{cur - base:+.1f}"
+    return (f"<span class='delta {cls}' "
+            f"aria-label='{'up' if cls == 'up' else 'down'} "
+            f"{abs(cur - base):.1f} points in 2 weeks'>"
+            f"<svg viewBox='0 0 12 12' "
             f"fill='currentColor' aria-hidden='true'><path d='{_ARROWS[cls]}'/>"
-            f"</svg>{abs(cur - base):.1f}</span>")
+            f"</svg>{signed}</span>")
 
 
 def _stat_cards(student, ctx) -> str:
@@ -849,7 +860,9 @@ def _stat_cards(student, ctx) -> str:
 
     def card(view, label, big, ctxline, extra="") -> str:
         cls = " active" if view == ctx["view"] else ""
-        return (f"<a class='stat{cls}' href='/student/{agu}?view={view}{scope}'>"
+        cur = " aria-current='true'" if view == ctx["view"] else ""
+        return (f"<a class='stat{cls}'{cur} "
+                f"href='/student/{agu}?view={view}{scope}'>"
                 f"<span class='lbl'>{label}</span>"
                 f"<span class='big'>{big}</span>"
                 f"<span class='ctx'>{ctxline}</span>{extra}</a>")
@@ -926,7 +939,8 @@ def _course_strip(student, ctx) -> str:
             chips.append(f"<span class='badge warn'>{c['past_due']} past due</span>")
         rows.append(
             f"<tr{' class=\'scoped\'' if active else ''}>"
-            f"<td><a class='tip-s' href='{href}' data-tip='{escape(tip)}'>"
+            f"<td><a class='tip-s'{_CURRENT if active else ''} href='{href}' "
+            f"data-tip='{escape(tip)}'>"
             f"{escape(c['title'])}"
             f"{_CLEAR_ICON if active else _FILTER_ICON}</a></td>"
             f"<td data-label='Grade'>{grade}</td>"
@@ -1210,10 +1224,12 @@ def render_alerts(alerts, counts=(), nav_students=(),
     # Type-group chips: one door per alert type present, with counts. The
     # active chip marks the filter; "all" clears it.
     total = sum(c["n"] for c in counts)
-    chips = [f"<a class='chip{'' if alert_type else ' active'}' "
+    chips = [f"<a class='chip{'' if alert_type else ' active'}'"
+             f"{'' if alert_type else _CURRENT} "
              f"href='/alerts'>all <b>{total}</b></a>"]
     chips += [
-        f"<a class='chip{' active' if c['type'] == alert_type else ''}' "
+        f"<a class='chip{' active' if c['type'] == alert_type else ''}'"
+        f"{_CURRENT if c['type'] == alert_type else ''} "
         f"href='{href(c['type'])}'>"
         f"{escape(c['type'].replace('_', ' '))} <b>{c['n']}</b></a>"
         for c in counts]
@@ -1288,10 +1304,12 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
         """One filter dimension. items: (key, display, count); href_of(key)
         composes the URL preserving the other dimension (href_of('') = all)."""
         total = sum(n for _, _, n in items)
-        out = [f"<a class='chip{' active' if not selected else ''}' "
+        out = [f"<a class='chip{' active' if not selected else ''}'"
+               f"{'' if selected else _CURRENT} "
                f"href='{href_of('')}'>all <b>{total}</b></a>"]
         out += [
-            f"<a class='chip{' active' if key == selected else ''}' "
+            f"<a class='chip{' active' if key == selected else ''}'"
+            f"{_CURRENT if key == selected else ''} "
             f"href='{href_of(key)}'>{escape(disp)} <b>{n}</b></a>"
             for key, disp, n in items]
         return (f"<div class='filterrow'><span class='filterlabel'>{label}</span>"

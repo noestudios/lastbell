@@ -112,6 +112,23 @@ body {
 a { color: var(--accent-strong); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
+/* Keyboard affordances: a skip link (hidden until focused) and one visible
+ * focus ring, theme-correct via the tokens. */
+.skip {
+  position: absolute;
+  left: -999px;
+  top: 0.5rem;
+  z-index: 40;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius);
+  box-shadow: var(--card-shadow);
+  font-weight: 600;
+}
+.skip:focus { left: 0.5rem; }
+:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+
 /* ── nav ────────────────────────────────────────────────────────────── */
 
 nav {
