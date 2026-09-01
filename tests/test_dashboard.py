@@ -106,14 +106,39 @@ def test_history_page(populated):
     assert "8.0 → 9.0" in html
 
 
-def test_watchers_page(populated):
+def test_settings_page(populated):
     w = watchers.add_watcher(populated, "Mom", WatcherKind.GUARDIAN,
                              {"email": {"to": "mom@example.com"}})
     watchers.subscribe(populated, w, "1")
-    status, html = _get(populated, "/watchers")
+    status, html = _get(populated, "/settings")
     assert status == 200
     assert "Mom" in html
     assert "all configured" in html
+    # read-only: every section names how to change it, no forms beyond ack
+    assert "mcpsgradewatch watcher add" in html
+    assert "mcpsgradewatch subscribe" in html
+    assert "<form" not in html
+
+
+def test_settings_page_shows_config(populated, monkeypatch):
+    monkeypatch.setenv("MCPSGRADEWATCH_DISTRICT", "example.edupoint.com")
+    monkeypatch.setenv("MCPSGRADEWATCH_USERNAME", "parent")
+    monkeypatch.setenv("MCPSGRADEWATCH_POLL_MINUTES", "90")
+    _, html = _get(populated, "/settings")
+    assert "every 90 min" in html
+    assert "MCPSGRADEWATCH_POLL_MINUTES" in html
+
+
+def test_settings_page_without_env_still_renders(populated, monkeypatch):
+    monkeypatch.delenv("MCPSGRADEWATCH_USERNAME", raising=False)
+    status, html = _get(populated, "/settings")
+    assert status == 200
+    assert "values unavailable" in html
+
+
+def test_watchers_url_redirects_to_settings(populated):
+    status, target = _get(populated, "/watchers")
+    assert (status, target) == (301, "/settings")
 
 
 def test_unknown_path_404s(conn):
@@ -144,13 +169,13 @@ def test_bad_ack_is_rejected(populated):
     assert status == 400
 
 
-def test_watchers_page_shows_quiet_hours_and_schedule(populated):
+def test_settings_page_shows_quiet_hours_and_schedule(populated):
     conn = populated
     w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
                              {"email": {"to": "m@x.com"}})
     watchers.set_quiet_hours(conn, "Mom", "21:00", "07:00")
     watchers.subscribe(conn, w, "1", ["grade_changed"], ["email"], send_at="17:00")
-    _, html = _get(conn, "/watchers")
+    _, html = _get(conn, "/settings")
     assert "21:00–07:00" in html
     assert "daily at 17:00" in html
 

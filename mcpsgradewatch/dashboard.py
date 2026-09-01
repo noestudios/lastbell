@@ -158,9 +158,19 @@ _NAV_ITEMS = (
      "<path d='M13.7 21a2 2 0 0 1-3.4 0'/>"),
     ("/history", "History",
      "<circle cx='12' cy='12' r='10'/><polyline points='12 6 12 12 16 14'/>"),
-    ("/watchers", "Watchers",
-     "<path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/>"
-     "<circle cx='12' cy='12' r='3'/>"),
+    ("/settings", "Settings",
+     "<circle cx='12' cy='12' r='3'/>"
+     "<path d='M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83"
+     " 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1"
+     " 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65"
+     " 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06"
+     "a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2"
+     " 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06"
+     "a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9"
+     "a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65"
+     " 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2"
+     " 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51"
+     " 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z'/>"),
 )
 
 
@@ -361,46 +371,91 @@ def render_history(rows, course_rows=()) -> str:
     return _page("History", "".join(parts))
 
 
-def render_watchers(watcher_list, subscriptions) -> str:
-    if not watcher_list:
-        return _page("Watchers", "<h1>Watchers</h1><p>None yet. Add one with "
-                     "<code>mcpsgradewatch watcher add</code>.</p>")
+def render_settings(watcher_list, subscriptions, conf=None) -> str:
+    """The Settings page: watchers, subscriptions, and poll/threshold config,
+    all read-only — each section names the exact CLI command (or env var) that
+    changes it. Web CRUD beyond ack is deliberately deferred (auth question).
+    """
     def quiet(w) -> str:
         if w.quiet_hours.get("start") and w.quiet_hours.get("end"):
             return f"{w.quiet_hours['start']}–{w.quiet_hours['end']}"
         return "—"
 
-    w_rows = "".join(
-        f"<tr><td>{escape(w.name)}</td>"
-        f"<td data-label='Kind'>{escape(w.kind.value)}</td>"
-        f"<td data-label='Channels'>{escape(', '.join(w.channels) or '—')}</td>"
-        f"<td data-label='Quiet hours'>{escape(quiet(w))}</td></tr>"
-        for w in watcher_list)
-    s_rows = "".join(
-        f"<tr><td>{escape(s.watcher_name)} ⇒ {escape(s.student_name)}</td>"
-        f"<td data-label='Alerts'>"
-        f"{escape('all' if s.alert_type == '*' else s.alert_type.replace('_', ' '))}</td>"
-        f"<td data-label='Via'>{escape('all configured' if s.channel == '*' else s.channel)}</td>"
-        f"<td data-label='Delivery'>"
-        f"{escape(f'daily at {s.send_at}' if s.send_at else 'immediate')}</td></tr>"
-        for s in subscriptions)
-    return _page("Watchers",
-                 "<h1>Watchers</h1>"
-                 "<div class='card tablecard'><h2>Watchers</h2>"
-                 "<table><tr class='head'><th>Name</th><th>Kind</th>"
-                 "<th>Channels</th><th>Quiet hours</th></tr>" + w_rows + "</table></div>"
-                 "<div class='card tablecard'><h2>Subscriptions</h2>"
-                 + ("<table><tr class='head'><th>Watcher ⇒ Student</th><th>Alerts</th>"
-                    "<th>Via</th><th>Delivery</th></tr>" + s_rows + "</table>"
-                    if subscriptions else "<p class='small'>No subscriptions yet.</p>")
-                 + "</div>")
+    if watcher_list:
+        w_rows = "".join(
+            f"<tr><td>{escape(w.name)}</td>"
+            f"<td data-label='Kind'>{escape(w.kind.value)}</td>"
+            f"<td data-label='Channels'>{escape(', '.join(w.channels) or '—')}</td>"
+            f"<td data-label='Quiet hours'>{escape(quiet(w))}</td></tr>"
+            for w in watcher_list)
+        w_body = ("<table><tr class='head'><th>Name</th><th>Kind</th>"
+                  "<th>Channels</th><th>Quiet hours</th></tr>" + w_rows + "</table>")
+    else:
+        w_body = "<p class='small'>None yet.</p>"
+    w_card = (
+        "<div class='card tablecard'><h2>Watchers</h2>" + w_body +
+        "<p class='small'>Change with <code>mcpsgradewatch watcher add "
+        "NAME --channel email=addr</code>, <code>watcher set-channel</code>, "
+        "<code>watcher quiet-hours NAME 21:00-07:00</code>, "
+        "<code>watcher remove</code>.</p></div>")
+
+    if subscriptions:
+        s_rows = "".join(
+            f"<tr><td>{escape(s.watcher_name)} ⇒ {escape(s.student_name)}</td>"
+            f"<td data-label='Alerts'>"
+            f"{escape('all' if s.alert_type == '*' else s.alert_type.replace('_', ' '))}</td>"
+            f"<td data-label='Via'>{escape('all configured' if s.channel == '*' else s.channel)}</td>"
+            f"<td data-label='Delivery'>"
+            f"{escape(f'daily at {s.send_at}' if s.send_at else 'immediate')}</td></tr>"
+            for s in subscriptions)
+        s_body = ("<table><tr class='head'><th>Watcher ⇒ Student</th><th>Alerts</th>"
+                  "<th>Via</th><th>Delivery</th></tr>" + s_rows + "</table>")
+    else:
+        s_body = "<p class='small'>No subscriptions yet.</p>"
+    s_card = (
+        "<div class='card tablecard'><h2>Subscriptions</h2>" + s_body +
+        "<p class='small'>Change with <code>mcpsgradewatch subscribe WATCHER "
+        "STUDENT [--types T1,T2] [--channels C1,C2] [--at HH:MM]</code> and "
+        "<code>mcpsgradewatch unsubscribe</code>.</p></div>")
+
+    if conf is not None:
+        cfg_rows = (
+            ("Poll interval", f"every {conf.poll_minutes} min",
+             "MCPSGRADEWATCH_POLL_MINUTES"),
+            ("Due-soon lookahead", f"{conf.lookahead_days} days",
+             "MCPSGRADEWATCH_LOOKAHEAD_DAYS"),
+            ("Ungraded grace", f"{conf.ungraded_grace_days} days past due",
+             "MCPSGRADEWATCH_UNGRADED_GRACE_DAYS"),
+            ("Grade-drop threshold", f"{conf.grade_drop_points:g} points",
+             "MCPSGRADEWATCH_GRADE_DROP_POINTS"),
+            ("Default channel", conf.notify_channel,
+             "MCPSGRADEWATCH_NOTIFY_CHANNEL"),
+            ("Snapshot retention", f"{conf.snapshot_retention_days} days",
+             "MCPSGRADEWATCH_SNAPSHOT_RETENTION_DAYS"),
+        )
+        c_body = ("<table><tr class='head'><th>Setting</th><th>Value</th>"
+                  "<th>Change via</th></tr>"
+                  + "".join(
+                      f"<tr><td>{escape(label)}</td>"
+                      f"<td data-label='Value'>{escape(value)}</td>"
+                      f"<td data-label='Change via'><code>{escape(env)}</code></td></tr>"
+                      for label, value, env in cfg_rows)
+                  + "</table>"
+                  "<p class='small'>Set in <code>.env</code> (or the environment); "
+                  "restart the watch loop to apply.</p>")
+    else:
+        c_body = "<p class='small'>Environment not configured — values unavailable.</p>"
+    c_card = "<div class='card tablecard'><h2>Polling &amp; thresholds</h2>" + c_body + "</div>"
+
+    return _page("Settings", "<h1>Settings</h1>" + w_card + s_card + c_card)
 
 
 # ── http plumbing ─────────────────────────────────────────────────────
 
 
 def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
-    """Route one request. Returns (status, html)."""
+    """Route one request. Returns (status, html) — or, for a 301, the
+    redirect target instead of a body."""
     from . import watchers as watchermod
 
     if path == "/":
@@ -434,9 +489,17 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
                                   watchermod.list_watchers(conn))
     if path == "/history":
         return 200, render_history(fetch_history(conn), fetch_course_history(conn))
-    if path == "/watchers":
-        return 200, render_watchers(watchermod.list_watchers(conn),
-                                    watchermod.list_subscriptions(conn))
+    if path == "/settings":
+        from . import config as cfgmod
+
+        try:
+            conf = cfgmod.load()
+        except cfgmod.ConfigError:
+            conf = None
+        return 200, render_settings(watchermod.list_watchers(conn),
+                                    watchermod.list_subscriptions(conn), conf)
+    if path == "/watchers":   # pre-Settings URL; keep old bookmarks working
+        return 301, "/settings"
     return 404, _page("Not found", "<h1>404</h1><p>No such page.</p>")
 
 
@@ -485,6 +548,11 @@ def serve(db_path: Path, host: str, port: int) -> None:
                 status, html = 500, _page("Error", f"<h1>Database error</h1><p>{escape(str(e))}</p>")
             finally:
                 conn.close()
+            if status == 301:   # html is the redirect target, not a body
+                self.send_response(301)
+                self.send_header("Location", html)
+                self.end_headers()
+                return
             payload = html.encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "text/html; charset=utf-8")
