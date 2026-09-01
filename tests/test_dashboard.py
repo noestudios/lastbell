@@ -188,3 +188,12 @@ def test_history_page_includes_course_grade_changes(populated):
     assert "Course grades" in html
     assert "87.20% → 91.00%" in html
     assert "B+ → A-" in html
+
+
+def test_responsive_markup_hooks(populated):
+    _, html = _get(populated, "/student/1")
+    assert "<tr class='head'>" in html          # hideable header rows
+    assert "data-label='Due'" in html           # stacked-mode cell labels
+    _, home = _get(populated, "/")
+    assert home.count("<svg") >= 4              # nav icons for narrow widths
+    assert "class='lbl'" in home
