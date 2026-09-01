@@ -180,12 +180,29 @@ def test_course_strip_scopes_the_active_view(conn):
     _, html = _get(conn, "/student/1")
     assert "table class='strip'" in html
     assert "Collage" in html and "Worksheet" in html
-    # scoping to Math filters the list; the strip row marks the filter
+    # the strip is an All Courses collapsible ABOVE the stat cards,
+    # collapsed by default (owner's call 2026-09-01)
+    assert "<details class='allcourses'><summary>" in html
+    assert "All Courses" in html
+    assert html.index("allcourses") < html.index("class='stats'")
+    # course names must read as filters: underline styling rides the CSS,
+    # and each link carries the funnel icon
+    assert html.count("class='filtericon'") == 2
+    assert "points='22 3 2 3" in html               # the funnel polygon
+    # scoping to Math filters the list; the strip row marks the filter,
+    # and the strip holds itself open so the active scope stays visible
     _, html = _get(conn, "/student/1?course=g2")
     assert "Worksheet" in html and "Collage" not in html
     assert "class='scoped'" in html
-    # the scoped row's link clears the filter; other rows keep the view
-    assert "href='/student/1?view=problems' title='show all courses'" in html
+    assert "<details class='allcourses' open>" in html
+    # the scoped row's icon flips to an × — click again to clear
+    assert "x1='18' y1='6'" in html
+    # the scoped row's link clears the filter — carrying strip=open, so
+    # deselecting doesn't collapse the bar the reader is working in
+    assert ("href='/student/1?view=problems&strip=open' "
+            "title='show all courses'") in html
+    _, html2 = _get(conn, "/student/1?view=problems&strip=open")
+    assert "<details class='allcourses' open>" in html2
     # stat-card links carry the scope along
     assert "href='/student/1?view=due&course=g2'" in html
 

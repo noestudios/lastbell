@@ -197,7 +197,15 @@ inline where reality forced a call.**
     `course_history`).
   Sparklines are server-rendered inline SVG, JS-free.
 - **Course summary strip** under the cards, on every view: one compact
-  table row per current-term course — grade + mark, 2-week delta (from
+  table row per current-term course
+  *(Revised 2026-09-01, owner's calls after Phase C: the strip is now an
+  "All Courses" `<details>` ABOVE the stat cards, collapsed by default —
+  the cards are the page's front door. It holds itself open while a
+  `?course=` scope is active so the marked row and the way to clear the
+  filter stay visible. Course names must READ as filters: underlined, with
+  a funnel icon after each name that flips to an × on the scoped row.
+  Clearing the filter carries `?strip=open` so deselecting doesn't collapse
+  the bar the reader is working in.)* — grade + mark, 2-week delta (from
   `course_history`), open-issue chips, last-graded recency. Clicking a
   row scopes the active view to that course (`?course=`). Rows now;
   the strip is where per-course sparklines land later (trends question).
