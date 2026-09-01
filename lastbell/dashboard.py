@@ -229,10 +229,13 @@ def _problem_series(rows, transitions: dict[str, list],
 
 def build_student_ctx(conn: sqlite3.Connection, student, view: str,
                       course_gu: str, hl: str = "",
-                      today: date | None = None) -> dict:
+                      today: date | None = None,
+                      strip_open: bool = False) -> dict:
     """Everything render_student needs: the strip, the four stat cards' data
     stories, and the active view's rows (scoped to ?course= when given).
-    ``hl`` is the ?status= highlight from an overview badge click-through."""
+    ``hl`` is the ?status= highlight from an overview badge click-through;
+    ``strip_open`` (?strip=open) keeps All Courses expanded on a page that
+    would otherwise collapse it — the clear-filter link carries it."""
     from .models import parse_percent
 
     today = today or date.today()
@@ -299,7 +302,7 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
 
     ctx = {
         "view": view, "course_gu": course_gu, "hl": hl,
-        "today": today, "term": term,
+        "strip_open": strip_open, "today": today, "term": term,
         "strip": strip, "deltas": deltas,
         "problems": scoped(problems), "due": scoped(due),
         "recent": scoped(graded),
@@ -639,6 +642,16 @@ _CHECK_BIG = ("<svg viewBox='0 0 24 24' fill='none' style='stroke:var(--accent)'
 _CHEVRON = ("<svg viewBox='0 0 12 12' fill='none' stroke='currentColor' "
             "stroke-width='1.8' stroke-linecap='round' aria-hidden='true'>"
             "<path d='M2.5 4.5 L6 8 L9.5 4.5'/></svg>")
+# The strip's filter affordance: a funnel after each course name says "this
+# filters"; on the scoped row it becomes an × ("click to clear").
+_FILTER_ICON = ("<svg class='filtericon' viewBox='0 0 24 24' fill='none' "
+                "stroke='currentColor' stroke-width='2' stroke-linecap='round' "
+                "stroke-linejoin='round' aria-hidden='true'>"
+                "<polygon points='22 3 2 3 10 12.46 10 19 14 21 14 12.46'/></svg>")
+_CLEAR_ICON = ("<svg class='filtericon' viewBox='0 0 24 24' fill='none' "
+               "stroke='currentColor' stroke-width='2' stroke-linecap='round' "
+               "aria-hidden='true'><line x1='18' y1='6' x2='6' y2='18'/>"
+               "<line x1='6' y1='6' x2='18' y2='18'/></svg>")
 _ARROWS = {"up": "M6 2 L10.5 9 L1.5 9 Z", "down": "M6 10 L10.5 3 L1.5 3 Z"}
 
 
@@ -794,8 +807,10 @@ def _course_strip(student, ctx) -> str:
     for c in ctx["strip"]:
         gu = c["edupoint_gu"]
         active = gu == ctx["course_gu"]
+        # Clearing the filter carries ?strip=open: deselecting must not
+        # collapse the bar the reader is working in.
         href = f"/student/{agu}?view={ctx['view']}" + (
-            "" if active else f"&course={quote(gu)}")
+            "&strip=open" if active else f"&course={quote(gu)}")
         tip = ("show all courses" if active
                else f"show only {c['title']} in this view")
         pct = _pct(c["percent"]) if c["percent"] else ""
@@ -811,21 +826,26 @@ def _course_strip(student, ctx) -> str:
             chips.append(f"<span class='badge warn'>{c['past_due']} past due</span>")
         rows.append(
             f"<tr{' class=\'scoped\'' if active else ''}>"
-            f"<td><a href='{href}' title='{escape(tip)}'>{escape(c['title'])}</a></td>"
+            f"<td><a href='{href}' title='{escape(tip)}'>{escape(c['title'])}"
+            f"{_CLEAR_ICON if active else _FILTER_ICON}</a></td>"
             f"<td data-label='Grade'>{grade}</td>"
             f"<td data-label='2 weeks'>{_delta_html(*ctx['deltas'][c['id']])}</td>"
             f"<td data-label='Open'><span>{' '.join(chips)}</span></td>"
             f"<td class='small' data-label='Last graded'>"
             f"{_ago(c['last_graded'], ctx['today'])}</td></tr>")
     label = (escape(ctx["term"]) + " — current") if ctx["term"] else ""
+    # Collapsed by default (owner's call 2026-09-01) — the stat cards are the
+    # page's front door. Held open while a course scope is active so the
+    # marked row (and the way to clear the filter) stays visible.
+    is_open = bool(ctx["course_gu"]) or ctx["strip_open"]
     return (
-        "<div class='card tablecard'>"
-        "<h2 class='striphead'>Courses"
+        f"<details class='allcourses'{' open' if is_open else ''}>"
+        f"<summary>{_CHEVRON}<h2 class='striphead'>All Courses"
         + (f" <span class='termtag'>{label}</span>" if label else "")
-        + "</h2><table class='strip'>"
+        + "</h2></summary><table class='strip'>"
           "<tr class='head'><th>Course</th><th>Grade</th><th>2 weeks</th>"
           "<th>Open</th><th>Last graded</th></tr>"
-        + "".join(rows) + "</table></div>")
+        + "".join(rows) + "</table></details>")
 
 
 def _show_course_col(ctx) -> bool:
@@ -1034,10 +1054,10 @@ def render_student(student, ctx, nav_students=()) -> str:
         f"<h1>{escape(student['name'])}</h1>",
         f"<p class='small'>{escape(student['school'])} · "
         f"AGU {escape(student['agu'])}</p>",
-        _stat_cards(student, ctx),
     ]
-    if len(ctx["strip"]) > 1:
+    if len(ctx["strip"]) > 1:            # the collapsed All Courses strip
         parts.append(_course_strip(student, ctx))
+    parts.append(_stat_cards(student, ctx))
     parts.append(view_body[ctx["view"]](student, ctx))
     return _page(student["name"], "".join(parts), nav_students=nav_students)
 
@@ -1401,7 +1421,8 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
         ctx = build_student_ctx(conn, student,
                                 (query.get("view") or [""])[0],
                                 (query.get("course") or [""])[0],
-                                (query.get("status") or [""])[0])
+                                (query.get("status") or [""])[0],
+                                strip_open=(query.get("strip") or [""])[0] == "open")
         return 200, render_student(student, ctx, nav_students=students)
     if path == "/alerts":
         try:

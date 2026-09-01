@@ -582,9 +582,28 @@ table.strip td { padding: 0.45rem 0.8rem; overflow-wrap: break-word; }
 table.strip th:nth-child(2) { width: 6.5rem; }  /* grade       */
 table.strip th:nth-child(3) { width: 6rem; }    /* 2-week delta */
 table.strip th:nth-child(5) { width: 8rem; }    /* last graded  */
-/* The scoped course: an accent bar marks the active filter. */
+/* Course names are filters, and must read as clickable: underlined (softly
+ * at rest, full strength on hover) with a funnel icon after the name. */
+table.strip td:first-child a {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent-strong) 40%, transparent);
+  text-underline-offset: 3px;
+}
+table.strip td:first-child a:hover { text-decoration-color: currentColor; }
+table.strip svg.filtericon {
+  width: 11px; height: 11px; flex: none;
+  vertical-align: -1px;
+  margin-left: 0.35rem;
+  opacity: 0.45;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+table.strip a:hover svg.filtericon { opacity: 1; }
+
+/* The scoped course: an accent bar marks the active filter; the funnel
+ * flips to an × (click again to clear). */
 table.strip tr.scoped td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 table.strip tr.scoped a { color: var(--text); font-weight: 700; }
+table.strip tr.scoped svg.filtericon { opacity: 0.7; }
 
 /* 2-week movement: triangle + points, colored by direction. */
 .delta { font-size: 0.78rem; font-weight: 700; display: inline-flex;
@@ -625,9 +644,11 @@ table.assignments col.c-status { width: 9rem; }
 .allclear h2 { margin: 0 0 0.3rem; font-size: 1rem; }
 .allclear p { margin: 0; }
 
-/* No-JS expanders: graded backlog ("Show all N graded") and closed terms. */
+/* No-JS expanders: graded backlog ("Show all N graded"), closed terms, and
+ * the All Courses strip. */
 details.more summary,
-details.closedterm summary {
+details.closedterm summary,
+details.allcourses summary {
   list-style: none;
   cursor: pointer;
   display: flex;
@@ -635,9 +656,11 @@ details.closedterm summary {
   gap: 0.5rem;
 }
 details.more summary::-webkit-details-marker,
-details.closedterm summary::-webkit-details-marker { display: none; }
+details.closedterm summary::-webkit-details-marker,
+details.allcourses summary::-webkit-details-marker { display: none; }
 details.more summary svg,
-details.closedterm summary svg {
+details.closedterm summary svg,
+details.allcourses summary svg {
   width: 12px; height: 12px; flex: none;
   transition: transform var(--dur-fast) var(--ease);
 }
@@ -661,6 +684,22 @@ details.closedterm summary svg { transform: rotate(-90deg); }
 details.closedterm[open] summary svg { transform: rotate(0); }
 details.closedterm .closedbody { margin-top: 1rem; }
 details.closedterm .closedbody .card { background: var(--bg); box-shadow: none; }
+
+/* The All Courses strip: a card whose face is its title — collapsed by
+ * default (the stat cards are the page's front door), held open while a
+ * course scope is active. */
+details.allcourses {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--card-shadow);
+  padding: var(--card-pad);
+  margin: 0 0 1.1rem;
+}
+details.allcourses summary h2 { margin: 0; }
+details.allcourses summary svg { transform: rotate(-90deg); }
+details.allcourses[open] summary svg { transform: rotate(0); }
+details.allcourses table { margin: 0.6rem 0 0; box-shadow: none;
+                           border-radius: 0; overflow: visible; }
 
 h2.termhead { font-size: 0.8rem; color: var(--text-muted);
               text-transform: uppercase; letter-spacing: 0.06em;
