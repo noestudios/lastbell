@@ -721,6 +721,7 @@ details.allcourses[open]::details-content { opacity: 1; block-size: auto; }
   font-weight: 700;
   color: var(--accent-strong);
   white-space: nowrap;
+  margin-left: 0.6rem;   /* doubles the heading's 0.6rem flex gap */
 }
 .striptag svg.filtericon { width: 11px; height: 11px;
                            vertical-align: -1.5px; margin-right: 0.3rem; }
