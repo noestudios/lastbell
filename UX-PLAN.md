@@ -130,23 +130,78 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
 - With decision 3, a fresh install always has at least one watcher, so the
   ack UI never silently disappears (its current failure mode).
 
-### Open design question — density at end-of-quarter scale
+### Density at end-of-quarter scale — DECIDED (owner's calls 2026-09-01)
 Today each class holds a handful of assignments; by quarter's end it will be
 dozens per class (× 7 classes, × students, plus a term of alerts/history).
 The overview-vs-detail split must be decided against *that* volume, not
-week-one data. Before locking Phase C layouts:
+week-one data. Designed against seeded data; mockups (matching the real
+tokens, dark theme) live in the "Student Page Views" artifact:
+https://claude.ai/code/artifact/d7b0733e-fd0b-468d-a6d3-79bbcb40ce1a
+
+**The decided model — "C0: structure", to build BEFORE Phase C's visual
+signal work (tints/icons paint onto these views):**
+
+- **Four views** on the student page, server-rendered via query params
+  (`?view=`, `&course=`), no JS:
+  - **Problems** (the DEFAULT) — missing + ungraded-past-due. Empty case
+    is an earned all-clear state (teal check, "Nothing needs attention")
+    linking onward to Recent grades, with a due-soon peek below so the
+    page is never a dead end.
+  - **Due soon** — open items inside the lookahead window, soonest first.
+    Kept separate from Problems: at crunch time it's dozens of rows of
+    *normal* workload and would bury the fires.
+  - **Recent grades** — graded work newest-first across courses, grouped
+    by day (Today / Yesterday / dates). Sorts on `graded_at` — verify the
+    real collector populates it (the seeder does); fall back to the
+    assignment's first score row in `grade_history` if the portal doesn't
+    supply it.
+  - **Everything** — the archive (receipt-lookup job): per-course cards,
+    open items surfaced first, graded backlog collapsed to the last ~5
+    with a no-JS "show all N" `<details>` expander; closed terms collapse
+    to a finals line.
+- **View switcher = mini stat cards** (owner's call: cards over plain
+  chips), 4-across desktop / 2×2 mobile, Purity mini-stat style; the
+  active card gets the accent border. Each carries its own data story:
+  - Problems: count + 6-week open-item trend sparkline (red; series
+    reconstructible from `grade_history` status transitions);
+  - Due soon: count + the next deadlines themselves (deliberately NOT a
+    chart);
+  - Recent grades: last-10 average vs term average + last-10 score
+    micro-bars (the leading indicator — recent work slips before the
+    course average moves);
+  - Everything: term average across courses + quarter trendline (from
+    `course_history`).
+  Sparklines are server-rendered inline SVG, JS-free.
+- **Course summary strip** under the cards, on every view: one compact
+  table row per current-term course — grade + mark, 2-week delta (from
+  `course_history`), open-issue chips, last-graded recency. Clicking a
+  row scopes the active view to that course (`?course=`). Rows now;
+  the strip is where per-course sparklines land later (trends question).
+  Single-course (elementary) students skip the strip entirely.
+- **Overview badges** (Phase C) become deep links into these views —
+  "1 missing" → `?view=problems`. One mechanism, several doors.
+- **Alerts page ripple**: same treatment later — type-group chips,
+  unacked surfaced, "older →" paging instead of the silent 100-row cap,
+  local dates per the existing Phase C item.
+
+Original pre-decision framing, kept for the record:
 
 - Build a **demo-data seeder** (e.g. `lastbell seed-demo` into a
   throwaway DB, or a script) that fabricates a realistic quarter-end state:
   ~25–40 assignments per class with plausible types/dates/scores, a few
   missing/past-due, weeks of grade history and alerts, two terms.
-- Design against it, then decide:
-  - what an overview card earns at that scale (currently full course table —
-    probably: overall grade + open-issue flags + maybe a trend, nothing more);
-  - student detail: default sort (due date vs. recently-graded first),
-    whether graded backlog collapses ("last 5 + view all"), per-course
-    collapse, and whether closed terms collapse by default;
-  - whether alerts/history need paging.
+  **Done (2026-09-01):** `lastbell seed-demo` (lastbell/seed.py) writes
+  `data/demo.db` (refuses the live DB; `--force` to overwrite; `--seed` for
+  reproducible screenshots). It replays two 9-week quarters of school days
+  through the real pipeline — apply_time_rules → diff → record_alert →
+  persist_snapshot — so statuses, rollover, history rows, and alert wording
+  are production-identical; only the timestamp defaults are rewritten to the
+  simulated day. Per-course grade "personalities" (steady/slipping/volatile/
+  recovering, one bombed test → a real GRADE_DROP) give the trend charts
+  shapes worth designing against. View: `lastbell dashboard --db data/demo.db`
+  (the `--db` flag is new).
+- ~~Design against it, then decide~~ (all decided above): overview card
+  scale, student-detail default sort and collapses, alerts paging.
 - The seeder stays useful afterward for screenshots, docs, and demoing
   without exposing real student data.
 
@@ -163,8 +218,23 @@ inline SVG keeps it JS-free.
   grades". Data accumulates from now on; trend charts draw from this series.
 - The demo-data seeder (above) should fabricate months of course-percent
   history so trend layouts can be designed at realistic density.
-- Decide: sparkline on overview cards vs. detail-only charts; whether the
-  term-final summary alert links to/embeds the closing term's trajectory.
+  **Done (2026-09-01)** — the seeder's grade personalities produce
+  realistic trajectories.
+- Partially decided via the density decision (above): the student page's
+  stat cards carry the first sparklines (open-problem trend, last-10
+  scores, term-average line), and the course strip is the reserved slot
+  for per-course sparklines. Still open: per-course chart on a scoped
+  course view, sparklines on the overview's student cards, and whether
+  the term-final summary alert links to/embeds the closing term's
+  trajectory.
+
+### Later — school-name links (owner's note 2026-09-01)
+Every rendered instance of a school name (overview cards, student page
+header, anywhere else one appears) becomes a link to that school's own
+website, resolved via the MCPS school directory/index. Needs a lookup
+table or resolver from the school name ParentVUE reports to the school's
+site URL — decide whether that's a bundled static map, a config file, or
+a scrape of the MCPS directory. Not scheduled yet.
 
 ### Cross-cutting — human-readable errors
 - Inventory every user-facing failure (dashboard error page, CLI poll
