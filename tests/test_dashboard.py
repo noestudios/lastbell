@@ -325,9 +325,10 @@ def test_settings_page(populated):
     assert "all students" in html
     # add forms come above their tables
     assert (html.index("action='/settings/watcher-add'")
-            < html.index("<table class='manage'>"))
+            < html.index("<table class='manage' aria-label='Watchers'>"))
     assert (html.index("action='/settings/subscribe'")
-            < html.index("<table class='manage'>", html.index("Subscriptions")))
+            < html.index("<table class='manage' aria-label='Subscriptions'>",
+                        html.index("Subscriptions")))
     # the web UI offers exactly email and text message as channels
     assert "text message" in html
     for gone in ("ntfy", "telegram", "pushover"):
@@ -483,10 +484,10 @@ def test_history_caps_section_with_expander(conn):
     assert "details class='more'" in html and f"Show all {n}" in html
     # Expanding continues the SAME table: overflow rows in a hidden tbody,
     # not a second table with a repeated header.
-    assert "<tbody class='overflow'>" in html
+    assert "<tbody class='overflow' id='overflow-assignments'>" in html
     section = html[html.index("Assignments <span"):]
     section = section[:section.index("</div>")]
-    assert section.count("<table>") == 1
+    assert section.count("<table") == 1
     assert section.count("<tr class='head'>") == 1
 
 

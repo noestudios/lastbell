@@ -27,10 +27,20 @@
     if (!toast || toast.dataset.armed) return;
     toast.dataset.armed = "1";
     // 6s hold: the messages name who/what changed and deserve a real read.
-    setTimeout(function () {
+    // Hovering or focusing the toast pauses the clock — slow readers keep
+    // it as long as they're on it; leaving restarts the full hold.
+    var timer = null;
+    function dismiss() {
       toast.classList.add("toast-exit");
       setTimeout(function () { toast.remove(); }, LINGER);
-    }, 6000);
+    }
+    function arm() { timer = setTimeout(dismiss, 6000); }
+    function hold() { if (timer) { clearTimeout(timer); timer = null; } }
+    toast.addEventListener("mouseenter", hold);
+    toast.addEventListener("focusin", hold);
+    toast.addEventListener("mouseleave", arm);
+    toast.addEventListener("focusout", arm);
+    arm();
   }
 
   /* Strip ?ok=/&new= after a full-page (JS-off style) navigation so a

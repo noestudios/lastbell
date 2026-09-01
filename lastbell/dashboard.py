@@ -739,12 +739,12 @@ def render_overview(students, courses_by_student, counts_by_student) -> str:
             flags.append(f"<a href='{base}?view=due'><span class='badge info'>"
                          f"{counts['due']} due soon</span></a>")
         cards.append(
-            f"<div class='card'><h3><a href='/student/{escape(s['agu'])}'>"
-            f"{escape(s['name'])}</a></h3>"
+            f"<div class='card'><h2 class='cardname'><a href='/student/{escape(s['agu'])}'>"
+            f"{escape(s['name'])}</a></h2>"
             f"<div class='small'>{_school_link(s['school'])}</div>"
             f"<div>{' '.join(flags) or '<span class=small>all clear</span>'}</div>"
-            f"<table class='courses'><tr class='head'><th>Course</th><th>Teacher</th>"
-            f"<th>%</th><th>Mark</th></tr>{rows}</table></div>")
+            f"<table class='courses'><tr class='head'><th scope='col'>Course</th><th scope='col'>Teacher</th>"
+            f"<th scope='col'>%</th><th scope='col'>Mark</th></tr>{rows}</table></div>")
     return _page("Students", "<h1>Students</h1><div class='cards'>" + "".join(cards) + "</div>", path="/",
                  nav_students=students)
 
@@ -817,7 +817,7 @@ def _day_heading(d: date, today: date) -> str:
     return f"{d.strftime('%a %b')} {d.day}"
 
 
-def _spark_line(values, color: str, *, lo=None, hi=None) -> str:
+def _spark_line(values, color: str, *, lo=None, hi=None, label="") -> str:
     """A 120×34 inline-SVG trend line with an end dot — JS-free."""
     if len(values) < 2:
         return ""
@@ -828,23 +828,27 @@ def _spark_line(values, color: str, *, lo=None, hi=None) -> str:
           for v in values]
     step = 112 / (len(values) - 1)
     pts = " ".join(f"{4 + i * step:.1f},{y:.1f}" for i, y in enumerate(ys))
+    aria = (f"role='img' aria-label='{escape(label)}'" if label
+            else "aria-hidden='true'")
     return (f"<svg class='spark' viewBox='0 0 120 34' "
-            f"preserveAspectRatio='none' aria-hidden='true'>"
+            f"preserveAspectRatio='none' {aria}>"
             f"<polyline points='{pts}' fill='none' style='stroke:{color}' "
             f"stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>"
             f"<circle cx='116' cy='{ys[-1]:.1f}' r='3' style='fill:{color}'/>"
             f"</svg>")
 
 
-def _spark_bars(pcts) -> str:
+def _spark_bars(pcts, label="") -> str:
     """Up to ten bottom-aligned score micro-bars (50–100% sets the height)."""
     rects = []
     for i, p in enumerate(pcts[:10]):
         h = 4 + (min(max(p, 50.0), 100.0) - 50.0) / 50.0 * 26
         rects.append(f"<rect x='{4 + i * 12}' y='{34 - h:.1f}' width='6' "
                      f"height='{h:.1f}' rx='2' style='fill:var(--edge)'/>")
-    return ("<svg class='spark' viewBox='0 0 120 34' "
-            "preserveAspectRatio='none' aria-hidden='true'>"
+    aria = (f"role='img' aria-label='{escape(label)}'" if label
+            else "aria-hidden='true'")
+    return (f"<svg class='spark' viewBox='0 0 120 34' "
+            f"preserveAspectRatio='none' {aria}>"
             + "".join(rects) + "</svg>")
 
 
@@ -886,8 +890,11 @@ def _stat_cards(student, ctx) -> str:
         p_ctx = f"<b style='color:var(--ok-ink)'>−{-wk}</b> this week"
     else:
         p_ctx = "no change this week"
-    p_spark = (_spark_line(c["problems_series"], "var(--bad-ink)", lo=0)
-               if max(c["problems_series"], default=0) > 0 else "")
+    ps = c["problems_series"]
+    p_spark = (_spark_line(ps, "var(--bad-ink)", lo=0,
+                           label=f"open problems over 6 weeks: "
+                                 f"{ps[0]:g} then, {ps[-1]:g} now")
+               if max(ps, default=0) > 0 else "")
     parts = [card("problems", "Problems", str(c["problems_count"]),
                   p_ctx, p_spark)]
 
@@ -908,7 +915,10 @@ def _stat_cards(student, ctx) -> str:
         r_ctx = f"last {len(pcts)}"
         if c["term_avg"] is not None:
             r_ctx += f" · term avg {c['term_avg']:.1f}"
-        extra = _spark_bars(list(reversed(pcts)))
+        extra = _spark_bars(
+            list(reversed(pcts)),
+            label=f"last {len(pcts)} scores as bars, oldest first, "
+                  f"{min(pcts):.0f} to {max(pcts):.0f} percent")
     else:
         big, r_ctx, extra = "—", "no grades yet", ""
     parts.append(card("recent", "Recent grades", big, r_ctx, extra))
@@ -917,8 +927,11 @@ def _stat_cards(student, ctx) -> str:
            if c["term_avg"] is not None else "—")
     n = c["courses"]
     e_ctx = f"term average · {n} course{'s' if n != 1 else ''}"
-    e_extra = (_spark_line(c["term_series"], "var(--edge)")
-               if len(c["term_series"]) >= 2 else "")
+    ts = c["term_series"]
+    e_extra = (_spark_line(ts, "var(--edge)",
+                           label=f"term average trend: {ts[0]:.1f} "
+                                 f"to {ts[-1]:.1f} percent")
+               if len(ts) >= 2 else "")
     parts.append(card("everything", "Everything", big, e_ctx, e_extra))
     return "<div class='stats'>" + "".join(parts) + "</div>"
 
@@ -985,16 +998,20 @@ def _course_strip(student, ctx) -> str:
     if scoped_title:
         tag = (f" <a class='striptag' "
                f"href='/student/{agu}?view={ctx['view']}&strip=open' "
+               f"aria-label='Clear the {escape(scoped_title)} filter — "
+               f"show all courses' "
                f"data-tip='show all courses'>{_FILTER_ICON}"
                f"{escape(scoped_title)}{_CLEAR_ICON}</a>")
     return (
+        "<h2 class='vh'>All Courses</h2>"
         f"<details class='allcourses' id='allcourses'"
         f"{' open' if is_open else ''}>"
-        f"<summary>{_CHEVRON}<h2 class='striphead'>All Courses"
+        f"<summary>{_CHEVRON}<span class='striphead'>All Courses"
         + (f" <span class='termtag'>{label}</span>" if label else "")
-        + tag + "</h2></summary><table class='strip'>"
-          "<tr class='head'><th>Course</th><th>Grade</th><th>2 weeks</th>"
-          "<th>Open</th><th>Last graded</th></tr>"
+        + tag + "</span></summary>"
+          "<table class='strip' aria-label='All courses'>"
+          "<tr class='head'><th scope='col'>Course</th><th scope='col'>Grade</th><th scope='col'>2 weeks</th>"
+          "<th scope='col'>Open</th><th scope='col'>Last graded</th></tr>"
         + "".join(rows) + "</table></details>"
         "<script>(function(){"
         "var d=document.getElementById('allcourses');"
@@ -1022,9 +1039,9 @@ def _assignment_table(rows, ctx) -> str:
     """Open-item listing for the Problems and Due-soon views. The Course
     column only earns its place unscoped on a multi-course student."""
     with_course = _show_course_col(ctx)
-    head = ("<tr class='head'><th>Assignment</th>"
-            + ("<th>Course</th>" if with_course else "")
-            + "<th>Due</th><th>Status</th></tr>")
+    head = ("<tr class='head'><th scope='col'>Assignment</th>"
+            + ("<th scope='col'>Course</th>" if with_course else "")
+            + "<th scope='col'>Due</th><th scope='col'>Status</th></tr>")
     body, hit_seen = [], False
     for r in rows:
         attrs, lead = _row_mark(r["status"], ctx["hl"], first_hit=not hit_seen)
@@ -1159,9 +1176,10 @@ def _course_card(course, rows, ctx) -> str:
                 f"<td data-label='Status'>{_badge(a['status'])}</td></tr>")
 
     visible = upcoming + missing + late + graded[:5]
-    table = ("<table class='assignments'>" + _ASSIGN_COLGROUP
-             + "<tr class='head'><th>Assignment</th><th>Type</th><th>Due</th>"
-               "<th>Score</th><th>Status</th></tr>"
+    table = (f"<table class='assignments' aria-label='{head}'>"
+             + _ASSIGN_COLGROUP
+             + "<tr class='head'><th scope='col'>Assignment</th><th scope='col'>Type</th><th scope='col'>Due</th>"
+               "<th scope='col'>Score</th><th scope='col'>Status</th></tr>"
              + "".join(tr(a) for a in visible) + "</table>")
     more = ""
     if len(graded) > 5:
@@ -1181,7 +1199,8 @@ def _closed_term(term, courses, ctx) -> str:
                              escape(c["mark"] or "")) if x)
         for c, _rows in courses if c["percent"] or c["mark"])
     inner = "".join(_course_card(c, rows, ctx) for c, rows in courses)
-    return (f"<details class='closedterm'><summary>{_CHEVRON}"
+    return (f"<h2 class='vh'>{escape(term or '(no term)')}</h2>"
+            f"<details class='closedterm'><summary>{_CHEVRON}"
             f"<span><strong>{escape(term or '(no term)')}</strong>"
             + (f" <span class='small'>finals: {finals}</span>" if finals else "")
             + f"</span></summary><div class='closedbody'>{inner}</div></details>")
@@ -1216,7 +1235,10 @@ def render_student(student, ctx, nav_students=()) -> str:
         parts.append(_course_strip(student, ctx))
     parts.append(_stat_cards(student, ctx))
     parts.append(view_body[ctx["view"]](student, ctx))
-    return _page(student["name"], "".join(parts), nav_students=nav_students,
+    view_titles = {"problems": "Problems", "due": "Due soon",
+                   "recent": "Recent grades", "everything": "Everything"}
+    return _page(f"{student['name']} — {view_titles[ctx['view']]}",
+                 "".join(parts), nav_students=nav_students,
                  path=f"/student/{student['agu']}")
 
 
@@ -1260,8 +1282,8 @@ def render_alerts(alerts, counts=(), nav_students=(),
             f"{_when_html(al['created_at'], today)}</td>"
             f"<td data-label='Student'>{escape(al['student_name'])}</td>"
             f"<td data-label='Type'>{escape(al['type'].replace('_', ' '))}</td></tr>")
-    table = ("<table class='alerts'><tr class='head'><th>Detail</th><th>When</th>"
-             "<th>Student</th><th>Type</th></tr>"
+    table = ("<table class='alerts'><tr class='head'><th scope='col'>Detail</th><th scope='col'>When</th>"
+             "<th scope='col'>Student</th><th scope='col'>Type</th></tr>"
              + "".join(rows) + "</table>"
              if rows else "<p class='small'>Nothing on this page.</p>")
 
@@ -1274,7 +1296,11 @@ def render_alerts(alerts, counts=(), nav_students=(),
         pager = f"<div class='pager'>{newer}{older}</div>"
 
     heading = "Recent alerts" if page == 1 else f"Alerts — page {page}"
-    return _page("Alerts", "<h1>Alerts</h1><div class='card tablecard'>"
+    # The tab title carries the active filter — distinguishable history
+    # entries, and screen readers announce where a chip click landed.
+    title = (f"Alerts — {alert_type.replace('_', ' ')}" if alert_type
+             else "Alerts")
+    return _page(title, "<h1>Alerts</h1><div class='card tablecard'>"
                  f"<h2>{heading}</h2>"
                  f"<div class='chips'>{''.join(chips)}</div>"
                  + table + pager + "</div>", nav_students=nav_students,
@@ -1343,21 +1369,26 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
         continues the list — one header, aligned columns. The <details> below
         is the bare no-JS toggle; style.css reveals the tbody via :has()."""
         n = len(body_rows)
-        table = "<table>" + head_html + "".join(body_rows[:_HISTORY_PREVIEW])
+        slug = title.lower().replace(" ", "-")
+        table = (f"<table aria-label='{escape(title)}'>" + head_html
+                 + "".join(body_rows[:_HISTORY_PREVIEW]))
         more = ""
         if n > _HISTORY_PREVIEW:
-            table += ("<tbody class='overflow'>"
+            table += (f"<tbody class='overflow' id='overflow-{slug}'>"
                       + "".join(body_rows[_HISTORY_PREVIEW:]) + "</tbody>")
-            more = (f"<details class='more'><summary>{_CHEVRON}"
-                    f"<span>Show all {n}</span></summary></details>")
+            more = (f"<details class='more'><summary "
+                    f"aria-controls='overflow-{slug}'>{_CHEVRON}"
+                    f"<span>Show all {n}</span><span class='vh'> — "
+                    f"the remaining rows are added to the table "
+                    f"above</span></summary></details>")
         table += "</table>"
         return (f"<div class='card tablecard'><h2>{escape(title)} "
                 f"<span class='small'>{n}</span></h2>" + table + more + "</div>")
 
     sections = []
     if course_rows:
-        head = ("<tr class='head'><th>Course</th><th>When</th><th>Student</th>"
-                "<th>Change</th><th>From → To</th></tr>")
+        head = ("<tr class='head'><th scope='col'>Course</th><th scope='col'>When</th><th scope='col'>Student</th>"
+                "<th scope='col'>Change</th><th scope='col'>From → To</th></tr>")
         body = [
             f"<tr><td>{escape(r['course_title'])} "
             f"<span class='small'>{escape(r['term'])}</span></td>"
@@ -1368,8 +1399,8 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
             for r in course_rows]
         sections.append(section("Course grades", head, body))
     if rows:
-        head = ("<tr class='head'><th>Assignment</th><th>When</th><th>Student</th>"
-                "<th>Course</th><th>Change</th><th>From → To</th></tr>")
+        head = ("<tr class='head'><th scope='col'>Assignment</th><th scope='col'>When</th><th scope='col'>Student</th>"
+                "<th scope='col'>Course</th><th scope='col'>Change</th><th scope='col'>From → To</th></tr>")
         body = [
             f"<tr><td>{escape(r['assignment_name'])}</td>"
             f"<td class='small' data-label='When'>{_when_html(r['seen_at'], today)}</td>"
@@ -1515,8 +1546,8 @@ def render_settings(watcher_list, subscriptions, students=(),
                     f"class='rowform'>"
                     f"<input type='hidden' name='watcher' value='{escape(w.name)}'>"
                     f"<button>Add channel</button></form></td></tr>")
-        w_body = ("<table class='manage'><tr class='head'><th>Watcher</th>"
-                  "<th>Address</th><th><span class='vh'>Actions</span></th></tr>" + "".join(w_rows) + "</table>")
+        w_body = ("<table class='manage' aria-label='Watchers'><tr class='head'><th scope='col'>Watcher</th>"
+                  "<th scope='col'>Address</th><th scope='col'><span class='vh'>Actions</span></th></tr>" + "".join(w_rows) + "</table>")
     else:
         w_body = "<p class='small'>None yet — add the first watcher above.</p>"
 
@@ -1577,8 +1608,8 @@ def render_settings(watcher_list, subscriptions, students=(),
                 f"aria-label='Unsubscribe {escape(first.watcher_name)} "
                 f"from {escape(first.student_name)}'>"
                 f"remove</button></form></td></tr>")
-        s_body = ("<table class='manage'><tr class='head'><th>Watcher ⇒ Student</th>"
-                  "<th>Alerts</th><th>Via</th><th>Delivery</th><th><span class='vh'>Actions</span></th></tr>"
+        s_body = ("<table class='manage' aria-label='Subscriptions'><tr class='head'><th scope='col'>Watcher ⇒ Student</th>"
+                  "<th scope='col'>Alerts</th><th scope='col'>Via</th><th scope='col'>Delivery</th><th scope='col'><span class='vh'>Actions</span></th></tr>"
                   + "".join(s_rows) + "</table>")
     else:
         s_body = "<p class='small'>No subscriptions yet.</p>"
