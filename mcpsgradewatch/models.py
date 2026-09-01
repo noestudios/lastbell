@@ -32,6 +32,7 @@ class AlertType(str, Enum):
     UPCOMING_DEADLINE = "upcoming_deadline"
     GRADE_DROP = "grade_drop"
     DAILY_SUMMARY = "daily_summary"
+    TERM_FINAL = "term_final"       # marking period closed: final grades summary
 
 
 def parse_percent(raw: str) -> Optional[float]:
@@ -88,8 +89,15 @@ class Assignment:
 
 @dataclass
 class Snapshot:
-    """One collection pass for one student: the courses + assignments seen."""
+    """One collection pass for one student: the courses + assignments seen.
+
+    ``term`` is the marking period the portal said was current during this
+    pass (e.g. "MP1"). The store remembers it per student; a change between
+    the remembered and the collected term is a rollover — the differ answers
+    with a one-shot final-grades summary event.
+    """
 
     student_agu: str
     courses: list[Course] = field(default_factory=list)
     assignments: list[Assignment] = field(default_factory=list)
+    term: str = ""

@@ -53,6 +53,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 _MIGRATIONS = [
     ("alerts", "acked_at", "TEXT"),
     ("subscriptions", "last_sent_on", "TEXT"),
+    ("students", "current_term", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 
@@ -83,7 +84,7 @@ def load_snapshot(conn: sqlite3.Connection, student_agu: str) -> Optional[Snapsh
     """Rebuild the last persisted Snapshot, or None if this student is new
     (None means "baseline run" to the differ — no alerts)."""
     student = conn.execute(
-        "SELECT id FROM students WHERE agu = ?", (student_agu,)
+        "SELECT id, current_term FROM students WHERE agu = ?", (student_agu,)
     ).fetchone()
     if student is None:
         return None
@@ -118,7 +119,8 @@ def load_snapshot(conn: sqlite3.Connection, student_agu: str) -> Optional[Snapsh
             status=AssignmentStatus(r["status"]),
         ))
 
-    return Snapshot(student_agu=student_agu, courses=courses, assignments=assignments)
+    return Snapshot(student_agu=student_agu, courses=courses,
+                    assignments=assignments, term=student["current_term"] or "")
 
 
 def _from_iso(value: Optional[str]) -> Optional[date]:
@@ -146,6 +148,12 @@ def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot)
         "initials=excluded.initials, school=excluded.school",
         (student_id, student.agu, student.name, student.initials, student.school),
     )
+    if snap.term:
+        # Remember the marking period this pass saw; a change against the
+        # remembered value is what the differ reports as a term rollover. An
+        # empty term (a partial/failed parse) preserves the last known one.
+        conn.execute("UPDATE students SET current_term = ? WHERE id = ?",
+                     (snap.term, student_id))
 
     course_ids: dict[str, str] = {}  # edupoint_gu -> row id
     for c in snap.courses:

@@ -12,11 +12,12 @@ CREATE TABLE IF NOT EXISTS credentials (
 );
 
 CREATE TABLE IF NOT EXISTS students (
-    id       TEXT PRIMARY KEY,
-    agu      TEXT NOT NULL UNIQUE,       -- dedupe key across credentials
-    name     TEXT NOT NULL,
-    initials TEXT NOT NULL DEFAULT '',
-    school   TEXT NOT NULL DEFAULT ''
+    id           TEXT PRIMARY KEY,
+    agu          TEXT NOT NULL UNIQUE,   -- dedupe key across credentials
+    name         TEXT NOT NULL,
+    initials     TEXT NOT NULL DEFAULT '',
+    school       TEXT NOT NULL DEFAULT '',
+    current_term TEXT NOT NULL DEFAULT ''  -- marking period as of the last pass
 );
 
 CREATE TABLE IF NOT EXISTS credential_student (

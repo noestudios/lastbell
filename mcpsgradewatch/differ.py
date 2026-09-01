@@ -83,6 +83,11 @@ def diff(
     events: list[Event] = []
     agu = current.student_agu
 
+    # Term rollover first: the old quarter's last-seen marks ARE its finals.
+    roll = term_rollover(previous, current)
+    if roll:
+        events.append(roll)
+
     # Course-level: overall mark/percent moved. Keyed on (GUID, term) so a new
     # grading period starts a fresh baseline instead of a spurious "change".
     prev_courses = {(c.edupoint_gu, c.term): c for c in previous.courses}
@@ -149,6 +154,31 @@ def diff(
                 detail=f"{course}: “{a.name}” due {_day(a.due_date)}",
             ))
     return events
+
+
+def term_rollover(previous: Optional[Snapshot], current: Snapshot) -> Optional[Event]:
+    """A one-shot final-grades summary when the marking period changes.
+
+    The persisted term is the dedup: it only differs from the collected one on
+    the first pass after the portal flips (persisting the new snapshot updates
+    it), so the event fires exactly once — the same status-transition pattern
+    as every other rule. The previous snapshot's courses for the closing term
+    are, by definition, that term's final grades.
+    """
+    if previous is None or not previous.term or not current.term:
+        return None
+    if previous.term == current.term:
+        return None
+    finals = sorted((c for c in previous.courses if c.term == previous.term),
+                    key=lambda c: c.title)
+    listing = "; ".join(f"{c.title} {_overall(c)}" for c in finals) \
+        or "no courses recorded"
+    return Event(
+        type=AlertType.TERM_FINAL, student_agu=current.student_agu,
+        course_title="",
+        detail=f"{previous.term} closed — final grades: {listing} "
+               f"(now in {current.term})",
+    )
 
 
 def _day(d: date) -> str:
