@@ -100,7 +100,9 @@ def _run_once(client, conn, notifier, conf) -> int:
     for child in client.get_children():
         col = collect_student(client, child)
         for err in col.errors:
-            print(f"warning [{col.student.initials}]: {err}", file=sys.stderr)
+            print(f"warning [{col.student.initials}]: {err} — that class was "
+                  f"skipped this poll; the others were still checked",
+                  file=sys.stderr)
 
         snapshot = differ.apply_time_rules(
             col.snapshot,
@@ -205,7 +207,16 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 except Exception as e:
                     if not args.loop:
                         raise
-                    print(f"poll failed (will retry next cycle): {e}", file=sys.stderr)
+                    import requests as _rq
+                    from datetime import datetime, timedelta
+
+                    retry_at = (datetime.now()
+                                + timedelta(minutes=conf.poll_minutes)).strftime("%H:%M")
+                    reason = ("couldn't reach the portal"
+                              if isinstance(e, _rq.RequestException)
+                              else "couldn't finish this poll")
+                    print(f"{reason} ({e or e.__class__.__name__}) — "
+                          f"retrying at {retry_at}", file=sys.stderr)
                 next_poll = time.time() + conf.poll_minutes * 60
                 if args.loop:
                     print(f"next portal poll in {conf.poll_minutes} min "
@@ -592,12 +603,36 @@ def main() -> None:
 
     args = parser.parse_args()
     try:
+        # Every user-facing failure exits as one plain-language line with the
+        # next step — a traceback is a bug report, not an error message.
+        import requests
+
+        from .client import LoginError, ParentVueError
+        from .gradebook import ParseError
         from .watchers import WatcherError
 
         raise SystemExit(args.func(args))
-    except (cfg.ConfigError, secretstore.SecretError, WatcherError) as e:
+    except (cfg.ConfigError, secretstore.SecretError, WatcherError, LoginError) as e:
         print(f"error: {e}", file=sys.stderr)
         raise SystemExit(2)
+    except ParseError as e:
+        print(f"error: the portal's pages have changed shape ({e}). Run "
+              f"`lastbell preflight --report` and file a district report — "
+              f"that's the fastest path to a parser fix.", file=sys.stderr)
+        raise SystemExit(2)
+    except ParentVueError as e:
+        print(f"error: the portal answered in an unexpected way ({e}). Nothing "
+              f"was collected — `lastbell preflight` shows whether the data "
+              f"path still works.", file=sys.stderr)
+        raise SystemExit(2)
+    except requests.RequestException as e:
+        print(f"error: couldn't reach the portal "
+              f"({e.__class__.__name__}). Check the network and "
+              f"LASTBELL_DISTRICT; nothing was collected.", file=sys.stderr)
+        raise SystemExit(2)
+    except KeyboardInterrupt:
+        print("\nstopped.", file=sys.stderr)
+        raise SystemExit(130)
 
 
 if __name__ == "__main__":
