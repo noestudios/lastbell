@@ -139,6 +139,13 @@ code { background: var(--surface-2); padding: 0.1rem 0.35rem; border-radius: 6px
 .card h3 { margin: 0 0 0.15rem; font-size: 0.95rem; }
 .card h3 a { color: var(--text); }
 
+/* A table section as a card, Purity-style: the section title lives INSIDE
+ * the card ("Authors Table"), not floating on the canvas above it. */
+.tablecard { margin: 0 0 1.1rem; min-width: 0; }
+.tablecard h2 { margin: 0 0 0.6rem; font-size: 1rem; }
+.tablecard table { margin: 0; }
+.tablecard > p.small { margin: 0.2rem 0 0; }
+
 /* ── tables ─────────────────────────────────────────────────────────── */
 
 table {
