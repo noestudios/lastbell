@@ -47,6 +47,7 @@ class Subscription:
     alert_type: str   # AlertType value or '*'
     channel: str      # channel name or '*'
     send_at: Optional[str] = None   # HH:MM digest/summary time; None = immediate
+    urgent_now: bool = False        # urgent alert types skip the digest wait
 
 
 # ── watchers ──────────────────────────────────────────────────────────
@@ -124,15 +125,17 @@ def ensure_default_watcher(conn: sqlite3.Connection, username: str,
     and subscribe them to every student in the database — so ack and the
     viewer identity picker always have someone to attribute to. The email
     channel comes from ``email`` (MCPSGRADEWATCH_SMTP_TO) when set; otherwise
-    console, matching the old no-watcher fallback. Returns the new watcher,
-    or None when any watcher already exists (a no-op on every later call).
+    console, matching the old no-watcher fallback. Delivery defaults to the
+    considerate cadence: one 16:00 daily digest, with urgent alert types
+    (missing / due soon / grade drop) sent immediately. Returns the new
+    watcher, or None when any watcher already exists (a no-op later).
     """
     if list_watchers(conn):
         return None
     channels = {"email": {"to": email}} if email else {"console": {}}
     w = add_watcher(conn, username, WatcherKind.GUARDIAN, channels)
     for r in conn.execute("SELECT id FROM students"):
-        subscribe(conn, w, r["id"])
+        subscribe(conn, w, r["id"], send_at="16:00", urgent_now=True)
     return w
 
 
@@ -204,9 +207,10 @@ def set_quiet_hours(conn: sqlite3.Connection, name: str,
 def subscribe(conn: sqlite3.Connection, watcher: Watcher, student_id: str,
               alert_types: Optional[list[str]] = None,
               channels: Optional[list[str]] = None,
-              send_at: Optional[str] = None) -> int:
+              send_at: Optional[str] = None,
+              urgent_now: bool = False) -> list[str]:
     """Create subscription rows (and the watcher_student link). Returns the
-    number of rows actually added; existing identical rows are left alone.
+    ids of the rows actually added; existing identical rows are left alone.
 
     ``send_at`` (HH:MM) makes the rows *scheduled*: event alerts batch into a
     daily digest delivered after that time; a ``daily_summary`` row generates
@@ -227,7 +231,7 @@ def subscribe(conn: sqlite3.Connection, watcher: Watcher, student_id: str,
         "INSERT OR IGNORE INTO watcher_student (watcher_id, student_id) VALUES (?, ?)",
         (watcher.id, student_id),
     )
-    added = 0
+    added: list[str] = []
     for t in types:
         for ch in chans:
             dup = conn.execute(
@@ -237,12 +241,13 @@ def subscribe(conn: sqlite3.Connection, watcher: Watcher, student_id: str,
             ).fetchone()
             if dup:
                 continue
+            sub_id = uuid.uuid4().hex
             conn.execute(
-                "INSERT INTO subscriptions (id, watcher_id, student_id, alert_type, channel, send_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (uuid.uuid4().hex, watcher.id, student_id, t, ch, send_at),
+                "INSERT INTO subscriptions (id, watcher_id, student_id, alert_type, "
+                "channel, send_at, urgent_now) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (sub_id, watcher.id, student_id, t, ch, send_at, int(urgent_now)),
             )
-            added += 1
+            added.append(sub_id)
     conn.commit()
     return added
 
@@ -264,29 +269,114 @@ def unsubscribe(conn: sqlite3.Connection, watcher: Watcher,
     return cur.rowcount
 
 
+def set_subscription_group(conn: sqlite3.Connection, ids: list[str],
+                           alert_types: list[str], channel: str,
+                           send_at: Optional[str],
+                           urgent_now: bool = False) -> None:
+    """Rewrite a displayed subscription row (the dashboard's per-row edit).
+
+    A dashboard row is a GROUP of single-type subscription rows sharing
+    (watcher, student, channel, send_at, urgent) — ``ids`` are the group's
+    current rows, ``alert_types`` the newly selected set. Types are
+    reconciled (insert the new, delete the de-selected, update the kept);
+    the watcher⇒student pair is the row's identity and stays."""
+    rows = [r for i in ids
+            for r in [conn.execute("SELECT * FROM subscriptions WHERE id = ?",
+                                   (i,)).fetchone()] if r is not None]
+    if not rows:
+        raise WatcherError("no such subscription (already removed?)")
+    watcher_id, student_id = rows[0]["watcher_id"], rows[0]["student_id"]
+    if any(r["watcher_id"] != watcher_id or r["student_id"] != student_id
+           for r in rows):
+        raise WatcherError("those subscriptions belong to different rows")
+    types = list(dict.fromkeys(alert_types)) or [ALL]
+    if ALL in types:
+        types = [ALL]
+    for t in types:
+        if t != ALL and t not in VALID_ALERT_TYPES:
+            raise WatcherError(
+                f"unknown alert type {t!r} (valid: {', '.join(sorted(VALID_ALERT_TYPES))})")
+    if send_at is not None:
+        send_at = validate_hhmm(send_at)
+
+    existing = {r["alert_type"]: r["id"] for r in rows}
+    try:
+        for t, sub_id in existing.items():
+            if t not in types:
+                conn.execute("DELETE FROM subscriptions WHERE id = ?", (sub_id,))
+        for t in types:
+            row_send_at = send_at
+            if t == AlertType.DAILY_SUMMARY.value and row_send_at is None:
+                row_send_at = "07:00"
+            dup = conn.execute(
+                "SELECT id FROM subscriptions WHERE watcher_id = ? AND student_id = ? "
+                "AND alert_type = ? AND channel = ? AND send_at IS ?",
+                (watcher_id, student_id, t, channel, row_send_at)).fetchone()
+            if dup and dup["id"] not in existing.values():
+                raise WatcherError("an identical subscription already exists")
+            if t in existing:
+                conn.execute(
+                    "UPDATE subscriptions SET channel = ?, send_at = ?, urgent_now = ? "
+                    "WHERE id = ?",
+                    (channel, row_send_at, int(urgent_now), existing[t]))
+            else:
+                conn.execute(
+                    "INSERT INTO subscriptions (id, watcher_id, student_id, alert_type, "
+                    "channel, send_at, urgent_now) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (uuid.uuid4().hex, watcher_id, student_id, t, channel,
+                     row_send_at, int(urgent_now)))
+    except WatcherError:
+        conn.rollback()
+        raise
+    conn.commit()
+
+
+def remove_subscription(conn: sqlite3.Connection, sub_id: str) -> None:
+    """Delete one subscription row by id (the dashboard's per-row remove).
+    Also drops the watcher_student link when this was the pair's last row."""
+    row = conn.execute(
+        "SELECT watcher_id, student_id FROM subscriptions WHERE id = ?", (sub_id,)
+    ).fetchone()
+    if row is None:
+        raise WatcherError("no such subscription (already removed?)")
+    conn.execute("DELETE FROM subscriptions WHERE id = ?", (sub_id,))
+    left = conn.execute(
+        "SELECT 1 FROM subscriptions WHERE watcher_id = ? AND student_id = ?",
+        (row["watcher_id"], row["student_id"])).fetchone()
+    if left is None:
+        conn.execute(
+            "DELETE FROM watcher_student WHERE watcher_id = ? AND student_id = ?",
+            (row["watcher_id"], row["student_id"]))
+    conn.commit()
+
+
 def list_subscriptions(conn: sqlite3.Connection) -> list[Subscription]:
     rows = conn.execute(
         "SELECT s.id, s.watcher_id, w.name AS watcher_name, s.student_id, "
-        "       st.name AS student_name, s.alert_type, s.channel, s.send_at "
+        "       st.name AS student_name, s.alert_type, s.channel, s.send_at, "
+        "       s.urgent_now "
         "FROM subscriptions s "
         "JOIN watchers w ON w.id = s.watcher_id "
         "JOIN students st ON st.id = s.student_id "
         "ORDER BY w.name, st.name, s.alert_type, s.channel"
     ).fetchall()
-    return [Subscription(**dict(r)) for r in rows]
+    return [Subscription(**{**dict(r), "urgent_now": bool(r["urgent_now"])})
+            for r in rows]
 
 
-def subscriptions_for_student(conn: sqlite3.Connection, student_id: str) -> list[tuple[Watcher, str, str, Optional[str]]]:
-    """(watcher, alert_type, channel, send_at) tuples that target this student.
-    ``daily_summary`` rows are generated content, not event routing — the
-    summary sender handles them, so they're excluded here."""
+def subscriptions_for_student(conn: sqlite3.Connection, student_id: str) -> list[tuple[Watcher, str, str, Optional[str], bool]]:
+    """(watcher, alert_type, channel, send_at, urgent_now) tuples that target
+    this student. ``daily_summary`` rows are generated content, not event
+    routing — the summary sender handles them, so they're excluded here."""
     rows = conn.execute(
-        "SELECT w.*, s.alert_type, s.channel, s.send_at FROM subscriptions s "
+        "SELECT w.*, s.alert_type, s.channel, s.send_at, s.urgent_now "
+        "FROM subscriptions s "
         "JOIN watchers w ON w.id = s.watcher_id "
         "WHERE s.student_id = ? AND s.alert_type != ?",
         (student_id, AlertType.DAILY_SUMMARY.value),
     ).fetchall()
-    return [(_row_to_watcher(r), r["alert_type"], r["channel"], r["send_at"])
+    return [(_row_to_watcher(r), r["alert_type"], r["channel"], r["send_at"],
+             bool(r["urgent_now"]))
             for r in rows]
 
 

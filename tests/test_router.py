@@ -98,3 +98,38 @@ def test_dispatch_sends_and_isolates_failures(conn):
 
 def test_subject_pluralizes():
     assert router.subject("J.P.H.", [GRADE, MISSING]).startswith("[MCPSGradeWatch] 2 updates")
+
+
+def test_urgent_now_beats_the_digest_hour(conn):
+    w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
+                             {"email": {"to": "mom@example.com"}})
+    watchers.subscribe(conn, w, "1", send_at="16:00", urgent_now=True)
+    deliveries, warnings = router.plan(conn, "1", [GRADE, MISSING])
+    assert warnings == []
+    schedule = {e.type: d.send_at for d in deliveries for e in d.events}
+    assert schedule == {AlertType.GRADE_CHANGED: "16:00",
+                       AlertType.ASSIGNMENT_MISSING: None}
+
+
+def test_without_urgent_flag_everything_waits_for_the_digest(conn):
+    w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
+                             {"email": {"to": "mom@example.com"}})
+    watchers.subscribe(conn, w, "1", send_at="16:00")
+    deliveries, _ = router.plan(conn, "1", [GRADE, MISSING])
+    assert {d.send_at for d in deliveries} == {"16:00"}
+
+
+def test_sms_channel_rides_the_email_transport(conn):
+    w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
+                             {"sms": {"to": "3015551234@vtext.com"}})
+    watchers.subscribe(conn, w, "1", None, ["sms"])
+    deliveries, warnings = router.plan(conn, "1", [GRADE])
+    assert warnings == []
+    fake = FakeChannel("sms")
+    sent, send_warnings = router.dispatch(deliveries, "J.P.H.",
+                                          channel_factory=lambda n: fake)
+    assert sent == 1 and send_warnings == []
+    assert fake.calls[0][0] == {"to": "3015551234@vtext.com"}
+    # the real registry maps sms to the email transport class
+    from mcpsgradewatch.notify import ADDRESS_KEY
+    assert ADDRESS_KEY["sms"] == "to"

@@ -245,7 +245,10 @@ def _parse_channel_args(pairs: list[str]) -> dict:
         elif not sep or not value:
             channels[name] = None  # sentinel: remove this channel
         else:
-            channels[name] = {key: value}
+            try:
+                channels[name] = {key: notify.validate_address(name, value)}
+            except ValueError as e:
+                raise SystemExit(f"error: {e}")
     return channels
 
 
@@ -316,12 +319,12 @@ def _cmd_subscribe(args: argparse.Namespace) -> int:
         types = None if args.types in (None, "all") else args.types.split(",")
         chans = None if args.channels in (None, "all") else args.channels.split(",")
         added = watchers.subscribe(conn, w, student["id"], types, chans,
-                                   send_at=args.at)
+                                   send_at=args.at, urgent_now=args.urgent)
         scope = args.types or "all alerts"
         via = args.channels or "all configured channels"
         when = f" daily at {args.at}" if args.at else ""
         print(f"{w.name} ⇒ {student['name']}: {scope} via {via}{when} "
-              f"({added} new subscription row(s))")
+              f"({len(added)} new subscription row(s))")
         return 0
     finally:
         conn.close()
@@ -531,6 +534,9 @@ def main() -> None:
                        help="comma-separated alert types (default: all)")
     p_sub.add_argument("--channels", metavar="C1,C2",
                        help="comma-separated channels (default: all configured)")
+    p_sub.add_argument("--urgent", action="store_true",
+                       help="send urgent alert types (missing, due soon, grade drop) "
+                            "immediately even when --at batches the rest")
     p_sub.add_argument("--at", metavar="HH:MM",
                        help="deliver daily at this time instead of immediately: "
                             "event types batch into a digest; daily_summary "
@@ -560,7 +566,7 @@ def main() -> None:
     sub.add_parser("flush", help="send due digests/summaries now; list what's still queued"
                    ).set_defaults(func=_cmd_flush)
 
-    p_dash = sub.add_parser("dashboard", help="serve the read-only web dashboard")
+    p_dash = sub.add_parser("dashboard", help="serve the web dashboard")
     p_dash.add_argument("--host", help="bind address (default: 127.0.0.1)")
     p_dash.add_argument("--port", type=int, help="port (default: 8321)")
     p_dash.set_defaults(func=_cmd_dashboard)

@@ -60,15 +60,17 @@ mcpsgradewatch subscribe Mom jasper                 # all alert types, all her c
 mcpsgradewatch subscribe Jasper jasper \
     --types assignment_missing,upcoming_deadline    # students see nudges, not grades
 mcpsgradewatch subscriptions                        # who gets what
-mcpsgradewatch dashboard                            # read-only web UI on 127.0.0.1:8321
+mcpsgradewatch dashboard                            # web UI on 127.0.0.1:8321
 ```
 
 Students are referenced by AGU or any unique name/initials prefix; watchers by
 the name you gave them. You start with one automatically: the first `run`
 creates a guardian watcher named after the credential holder, subscribed to
 every student — email seeded from `MCPSGRADEWATCH_SMTP_TO` when set, console
-otherwise. Rename or remove it freely; it's only re-created if the watcher
-list is ever empty again.
+otherwise. Its delivery follows the considerate default: one daily digest at
+4pm, with urgent alert types (missing assignment, upcoming deadline, grade
+drop) sent immediately. Rename or remove it freely; it's only re-created if
+the watcher list is ever empty again.
 
 And shape *when and how much* each person hears (Phase 4):
 

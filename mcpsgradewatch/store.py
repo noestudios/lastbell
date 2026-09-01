@@ -57,6 +57,7 @@ _MIGRATIONS = [
     ("alerts", "acked_at", "TEXT"),
     ("subscriptions", "last_sent_on", "TEXT"),
     ("students", "current_term", "TEXT NOT NULL DEFAULT ''"),
+    ("subscriptions", "urgent_now", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
