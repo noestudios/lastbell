@@ -25,6 +25,20 @@
   --bad:           #f56565;
   --info:          #4fd1c5;
 
+  /* WCAG-checked companions (a11y audit 2026-09-01). The pastel tokens
+   * above are FILLS; anything that renders as text, icon stroke, or a
+   * meaningful edge uses these instead. Light values are the ≥4.5:1
+   * (text) / ≥3:1 (edges) versions; the dark theme swaps most back to
+   * the pastels, which pass on dark surfaces. */
+  --on-fill: #1f2733;          /* ink on the pastel fills — both themes */
+  --link:    #17706a;          /* link text (5.9:1 white, 4.8:1 canvas) */
+  --edge:    #17706a;          /* active borders, focus ring, sparklines */
+  --control-border: #8494a9;   /* form-control borders (3.1:1) */
+  --ok-ink:   #276749;
+  --warn-ink: #9c4221;
+  --bad-ink:  #c53030;
+  --info-ink: #17706a;
+
   /* light surfaces — deliberately darker than Purity's gray.50 canvas: the
    * template's near-white bg gave white cards almost no separation, so the
    * canvas steps down to gray.200 and borders/shadow firm up to match. */
@@ -32,7 +46,7 @@
   --surface:    #ffffff;
   --surface-2:  #e2e8f0;
   --text:       #1f2733;
-  --text-muted: #8b99ad;
+  --text-muted: #56667b;
   --border:     #cbd5e0;
 
   /* shape + depth */
@@ -66,6 +80,13 @@
     --text-muted: #a0aec0;
     --border:     rgba(255, 255, 255, 0.08);
     --card-shadow: none;
+    --link:    #38b2ac;
+    --edge:    #4fd1c5;
+    --control-border: rgba(255, 255, 255, 0.08);
+    --ok-ink:   #48bb78;
+    --warn-ink: #ed8936;
+    --bad-ink:  #f56565;
+    --info-ink: #4fd1c5;
   }
 }
 :root[data-theme="dark"] {
@@ -76,6 +97,13 @@
   --text-muted: #a0aec0;
   --border:     rgba(255, 255, 255, 0.08);
   --card-shadow: none;
+  --link:    #38b2ac;
+  --edge:    #4fd1c5;
+  --control-border: rgba(255, 255, 255, 0.08);
+  --ok-ink:   #48bb78;
+  --warn-ink: #ed8936;
+  --bad-ink:  #f56565;
+  --info-ink: #4fd1c5;
 }
 
 /* A forced theme must also force the UA's own colors (form controls, native
@@ -109,7 +137,7 @@ body {
   padding: 1.25rem 1.25rem 3rem;
 }
 
-a { color: var(--accent-strong); text-decoration: none; }
+a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 /* Keyboard affordances: a skip link (hidden until focused) and one visible
@@ -127,7 +155,7 @@ a:hover { text-decoration: underline; }
   font-weight: 600;
 }
 .skip:focus { left: 0.5rem; }
-:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--edge); outline-offset: 2px; }
 
 /* ── nav ────────────────────────────────────────────────────────────── */
 
@@ -199,6 +227,12 @@ nav a.gear svg { display: inline-block; }
   line-height: 0;
 }
 #themetoggle:hover { color: var(--text); }
+/* 17px icons keep their look; padding+negative margin grows the
+ * HIT AREA to >=24px without moving the layout (SC 2.5.8). */
+nav a.gear, #themetoggle, nav details.smenu summary {
+  padding: 0.35rem; margin: -0.35rem;
+}
+nav .smenu-list a { padding: 0.25rem 0; }
 #themetoggle svg { width: 17px; height: 17px; }
 
 /* ── type ───────────────────────────────────────────────────────────── */
@@ -303,7 +337,7 @@ table.courses th:nth-child(4) { width: 3.6rem; }    /* mark    */
   font-size: 0.72rem;
   font-weight: 700;
   white-space: nowrap;
-  color: #fff;
+  color: var(--on-fill);
 }
 .badge.ok    { background: var(--ok); }
 .badge.info  { background: var(--info); }
@@ -329,7 +363,7 @@ td select,
 td input {
   font: inherit;
   font-size: 0.78rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
@@ -349,7 +383,7 @@ form.edit button, form.rowform button {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #fff;
+  color: var(--on-fill);
   background: var(--accent);
   border: none;
   border-radius: var(--radius-sm);
@@ -387,11 +421,14 @@ table.manage td:last-child { text-align: right; white-space: nowrap; }
  * The list floats over the rows below; the manage table must not clip it. */
 table.manage { overflow: visible; }
 details.msel { position: relative; display: inline-block; }
+/* Closed, the absolute popover must not participate in layout —
+ * its 12rem min-width was widening the phone viewport (SC 1.4.10). */
+details.msel:not([open]) .msel-list { display: none; }
 details.msel summary {
   list-style: none;
   cursor: pointer;
   font-size: 0.78rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
@@ -412,7 +449,7 @@ details.msel summary::after {
   border-bottom: 1.5px solid var(--text-muted);
   transform: translateY(-70%) rotate(45deg);
 }
-details.msel[open] summary { border-color: var(--accent); }
+details.msel[open] summary { border-color: var(--edge); }
 @keyframes msel-in {
   from { opacity: 0; transform: translateY(calc(-0.5 * var(--rise))); }
 }
@@ -440,7 +477,7 @@ details.msel .msel-list {
   white-space: nowrap;
   cursor: pointer;
 }
-.msel-list input { accent-color: var(--accent); margin: 0; }
+.msel-list input { accent-color: var(--edge); margin: 0; }
 
 /* The urgent-now checkbox rides in the Delivery cell. */
 label.urgent {
@@ -449,7 +486,7 @@ label.urgent {
   white-space: nowrap;
   cursor: pointer;
 }
-label.urgent input { accent-color: var(--accent); vertical-align: -2px; }
+label.urgent input { accent-color: var(--edge); vertical-align: -2px; }
 /* A watcher's channels nest under it, one per row. */
 td.chname { padding-left: 1.9rem; color: var(--text-muted); font-weight: 600; }
 tr.chrow:not(:last-child) td { border-bottom: 1px dashed var(--border); }
@@ -464,16 +501,16 @@ form button.ghost,
   letter-spacing: 0.04em;
   color: var(--text-muted);
   background: none;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
-  padding: 0.26rem 0.6rem;
+  padding: 0.3rem 0.6rem;
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease),
               border-color var(--dur-fast) var(--ease),
               color var(--dur-fast) var(--ease),
               transform var(--dur-fast) var(--ease);
 }
-form button.ghost:hover { color: #fff; background: var(--bad); border-color: var(--bad); }
+form button.ghost:hover { color: var(--on-fill); background: var(--bad); border-color: var(--bad); }
 form button.ghost:active { transform: translateY(1px); }
 /* Confirm's Cancel is a quiet neutral — hover must NOT read destructive. */
 .confirm button.ghost:hover { color: var(--text); border-color: var(--text-muted); background: none; }
@@ -489,7 +526,7 @@ form button.ghost:active { transform: translateY(1px); }
   font-weight: 600;
   font-size: 0.85rem;
 }
-.banner.bad { background: var(--bad); color: #fff; }
+.banner.bad { background: var(--bad); color: var(--on-fill); }
 
 /* ── toast (success feedback after a settings redirect ?ok=…) ───────── */
 
@@ -580,7 +617,7 @@ form button.ghost:active { transform: translateY(1px); }
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #fff;
+  color: var(--on-fill);
   background: var(--bad);
   border: none;
   border-radius: var(--radius-sm);
@@ -616,7 +653,7 @@ a.stat {
   transition: border-color var(--dur-fast) var(--ease);
 }
 a.stat:hover { text-decoration: none; border-color: var(--text-muted); }
-a.stat.active { border-color: var(--accent); }
+a.stat.active { border-color: var(--edge); }
 .stat .lbl { font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
              letter-spacing: 0.05em; color: var(--text-muted); }
 .stat .big { font-size: 1.35rem; font-weight: 700; line-height: 1.2;
@@ -655,7 +692,7 @@ table.strip a:hover svg.filtericon { opacity: 1; }
 
 /* The scoped course: an accent bar marks the active filter; the funnel
  * flips to an × (click again to clear). */
-table.strip tr.scoped td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+table.strip tr.scoped td:first-child { box-shadow: inset 3px 0 0 var(--edge); }
 table.strip tr.scoped a { color: var(--text); font-weight: 700; }
 table.strip tr.scoped svg.filtericon { opacity: 0.7; }
 
@@ -663,8 +700,8 @@ table.strip tr.scoped svg.filtericon { opacity: 0.7; }
 .delta { font-size: 0.78rem; font-weight: 700; display: inline-flex;
          align-items: center; gap: 0.25rem; font-variant-numeric: tabular-nums; }
 .delta svg { width: 11px; height: 11px; }
-.delta.up { color: var(--ok); }
-.delta.down { color: var(--bad); }
+.delta.up { color: var(--ok-ink); }
+.delta.down { color: var(--bad-ink); }
 .delta.flat { color: var(--text-muted); }
 
 /* Problems / Due-soon listings (Course column present only unscoped). */
@@ -787,7 +824,7 @@ details.allcourses[open]::details-content { opacity: 1; block-size: auto; }
 a.striptag {
   font-size: 0.72rem;
   font-weight: 700;
-  color: var(--accent-strong);
+  color: var(--link);
   white-space: nowrap;
   margin-left: 0.6rem;   /* doubles the heading's 0.6rem flex gap */
 }
@@ -836,17 +873,27 @@ span.tip { cursor: help; }
   white-space: normal;
   text-align: left;
   z-index: 25;
+  /* display:none, not visibility — a merely-invisible bubble still occupies
+   * SCROLL layout, and the right-edge ones were widening the phone viewport
+   * to 447px (SC 1.4.10). @starting-style keeps the fade-in; hiding was
+   * always immediate anyway. */
+  display: none;
   opacity: 0;
-  visibility: hidden;
   transition: opacity var(--dur-fast) var(--ease),
-              visibility var(--dur-fast) var(--ease);
+              display var(--dur-fast) allow-discrete;
 }
 /* Reveal after a beat (slow tier) — a tooltip that fires instantly on
- * every mouse-cross is noise. Hiding stays immediate. */
-[data-tip]:hover::after {
+ * every mouse-cross is noise. Hiding stays immediate. Keyboard focus
+ * reveals the same bubble hover does (SC 1.4.13). */
+[data-tip]:hover::after,
+[data-tip]:focus-visible::after {
+  display: block;
   opacity: 1;
-  visibility: visible;
   transition-delay: var(--dur-slow);
+}
+@starting-style {
+  [data-tip]:hover::after,
+  [data-tip]:focus-visible::after { opacity: 0; }
 }
 /* Placement variants: below (nav row — above would leave the viewport),
  * end-aligned (right-edge controls), start-aligned (first-column links). */
@@ -864,7 +911,7 @@ tr.st-late    > td { background: color-mix(in srgb, var(--warn) 10%, transparent
 tr.st-due     > td { background: color-mix(in srgb, var(--warn) 4%, transparent); }
 
 /* A graded score below the global cutoff (LASTBELL_SCORE_CUTOFF). */
-.low { color: var(--bad); font-weight: 700; }
+.low { color: var(--bad-ink); font-weight: 700; }
 
 /* Badge click-through (?status=…#hit): matching rows pulse accent and decay
  * to their normal tint; the first match anchors the scroll. */
@@ -894,7 +941,7 @@ a.chip {
   font-size: 0.74rem;
   font-weight: 600;
   color: var(--text-muted);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 999px;
   padding: 0.2rem 0.7rem;
   white-space: nowrap;
@@ -903,7 +950,7 @@ a.chip {
 }
 a.chip:hover { color: var(--text); border-color: var(--text-muted);
                text-decoration: none; }
-a.chip.active { color: #fff; background: var(--accent);
+a.chip.active { color: var(--on-fill); background: var(--accent);
                 border-color: var(--accent); }
 a.chip b { font-weight: 700; opacity: 0.75; margin-left: 0.15rem; }
 
