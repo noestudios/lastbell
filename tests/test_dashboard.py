@@ -407,6 +407,81 @@ def test_history_page_includes_course_grade_changes(populated):
     assert "B+ → A-" in html
 
 
+def _persist_change(conn, *, score_from, score_to, pct_from, pct_to,
+                    mark_from, mark_to, title="Algebra"):
+    """Baseline then a changed snapshot, so the differ logs history rows:
+    one assignment score change + one course percent + one course mark."""
+    def snap(score, pct, mark):
+        return Snapshot(
+            student_agu="1",
+            courses=[Course(edupoint_gu="c1", title=title, term="MP1",
+                            mark=mark, percent=pct)],
+            assignments=[Assignment(edupoint_gu="a1", course_gu="c1", name="Quiz 1",
+                                    score=score, points=10.0,
+                                    status=AssignmentStatus.GRADED)])
+    who = Student(agu="1", name="Kid One")
+    store.persist_snapshot(conn, who, snap(score_from, pct_from, mark_from))
+    store.persist_snapshot(conn, who, snap(score_to, pct_to, mark_to))
+
+
+def test_history_filters_by_class_and_change(conn):
+    from urllib.parse import quote
+    _persist_change(conn, score_from=7.0, score_to=9.0,
+                    pct_from="85.00%", pct_to="92.00%", mark_from="B", mark_to="A")
+
+    # Both filter rows render, with chips + counts.
+    _, html = _get(conn, "/history")
+    assert "filterlabel'>Class" in html and "filterlabel'>Change" in html
+    assert "Algebra <b>" in html          # class chip
+    assert "score <b>" in html            # change chip (assignment field)
+    assert "grade % <b>" in html          # change chip (course percent, humanized)
+
+    # Filter to score changes: Assignments shows, Course grades drops out.
+    _, html = _get(conn, "/history?field=score")
+    assert "7.0 → 9.0" in html and "Course grades" not in html
+    assert "class='chip active' href='/history?field=score'" in html
+
+    # Filter to percent (course) changes: the reverse.
+    _, html = _get(conn, "/history?field=percent")
+    assert "85.00% → 92.00%" in html and "Assignments" not in html
+
+    # Class + change compose, preserving each other in the links.
+    _, html = _get(conn, "/history?course=" + quote("Algebra") + "&field=score")
+    assert "7.0 → 9.0" in html
+
+    # An active filter that matches nothing keeps the chips and says so.
+    _, html = _get(conn, "/history?course=" + quote("Nonexistent"))
+    assert "No changes match this filter." in html
+    assert "filterlabel'>Class" in html
+
+
+def test_history_caps_section_with_expander(conn):
+    n = dashboard._HISTORY_PREVIEW + 4
+
+    def assigns(score):
+        return [Assignment(edupoint_gu=f"a{i}", course_gu="c1", name=f"Quiz {i}",
+                           score=score, points=10.0, status=AssignmentStatus.GRADED)
+                for i in range(n)]
+
+    who = Student(agu="1", name="Kid")
+    course = [Course(edupoint_gu="c1", title="Algebra", term="MP1")]
+    store.persist_snapshot(conn, who, Snapshot(student_agu="1", courses=course,
+                                               assignments=assigns(5.0)))
+    store.persist_snapshot(conn, who, Snapshot(student_agu="1", courses=course,
+                                               assignments=assigns(9.0)))
+
+    _, html = _get(conn, "/history")
+    assert f"Assignments <span class='small'>{n}</span>" in html   # count in heading
+    assert "details class='more'" in html and f"Show all {n}" in html
+    # Expanding continues the SAME table: overflow rows in a hidden tbody,
+    # not a second table with a repeated header.
+    assert "<tbody class='overflow'>" in html
+    section = html[html.index("Assignments <span"):]
+    section = section[:section.index("</div>")]
+    assert section.count("<table>") == 1
+    assert section.count("<tr class='head'>") == 1
+
+
 def test_responsive_markup_hooks(populated):
     _, html = _get(populated, "/student/1")
     assert "<tr class='head'>" in html          # hideable header rows

@@ -366,26 +366,74 @@ def fetch_alert_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         "FROM alerts GROUP BY type ORDER BY n DESC, type").fetchall()
 
 
-def fetch_course_history(conn: sqlite3.Connection, limit: int = 100) -> list[sqlite3.Row]:
+def _history_filter(course: str, field: str) -> tuple[str, list]:
+    """The shared WHERE for both history tables: filter by class (course
+    title) and/or change kind (the `field` column). Either may be empty."""
+    where, params = [], []
+    if course:
+        where.append("c.title = ?")
+        params.append(course)
+    if field:
+        where.append("h.field = ?")
+        params.append(field)
+    clause = ("WHERE " + " AND ".join(where) + " ") if where else ""
+    return clause, params
+
+
+# A high safety cap, not a display limit: history is shown a few recent rows at
+# a time with the rest behind a "Show all N" expander, and the filter chips
+# count the true totals — so the fetch must reach every row that a filter (or an
+# expander) could surface. Comfortably covers a household's multi-year log.
+_HISTORY_LIMIT = 5000
+
+
+def fetch_course_history(conn: sqlite3.Connection, limit: int = _HISTORY_LIMIT, *,
+                         course: str = "", field: str = "") -> list[sqlite3.Row]:
+    clause, params = _history_filter(course, field)
     return conn.execute(
         "SELECT h.*, c.title AS course_title, c.term, st.name AS student_name "
         "FROM course_history h "
         "JOIN courses c ON c.id = h.course_id "
-        "JOIN students st ON st.id = c.student_id "
-        "ORDER BY h.seen_at DESC, h.id DESC LIMIT ?", (limit,)
+        "JOIN students st ON st.id = c.student_id " + clause
+        + "ORDER BY h.seen_at DESC, h.id DESC LIMIT ?", (*params, limit)
     ).fetchall()
 
 
-def fetch_history(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
+def fetch_history(conn: sqlite3.Connection, limit: int = _HISTORY_LIMIT, *,
+                  course: str = "", field: str = "") -> list[sqlite3.Row]:
+    clause, params = _history_filter(course, field)
     return conn.execute(
         "SELECT h.*, a.name AS assignment_name, c.title AS course_title, "
         "       st.name AS student_name "
         "FROM grade_history h "
         "JOIN assignments a ON a.id = h.assignment_id "
         "JOIN courses c ON c.id = a.course_id "
-        "JOIN students st ON st.id = c.student_id "
-        "ORDER BY h.seen_at DESC, h.id DESC LIMIT ?", (limit,)
+        "JOIN students st ON st.id = c.student_id " + clause
+        + "ORDER BY h.seen_at DESC, h.id DESC LIMIT ?", (*params, limit)
     ).fetchall()
+
+
+def fetch_history_class_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """(course_title, n) across both history tables — the class-filter chips."""
+    return conn.execute(
+        "SELECT course_title, COUNT(*) AS n FROM ("
+        "  SELECT c.title AS course_title FROM grade_history h"
+        "    JOIN assignments a ON a.id = h.assignment_id"
+        "    JOIN courses c ON c.id = a.course_id"
+        "  UNION ALL"
+        "  SELECT c.title AS course_title FROM course_history h"
+        "    JOIN courses c ON c.id = h.course_id"
+        ") GROUP BY course_title ORDER BY n DESC, course_title").fetchall()
+
+
+def fetch_history_field_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """(field, n) across both history tables — the change-kind chips."""
+    return conn.execute(
+        "SELECT field, COUNT(*) AS n FROM ("
+        "  SELECT field FROM grade_history"
+        "  UNION ALL"
+        "  SELECT field FROM course_history"
+        ") GROUP BY field ORDER BY n DESC, field").fetchall()
 
 
 # ── rendering (pure: rows in, html out) ───────────────────────────────
@@ -1200,43 +1248,108 @@ def render_alerts(alerts, counts=(), nav_students=(),
                  + table + pager + "</div>", nav_students=nav_students)
 
 
-def render_history(rows, course_rows=(), nav_students=()) -> str:
-    if not rows and not course_rows:
+_HISTORY_PREVIEW = 8   # recent rows shown per section; the rest go behind "Show all"
+
+# The `field` column is a raw column name; humanize the ones that read as jargon.
+_FIELD_LABELS = {
+    "due_date": "due date",
+    "graded_at": "graded",
+    "kind": "assignment type",
+    "percent": "grade %",
+    "mark": "letter grade",
+}
+
+
+def _field_label(field: str) -> str:
+    return _FIELD_LABELS.get(field, field.replace("_", " "))
+
+
+def _history_transition(r) -> str:
+    old = r["old_value"] if r["old_value"] is not None else "—"
+    new = r["new_value"] if r["new_value"] is not None else "—"
+    return f"{escape(old)} → {escape(new)}"
+
+
+def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
+                   *, course="", field="", nav_students=()) -> str:
+    if not class_counts and not field_counts:
         return _page("History", "<h1>Grade history</h1><p>No changes recorded yet.</p>",
                      nav_students=nav_students)
     today = date.today()
-    parts = ["<h1>Grade history</h1>"]
+
+    def href(c: str, f: str) -> str:
+        q = ([f"course={quote(c)}"] if c else []) + ([f"field={quote(f)}"] if f else [])
+        return "/history" + ("?" + "&".join(q) if q else "")
+
+    def chip_row(label, items, selected, href_of):
+        """One filter dimension. items: (key, display, count); href_of(key)
+        composes the URL preserving the other dimension (href_of('') = all)."""
+        total = sum(n for _, _, n in items)
+        out = [f"<a class='chip{' active' if not selected else ''}' "
+               f"href='{href_of('')}'>all <b>{total}</b></a>"]
+        out += [
+            f"<a class='chip{' active' if key == selected else ''}' "
+            f"href='{href_of(key)}'>{escape(disp)} <b>{n}</b></a>"
+            for key, disp, n in items]
+        return (f"<div class='filterrow'><span class='filterlabel'>{label}</span>"
+                f"<div class='chips'>{''.join(out)}</div></div>")
+
+    filters = ""
+    if class_counts:
+        items = [(c["course_title"], c["course_title"], c["n"]) for c in class_counts]
+        filters += chip_row("Class", items, course, lambda v: href(v, field))
+    if field_counts:
+        items = [(c["field"], _field_label(c["field"]), c["n"]) for c in field_counts]
+        filters += chip_row("Change", items, field, lambda v: href(course, v))
+
+    def section(title, head_html, body_rows):
+        """A history section, compact: the recent rows shown, the rest in a
+        hidden <tbody class='overflow'> of the SAME table so expanding just
+        continues the list — one header, aligned columns. The <details> below
+        is the bare no-JS toggle; style.css reveals the tbody via :has()."""
+        n = len(body_rows)
+        table = "<table>" + head_html + "".join(body_rows[:_HISTORY_PREVIEW])
+        more = ""
+        if n > _HISTORY_PREVIEW:
+            table += ("<tbody class='overflow'>"
+                      + "".join(body_rows[_HISTORY_PREVIEW:]) + "</tbody>")
+            more = (f"<details class='more'><summary>{_CHEVRON}"
+                    f"<span>Show all {n}</span></summary></details>")
+        table += "</table>"
+        return (f"<div class='card tablecard'><h2>{escape(title)} "
+                f"<span class='small'>{n}</span></h2>" + table + more + "</div>")
+
+    sections = []
     if course_rows:
-        c_rows = "".join(
+        head = ("<tr class='head'><th>Course</th><th>When</th><th>Student</th>"
+                "<th>Change</th><th>From → To</th></tr>")
+        body = [
             f"<tr><td>{escape(r['course_title'])} "
             f"<span class='small'>{escape(r['term'])}</span></td>"
             f"<td class='small' data-label='When'>{_when_html(r['seen_at'], today)}</td>"
             f"<td data-label='Student'>{escape(r['student_name'])}</td>"
-            f"<td data-label='Field'>{escape(r['field'])}</td>"
-            f"<td data-label='Change'>"
-            f"{escape(r['old_value'] if r['old_value'] is not None else '—')} → "
-            f"{escape(r['new_value'] if r['new_value'] is not None else '—')}</td></tr>"
-            for r in course_rows)
-        parts.append("<div class='card tablecard'><h2>Course grades</h2>"
-                     "<table><tr class='head'><th>Course</th><th>When</th>"
-                     "<th>Student</th><th>Field</th><th>Change</th></tr>"
-                     + c_rows + "</table></div>")
+            f"<td data-label='Change'>{escape(_field_label(r['field']))}</td>"
+            f"<td data-label='From → To'>{_history_transition(r)}</td></tr>"
+            for r in course_rows]
+        sections.append(section("Course grades", head, body))
     if rows:
-        body_rows = "".join(
+        head = ("<tr class='head'><th>Assignment</th><th>When</th><th>Student</th>"
+                "<th>Course</th><th>Change</th><th>From → To</th></tr>")
+        body = [
             f"<tr><td>{escape(r['assignment_name'])}</td>"
             f"<td class='small' data-label='When'>{_when_html(r['seen_at'], today)}</td>"
             f"<td data-label='Student'>{escape(r['student_name'])}</td>"
             f"<td data-label='Course'>{escape(r['course_title'])}</td>"
-            f"<td data-label='Field'>{escape(r['field'])}</td>"
-            f"<td data-label='Change'>"
-            f"{escape(r['old_value'] if r['old_value'] is not None else '—')} → "
-            f"{escape(r['new_value'] if r['new_value'] is not None else '—')}</td></tr>"
-            for r in rows)
-        parts.append("<div class='card tablecard'><h2>Assignments</h2>"
-                     "<table><tr class='head'><th>Assignment</th><th>When</th>"
-                     "<th>Student</th><th>Course</th><th>Field</th>"
-                     "<th>Change</th></tr>" + body_rows + "</table></div>")
-    return _page("History", "".join(parts), nav_students=nav_students)
+            f"<td data-label='Change'>{escape(_field_label(r['field']))}</td>"
+            f"<td data-label='From → To'>{_history_transition(r)}</td></tr>"
+            for r in rows]
+        sections.append(section("Assignments", head, body))
+
+    body_html = f"<div class='histfilters'>{filters}</div>"
+    body_html += ("".join(sections) if sections
+                  else "<p class='small'>No changes match this filter.</p>")
+    return _page("History", "<h1>Grade history</h1>" + body_html,
+                 nav_students=nav_students)
 
 
 def _type_multiselect(fid, selected) -> str:
@@ -1497,8 +1610,13 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
                                   nav_students=students, page=page,
                                   alert_type=alert_type, more=more)
     if path == "/history":
-        return 200, render_history(fetch_history(conn), fetch_course_history(conn),
-                                   nav_students=students)
+        h_course = (query.get("course") or [""])[0]
+        h_field = (query.get("field") or [""])[0]
+        return 200, render_history(
+            fetch_history(conn, course=h_course, field=h_field),
+            fetch_course_history(conn, course=h_course, field=h_field),
+            fetch_history_class_counts(conn), fetch_history_field_counts(conn),
+            course=h_course, field=h_field, nav_students=students)
     if path == "/settings":
         return 200, render_settings(watchermod.list_watchers(conn),
                                     watchermod.list_subscriptions(conn),
