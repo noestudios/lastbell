@@ -7,7 +7,11 @@ watchers** (guardians *and* the students themselves), on whatever device they
 already use.
 
 > Not affiliated with Edupoint. It uses **your** credentials to read **your**
-> students' data, and everything runs on hardware you control.
+> students' data, and everything runs on hardware you control. Before anything
+> else, read [what it asks of the portal](#being-a-good-neighbor-to-the-portal)
+> and [where your credentials and your students' data
+> go](#credentials--student-data-the-actual-guarantees) — every sentence there
+> is backed by linked code.
 
 **Status: all roadmap phases complete.** `lastbell run` sweeps **every class** per
 student (via each class row's own `data-focus` payload, the same drill-down
@@ -26,6 +30,65 @@ per-watcher: **subscriptions** filtered by alert type over **channels**
 path verified live against MCPS (`md-mcps-psv.edupoint.com`, 2026-08-31).
 
 ---
+
+## Being a good neighbor to the portal
+
+Last Bell's traffic is built to look like what it is: **one parent, checking
+the gradebook a few times a day** — never a crawler.
+
+- **Eight polls a day by default** — one every 3 hours
+  (`LASTBELL_POLL_MINUTES=180`), and the interval is **clamped to a 15-minute
+  floor in code** ([`config.py`](lastbell/config.py)), so no misconfiguration
+  can hammer anyone's servers.
+- **A poll is small, sequential, and identical to human use**: one login, one
+  home page, then per student the gradebook page, the class list, and one
+  fragment per class — the very `LoadControl` calls the portal's own UI issues
+  when you click through your classes, with a polite pause between them
+  ([`collector.py`](lastbell/collector.py)). A two-student, seven-class
+  household is ~21 requests per poll (~170/day) — fewer than a single manual
+  portal visit loads in page assets alone.
+- **Zero portal traffic between polls.** Digests, summaries, and the dashboard
+  run entirely off the local database.
+- **A failed poll just waits for the next cycle** ([`cli.py`](lastbell/cli.py))
+  — no retry storms.
+- **It identifies itself honestly**: the User-Agent is `lastbell/<version>`
+  ([`client.py`](lastbell/client.py)), not a spoofed browser.
+
+Portal terms vary by district and vendor and are yours to judge — but the
+list above is the *entire* footprint, so you can judge it accurately.
+
+## Credentials & student data: the actual guarantees
+
+**Your password touches exactly two things: your OS keyring and your
+district's servers.** `lastbell set-password` stores it in the macOS
+Keychain / Windows Credential Manager / Linux Secret Service
+([`secrets.py`](lastbell/secrets.py)); it never appears in `.env`, the
+database, logs, or the source tree. (Docker installs inject it via
+`LASTBELL_PASSWORD` from a secret store instead.) At runtime it is held in
+memory and sent to one destination — your district's own login form, over
+HTTPS enforced in [`config.py`](lastbell/config.py) — the same request your
+browser makes ([`client.py`](lastbell/client.py)).
+
+**Student data lives on your machine, full stop.** Snapshots, history, and
+alerts sit in a local SQLite file (`data/` is git-ignored, as is `.env`).
+There is no telemetry, no analytics, no phone-home: the only outbound HTTP in
+the codebase is the portal client ([`client.py`](lastbell/client.py)), the
+district preflight ([`preflight.py`](lastbell/preflight.py)), and the alert
+channels **you** configure ([`notify/`](lastbell/notify)).
+
+**What leaves is only what you route — and it's low-PII by design.** Alert
+payloads carry initials + course + assignment, never a child's full name
+([`router.py`](lastbell/router.py)) — safe for a lock-screen preview. Know
+your transports: `email` rides your own SMTP account; `ntfy` posts to the
+public ntfy.sh unless you self-host, and **the topic name is the only
+secret** there — make it long and random; `telegram` and `pushover` go
+through those services' APIs.
+
+**The dashboard shows full names, so it binds to `127.0.0.1` only** unless
+you deliberately widen it — the bind address is the access control
+([`config.py`](lastbell/config.py), [`dashboard.py`](lastbell/dashboard.py)).
+
+If the code ever stops backing one of these sentences, that's a bug — file it.
 
 ## Why scraping (and not the SOAP API)
 

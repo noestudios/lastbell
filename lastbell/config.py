@@ -8,6 +8,7 @@ keeps a real username or district out of the public repo.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,6 +22,12 @@ except ImportError:  # pragma: no cover
 
 class ConfigError(RuntimeError):
     """Raised when a required setting is missing or malformed."""
+
+
+# Good-neighbor floor: however LASTBELL_POLL_MINUTES is set, the portal is
+# never hit more often than this. Grades don't change minute-to-minute, and
+# the README's portal-load promises are enforced here, not just documented.
+POLL_FLOOR_MINUTES = 15
 
 
 def _get(name: str, default: str | None = None, *, required: bool = False) -> str | None:
@@ -68,11 +75,18 @@ def load() -> Config:
             "Edit .env and set your real ParentVUE username. (Careful not to re-run "
             "`cp .env.example .env` afterward — it overwrites your edits.)"
         )
+    poll_minutes = int(_get("LASTBELL_POLL_MINUTES", "180"))
+    if poll_minutes < POLL_FLOOR_MINUTES:
+        print(f"LASTBELL_POLL_MINUTES={poll_minutes} is below the "
+              f"{POLL_FLOOR_MINUTES}-minute good-neighbor floor; "
+              f"polling every {POLL_FLOOR_MINUTES} minutes instead.",
+              file=sys.stderr)
+        poll_minutes = POLL_FLOOR_MINUTES
     return Config(
         district=_get("LASTBELL_DISTRICT", required=True),
         username=username,
         secret_backend=_get("LASTBELL_SECRET_BACKEND", "keyring"),
-        poll_minutes=int(_get("LASTBELL_POLL_MINUTES", "180")),
+        poll_minutes=poll_minutes,
         db_path=Path(_get("LASTBELL_DB_PATH", "data/lastbell.db")),
         snapshot_dir=Path(_get("LASTBELL_SNAPSHOT_DIR", "data/snapshots")),
         snapshot_retention_days=int(_get("LASTBELL_SNAPSHOT_RETENTION_DAYS", "90")),
