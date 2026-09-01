@@ -6,6 +6,12 @@
       "runtimeExecutable": ".venv/bin/lastbell",
       "runtimeArgs": ["dashboard", "--port", "8322"],
       "port": 8322
+    },
+    {
+      "name": "dashboard-demo",
+      "runtimeExecutable": ".venv/bin/lastbell",
+      "runtimeArgs": ["dashboard", "--port", "8323", "--db", "data/demo.db"],
+      "port": 8323
     }
   ]
 }

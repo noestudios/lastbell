@@ -454,12 +454,45 @@ def _cmd_subscriptions(args: argparse.Namespace) -> int:
 
 
 def _cmd_dashboard(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
     from . import dashboard
 
     conf = cfg.load()
-    dashboard.serve(conf.db_path,
+    dashboard.serve(Path(args.db) if args.db else conf.db_path,
                     args.host or conf.dashboard_host,
                     args.port or conf.dashboard_port)
+    return 0
+
+
+def _cmd_seed_demo(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from . import seed, store
+
+    target = Path(args.db)
+    conf = cfg.load()
+    if target.resolve() == conf.db_path.resolve():
+        print(f"refusing to seed demo data into the configured live database "
+              f"({conf.db_path}) — pass a different --db", file=sys.stderr)
+        return 2
+    if target.exists():
+        if not args.force:
+            print(f"{target} already exists — pass --force to overwrite it",
+                  file=sys.stderr)
+            return 2
+        target.unlink()
+    conn = store.connect(target)
+    try:
+        store.ensure_schema(conn)
+        stats = seed.seed_demo(conn, seed=args.seed)
+    finally:
+        conn.close()
+    print(f"seeded {target}: {stats['students']} students, "
+          f"{stats['assignments']} assignments across {' + '.join(stats['terms'])}, "
+          f"{stats['alerts']} alerts, {stats['course_history']} course-history "
+          f"rows over {stats['span_days']} days")
+    print(f"view it:  lastbell dashboard --db {target}")
     return 0
 
 
@@ -569,7 +602,21 @@ def main() -> None:
     p_dash = sub.add_parser("dashboard", help="serve the web dashboard")
     p_dash.add_argument("--host", help="bind address (default: 127.0.0.1)")
     p_dash.add_argument("--port", type=int, help="port (default: 8321)")
+    p_dash.add_argument("--db", help="serve a different database "
+                        "(e.g. the seed-demo output; default: env)")
     p_dash.set_defaults(func=_cmd_dashboard)
+
+    p_seed = sub.add_parser(
+        "seed-demo",
+        help="fabricate a demo database: a fake family at quarter-end volume "
+             "(screenshots, docs, design work — no real student data)")
+    p_seed.add_argument("--db", default="data/demo.db",
+                        help="where to write it (default: data/demo.db)")
+    p_seed.add_argument("--seed", type=int, default=2026,
+                        help="RNG seed; same seed, same database")
+    p_seed.add_argument("--force", action="store_true",
+                        help="overwrite an existing file at --db")
+    p_seed.set_defaults(func=_cmd_seed_demo)
 
     args = parser.parse_args()
     try:
