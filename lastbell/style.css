@@ -713,16 +713,17 @@ details.allcourses::details-content {
               block-size var(--dur-base) var(--ease);
 }
 details.allcourses[open]::details-content { opacity: 1; block-size: auto; }
-/* The active-filter tag on the summary: legible while collapsed. */
+/* The active-filter tag on the summary: legible while collapsed. Plain
+ * inline (not flex) so its TEXT baseline lines up with the heading's —
+ * a flex tag would hand its baseline to the icon and ride high. */
 .striptag {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
   font-size: 0.72rem;
   font-weight: 700;
   color: var(--accent-strong);
+  white-space: nowrap;
 }
-.striptag svg.filtericon { width: 11px; height: 11px; flex: none; }
+.striptag svg.filtericon { width: 11px; height: 11px;
+                           vertical-align: -1.5px; margin-right: 0.3rem; }
 
 h2.termhead { font-size: 0.8rem; color: var(--text-muted);
               text-transform: uppercase; letter-spacing: 0.06em;
