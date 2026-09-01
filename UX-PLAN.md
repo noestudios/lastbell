@@ -39,6 +39,10 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
   command to change it. Full web CRUD is deliberately deferred — growing the
   write surface beyond ack raises the auth question (PIN/token) and the CLI
   isn't chafing yet.
+- Settings status: **done (2026-08-31)** — `/settings` (gear icon in the
+  nav) replaces `/watchers`, which 301s there. Poll/threshold values render
+  from the environment when configured. Student-name nav links (decision 2)
+  are still open.
 
 ### C. Signal — status visibility
 - Row tint + leading icon per status, from the same tokens as badges:
