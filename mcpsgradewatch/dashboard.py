@@ -104,15 +104,49 @@ def fetch_history(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Ro
 # ── rendering (pure: rows in, html out) ───────────────────────────────
 
 
+# Theme toggle: cycles auto → light → dark, saved per browser. The first
+# statement runs before paint so a saved choice never flashes the wrong theme.
+_THEME_JS = """
+(function(){
+  var KEY='mcpsgradewatch-theme', root=document.documentElement, choice=null;
+  try { choice = localStorage.getItem(KEY); } catch (e) {}
+  function apply(){
+    if (choice==='light'||choice==='dark') root.setAttribute('data-theme', choice);
+    else root.removeAttribute('data-theme');
+    var b=document.getElementById('themetoggle');
+    if (b) b.textContent = choice==='light' ? '\\u2600 light'
+                         : choice==='dark' ? '\\u263e dark' : '\\u25d0 auto';
+  }
+  apply();
+  window.addEventListener('DOMContentLoaded', function(){
+    apply();
+    var b=document.getElementById('themetoggle');
+    if (!b) return;
+    b.addEventListener('click', function(){
+      choice = choice===null ? 'light' : choice==='light' ? 'dark' : null;
+      try {
+        if (choice) localStorage.setItem(KEY, choice);
+        else localStorage.removeItem(KEY);
+      } catch (e) {}
+      apply();
+    });
+  });
+})();
+"""
+
+
 def _page(title: str, body: str) -> str:
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
         f"<title>{escape(title)} · MCPSGradeWatch</title>"
-        "<link rel='stylesheet' href='/static/style.css'></head><body>"
+        "<link rel='stylesheet' href='/static/style.css'>"
+        f"<script>{_THEME_JS}</script></head><body>"
         "<nav><a class='brand' href='/'>MCPSGradeWatch</a>"
         "<a href='/'>Students</a><a href='/alerts'>Alerts</a>"
-        "<a href='/history'>History</a><a href='/watchers'>Watchers</a></nav>"
+        "<a href='/history'>History</a><a href='/watchers'>Watchers</a>"
+        "<button id='themetoggle' title='Theme: follows your system unless "
+        "you pick one (saved in this browser)'>◐ auto</button></nav>"
         f"{body}</body></html>"
     )
 
