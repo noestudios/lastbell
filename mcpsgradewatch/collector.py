@@ -53,6 +53,7 @@ class StudentCollection:
             student_agu=self.student.agu,
             courses=[c.course for c in self.classes],
             assignments=[a for c in self.classes for a in c.details.assignments],
+            term=self.school_classes.current_term,
         )
 
 

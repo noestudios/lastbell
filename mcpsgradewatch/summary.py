@@ -28,9 +28,17 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
 
     from .models import format_percent
 
+    # Scope to the current marking period once one is known — a closed
+    # quarter's courses and leftover statuses stay out of the daily picture.
+    row = conn.execute("SELECT current_term FROM students WHERE id = ?",
+                       (student_id,)).fetchone()
+    term = (row["current_term"] if row else "") or ""
+    term_sql = " AND c.term = ?" if term else ""
+    term_args: tuple = (term,) if term else ()
+
     courses = conn.execute(
-        "SELECT * FROM courses WHERE student_id = ? ORDER BY title", (student_id,)
-    ).fetchall()
+        "SELECT * FROM courses c WHERE c.student_id = ?" + term_sql + " ORDER BY title",
+        (student_id,) + term_args).fetchall()
 
     def one_course(c) -> str:
         pct = format_percent(c["percent"])
@@ -45,8 +53,9 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
         return conn.execute(
             "SELECT a.name, a.due_date, c.title FROM assignments a "
             "JOIN courses c ON c.id = a.course_id "
-            "WHERE c.student_id = ? AND a.status = ? "
-            "ORDER BY a.due_date IS NULL, a.due_date", (student_id, status)
+            "WHERE c.student_id = ? AND a.status = ?" + term_sql +
+            " ORDER BY a.due_date IS NULL, a.due_date",
+            (student_id, status) + term_args
         ).fetchall()
 
     missing = open_items("missing")
@@ -67,8 +76,9 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
         "SELECT a.name, a.due_date, c.title FROM assignments a "
         "JOIN courses c ON c.id = a.course_id "
         "WHERE c.student_id = ? AND a.status = 'due' "
-        "AND a.due_date IS NOT NULL AND a.due_date >= ? AND a.due_date <= ? "
-        "ORDER BY a.due_date", (student_id, today.isoformat(), horizon)
+        "AND a.due_date IS NOT NULL AND a.due_date >= ? AND a.due_date <= ?"
+        + term_sql + " ORDER BY a.due_date",
+        (student_id, today.isoformat(), horizon) + term_args
     ).fetchall()
     if upcoming:
         lines.append(f"Due in the next {lookahead_days} days ({len(upcoming)}):")

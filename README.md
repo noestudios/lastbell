@@ -14,7 +14,11 @@ student (via each class row's own `data-focus` payload, the same drill-down
 the portal UI performs), persists a snapshot keyed on the Edupoint assignment
 GUID, diffs against the previous run, and alerts on **score changes,
 missing-flags, work still ungraded past its due date, deadlines entering the
-look-ahead window, and course grades dropping past a threshold**. Delivery is
+look-ahead window, and course grades dropping past a threshold** — plus a
+one-shot **final-grades summary** when a marking period closes (the persisted
+per-student term is the dedup; the closing term's last-seen marks are its
+finals, the new term starts as a quiet fresh baseline, and the dashboard and
+daily summaries scope themselves to the current term). Delivery is
 per-watcher: **subscriptions** filtered by alert type over **channels**
 (email/SMS-gateway, ntfy, Telegram, Pushover), each optionally batched into a
 **daily digest**, held during **quiet hours**, or replaced by a generated

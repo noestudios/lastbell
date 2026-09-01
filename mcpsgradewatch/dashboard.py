@@ -68,7 +68,13 @@ def fetch_student(conn: sqlite3.Connection, agu: str):
     return conn.execute("SELECT * FROM students WHERE agu = ?", (agu,)).fetchone()
 
 
-def fetch_courses(conn: sqlite3.Connection, student_id: str) -> list[sqlite3.Row]:
+def fetch_courses(conn: sqlite3.Connection, student_id: str,
+                  term: str = "") -> list[sqlite3.Row]:
+    """Courses for a student — all terms, or one term when given."""
+    if term:
+        return conn.execute(
+            "SELECT * FROM courses WHERE student_id = ? AND term = ? ORDER BY title",
+            (student_id, term)).fetchall()
     return conn.execute(
         "SELECT * FROM courses WHERE student_id = ? ORDER BY title", (student_id,)
     ).fetchall()
@@ -81,14 +87,20 @@ def fetch_assignments(conn: sqlite3.Connection, course_id: str) -> list[sqlite3.
     ).fetchall()
 
 
-def fetch_open_counts(conn: sqlite3.Connection, student_id: str) -> dict:
-    row = conn.execute(
-        "SELECT SUM(a.status = 'missing') AS missing, "
-        "       SUM(a.status = 'ungraded_past_due') AS past_due, "
-        "       SUM(a.status = 'due') AS due "
-        "FROM assignments a JOIN courses c ON c.id = a.course_id "
-        "WHERE c.student_id = ?", (student_id,)
-    ).fetchone()
+def fetch_open_counts(conn: sqlite3.Connection, student_id: str,
+                      term: str = "") -> dict:
+    """Open-issue badge counts, scoped to one term when given — a closed
+    quarter's leftover 'due' rows shouldn't haunt the overview forever."""
+    sql = ("SELECT SUM(a.status = 'missing') AS missing, "
+           "       SUM(a.status = 'ungraded_past_due') AS past_due, "
+           "       SUM(a.status = 'due') AS due "
+           "FROM assignments a JOIN courses c ON c.id = a.course_id "
+           "WHERE c.student_id = ?")
+    params: tuple = (student_id,)
+    if term:
+        sql += " AND c.term = ?"
+        params += (term,)
+    row = conn.execute(sql, params).fetchone()
     return {k: row[k] or 0 for k in ("missing", "past_due", "due")}
 
 
@@ -189,9 +201,26 @@ def render_overview(students, courses_by_student, counts_by_student) -> str:
     return _page("Students", "<h1>Students</h1><div class='cards'>" + "".join(cards) + "</div>")
 
 
-def render_student(student, courses_with_assignments) -> str:
+def render_student(student, sections) -> str:
+    """``sections`` is [(term, [(course, assignments), …]), …], current term
+    first. Term headings appear only once a second term exists — a
+    single-quarter database looks exactly as it did before rollover."""
     parts = [f"<h1>{escape(student['name'])}</h1>"
              f"<p class='small'>{escape(student['school'])} · AGU {escape(student['agu'])}</p>"]
+    current = student["current_term"] if "current_term" in student.keys() else ""
+    for term, courses_with_assignments in sections:
+        if len(sections) > 1:
+            label = term or "(no term)"
+            if term and term == current:
+                label += " — current"
+            parts.append(f"<h2 class='small' style='text-transform:uppercase;"
+                         f"letter-spacing:.06em'>{escape(label)}</h2>")
+        parts.append(_render_term_courses(courses_with_assignments))
+    return _page(student["name"], "".join(parts))
+
+
+def _render_term_courses(courses_with_assignments) -> str:
+    parts = []
     for course, assignments in courses_with_assignments:
         head = escape(course["title"])
         pct = _pct(course["percent"]) if course["percent"] else ""
@@ -209,7 +238,7 @@ def render_student(student, courses_with_assignments) -> str:
             for a in assignments)
         parts.append("<table><tr><th>Assignment</th><th>Type</th><th>Due</th>"
                      "<th>Score</th><th>Status</th></tr>" + rows + "</table>")
-    return _page(student["name"], "".join(parts))
+    return "".join(parts)
 
 
 def render_alerts(alerts, watcher_list=()) -> str:
@@ -300,17 +329,30 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
 
     if path == "/":
         students = fetch_students(conn)
-        courses = {s["id"]: fetch_courses(conn, s["id"]) for s in students}
-        counts = {s["id"]: fetch_open_counts(conn, s["id"]) for s in students}
+        # The overview is "right now": only the current term's courses/counts.
+        courses = {s["id"]: fetch_courses(conn, s["id"], term=s["current_term"])
+                   for s in students}
+        counts = {s["id"]: fetch_open_counts(conn, s["id"], term=s["current_term"])
+                  for s in students}
         return 200, render_overview(students, courses, counts)
     if path.startswith("/student/"):
         agu = path[len("/student/"):]
         student = fetch_student(conn, agu)
         if student is None:
             return 404, _page("Not found", "<h1>Unknown student</h1>")
-        cwa = [(c, fetch_assignments(conn, c["id"]))
-               for c in fetch_courses(conn, student["id"])]
-        return 200, render_student(student, cwa)
+        all_courses = fetch_courses(conn, student["id"])
+        current = student["current_term"] or ""
+        terms: list[str] = []
+        for c in all_courses:
+            if c["term"] not in terms:
+                terms.append(c["term"])
+        ordered = ([current] if current in terms else []) \
+            + sorted((t for t in terms if t != current), reverse=True)
+        sections = [
+            (t, [(c, fetch_assignments(conn, c["id"]))
+                 for c in all_courses if c["term"] == t])
+            for t in ordered]
+        return 200, render_student(student, sections)
     if path == "/alerts":
         return 200, render_alerts(fetch_alerts(conn),
                                   watchermod.list_watchers(conn))
@@ -341,6 +383,12 @@ def _handle_ack(conn: sqlite3.Connection, form: dict) -> tuple[int, str]:
 
 def serve(db_path: Path, host: str, port: int) -> None:
     from . import store
+
+    # Apply any pending schema migrations up front — the per-request
+    # connections below assume current columns.
+    boot = store.connect(db_path)
+    store.ensure_schema(boot)
+    boot.close()
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 (stdlib name)

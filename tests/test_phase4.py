@@ -145,6 +145,8 @@ def test_phase3_db_gains_new_columns(tmp_path):
     assert "acked_at" in cols
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(subscriptions)")}
     assert "last_sent_on" in cols
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(students)")}
+    assert "current_term" in cols
     conn.close()
 
 
