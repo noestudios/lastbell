@@ -182,7 +182,9 @@
     armToast();
     if (params.get("err")) {
       var banner = document.querySelector(".banner");
-      if (banner) banner.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (banner) banner.scrollIntoView({
+        behavior: reducedMotion() ? "auto" : "smooth", block: "center"
+      });
     }
   }
 
@@ -350,6 +352,19 @@
       document.querySelectorAll("details.msel[open], details.smenu[open]"),
       function (det) {
         if (!det.contains(e.target)) det.removeAttribute("open");
+      });
+  });
+  // Escape closes an open popover the way outside-click does, returning
+  // focus to its summary so keyboard users aren't stranded mid-page.
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    Array.prototype.forEach.call(
+      document.querySelectorAll("details.msel[open], details.smenu[open]"),
+      function (det) {
+        var hadFocus = det.contains(document.activeElement);
+        det.removeAttribute("open");
+        var sum = det.querySelector("summary");
+        if (sum && hadFocus) sum.focus();
       });
   });
   document.addEventListener("input", trackDirty);
