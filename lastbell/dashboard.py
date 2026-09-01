@@ -25,6 +25,9 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from . import schools
 
+# The public home of the project — the settings-footer credit links here.
+_REPO_URL = "https://github.com/noestudios/lastbell"
+
 _STATUS_LABELS = {
     "graded": ("graded", "ok"),
     "not_due": ("not due yet", "muted"),
@@ -1561,10 +1564,19 @@ def render_settings(watcher_list, subscriptions, students=(),
     banner = f"<div class='banner bad'>{escape(error)}</div>" if error else ""
     toast = (f"<div class='toast' role='status' aria-live='polite'>"
              f"{escape(notice)}</div>" if notice else "")
+    # The one place the app credits itself: quiet, at the very bottom of the
+    # page people already come to for housekeeping. Outside #settings-main so
+    # fetch-swaps never repaint it.
+    credit = (
+        "<footer class='credit'>© 2026 "
+        f"<a href='{_REPO_URL}' target='_blank' rel='noopener noreferrer'>"
+        "Chris Hays</a> · "
+        f"<a href='{_REPO_URL}/blob/main/LICENSE' target='_blank' "
+        "rel='noopener noreferrer'>MIT license</a></footer>")
     # settings-main is the region app.js swaps in place after a fetch-based
     # form post — banner, cards, and toast all live inside it.
     return _page("Settings", "<h1>Settings</h1><div id='settings-main'>"
-                 + banner + w_card + s_card + toast + "</div>",
+                 + banner + w_card + s_card + toast + "</div>" + credit,
                  nav_students=students)
 
 
