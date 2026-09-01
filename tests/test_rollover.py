@@ -129,11 +129,14 @@ def test_overview_shows_only_current_term(rolled):
 
 
 def test_student_page_groups_terms_current_first(rolled):
-    status, html = dashboard._handle(rolled, "/student/1")
+    # C0: the archive view carries the term grouping — current first, the
+    # closed term collapsed behind a <details>.
+    status, html = dashboard._handle(rolled, "/student/1?view=everything")
     assert status == 200
     assert "MP2 — current" in html and "MP1" in html
     assert html.index("MP2 — current") < html.index(">MP1<")
     assert "New Quiz" in html and "Old Worksheet" in html
+    assert "details class='closedterm'" in html
 
 
 def test_single_term_page_shows_no_term_headings(conn):

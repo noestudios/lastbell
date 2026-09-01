@@ -538,6 +538,134 @@ form button.ghost:active { transform: translateY(1px); }
 .confirm button.danger:hover { background: #e53e3e; }
 .confirm button.danger:active { transform: translateY(1px); }
 
+/* ── student page (C0): stat cards, course strip, four views ────────── */
+
+/* The view switcher: four mini stat cards, each a plain link (?view=…).
+ * The active view earns the accent border. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.1rem;
+  margin: 0 0 1.1rem;
+}
+a.stat {
+  background: var(--surface);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  box-shadow: var(--card-shadow);
+  padding: 0.9rem 1.1rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  color: var(--text);
+  min-width: 0;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+a.stat:hover { text-decoration: none; border-color: var(--text-muted); }
+a.stat.active { border-color: var(--accent); }
+.stat .lbl { font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+             letter-spacing: 0.05em; color: var(--text-muted); }
+.stat .big { font-size: 1.35rem; font-weight: 700; line-height: 1.2;
+             font-variant-numeric: tabular-nums; }
+.stat .big .unit { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
+.stat .ctx { font-size: 0.74rem; color: var(--text-muted); }
+.stat svg.spark { width: 100%; height: 34px; margin-top: 0.4rem; }
+.stat .nextline { font-size: 0.76rem; margin-top: 0.15rem; overflow: hidden;
+                  text-overflow: ellipsis; white-space: nowrap; }
+
+/* Course summary strip: one compact row per current-term course. */
+.striphead { display: flex; align-items: baseline; gap: 0.6rem; }
+.termtag { font-size: 0.7rem; font-weight: 600; color: var(--text-muted);
+           text-transform: uppercase; letter-spacing: 0.06em; }
+table.strip { table-layout: fixed; }
+table.strip td { padding: 0.45rem 0.8rem; overflow-wrap: break-word; }
+table.strip th:nth-child(2) { width: 6.5rem; }  /* grade       */
+table.strip th:nth-child(3) { width: 6rem; }    /* 2-week delta */
+table.strip th:nth-child(5) { width: 8rem; }    /* last graded  */
+/* The scoped course: an accent bar marks the active filter. */
+table.strip tr.scoped td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+table.strip tr.scoped a { color: var(--text); font-weight: 700; }
+
+/* 2-week movement: triangle + points, colored by direction. */
+.delta { font-size: 0.78rem; font-weight: 700; display: inline-flex;
+         align-items: center; gap: 0.25rem; font-variant-numeric: tabular-nums; }
+.delta svg { width: 11px; height: 11px; }
+.delta.up { color: var(--ok); }
+.delta.down { color: var(--bad); }
+.delta.flat { color: var(--text-muted); }
+
+/* Problems / Due-soon listings (Course column present only unscoped). */
+table.openitems { table-layout: fixed; }
+table.openitems td { overflow-wrap: break-word; }
+table.openitems th:last-child { width: 10rem; }                    /* status */
+table.openitems th:nth-last-child(2) { width: 7.5rem; }            /* due    */
+table.openitems th:nth-child(2):nth-last-child(3) { width: 22%; }  /* course */
+
+/* Recent grades: day-group separator rows instead of a header. */
+table.recent { table-layout: fixed; }
+table.recent td { overflow-wrap: break-word; }
+table.recent col.c-course { width: 22%; }
+table.recent col.c-score { width: 6rem; }
+table.recent col.c-raw { width: 7rem; }
+td.day { font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+         letter-spacing: 0.05em; color: var(--text-muted); padding-top: 1rem; }
+td.raw { font-size: 0.8rem; color: var(--text-muted);
+         font-variant-numeric: tabular-nums; }
+
+/* Everything: continuation tables (the graded-backlog expander) share the
+ * assignment grid via <colgroup>, since they carry no header row. */
+table.assignments col.c-type { width: 22%; }
+table.assignments col.c-due { width: 7.5rem; }
+table.assignments col.c-score { width: 5.5rem; }
+table.assignments col.c-status { width: 9rem; }
+
+/* The earned all-clear state (Problems with nothing to show). */
+.allclear { text-align: center; padding: 2.6rem var(--card-pad); }
+.allclear svg { width: 42px; height: 42px; margin-bottom: 0.7rem; }
+.allclear h2 { margin: 0 0 0.3rem; font-size: 1rem; }
+.allclear p { margin: 0; }
+
+/* No-JS expanders: graded backlog ("Show all N graded") and closed terms. */
+details.more summary,
+details.closedterm summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+details.more summary::-webkit-details-marker,
+details.closedterm summary::-webkit-details-marker { display: none; }
+details.more summary svg,
+details.closedterm summary svg {
+  width: 12px; height: 12px; flex: none;
+  transition: transform var(--dur-fast) var(--ease);
+}
+details.more summary {
+  font-size: 0.78rem; font-weight: 600; color: var(--text-muted);
+  padding: 0.6rem 0.8rem 0.1rem;
+}
+details.more summary:hover { color: var(--text); }
+details.more[open] summary svg { transform: rotate(180deg); }
+
+/* A closed term is a card whose face is its finals line. */
+details.closedterm {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--card-shadow);
+  padding: var(--card-pad);
+  margin: 0 0 1.1rem;
+}
+details.closedterm summary h2 { margin: 0; display: inline; }
+details.closedterm summary svg { transform: rotate(-90deg); }
+details.closedterm[open] summary svg { transform: rotate(0); }
+details.closedterm .closedbody { margin-top: 1rem; }
+details.closedterm .closedbody .card { background: var(--bg); box-shadow: none; }
+
+h2.termhead { font-size: 0.8rem; color: var(--text-muted);
+              text-transform: uppercase; letter-spacing: 0.06em;
+              margin: 1.2rem 0 0.6rem; }
+
 /* Respect reduced-motion: collapse every duration so states land instantly;
  * app.js guards its scripted (inline-style) motion separately. */
 @media (prefers-reduced-motion: reduce) {
@@ -558,6 +686,7 @@ form button.ghost:active { transform: translateY(1px); }
 /* Narrow nav: labels give way to icons (full labeled nav returns on wide),
  * and the student name links collapse into the .smenu icon menu. */
 @media (max-width: 48rem) {
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; }
   nav { gap: 0.9rem; padding: 0.7rem 1rem; }
   nav a svg { display: inline-block; }
   nav a .lbl { display: none; }
@@ -590,5 +719,7 @@ form button.ghost:active { transform: translateY(1px); }
   }
   td:not([data-label]) { font-weight: 600; }
   td.num { text-align: right; }
-  table.assignments th, table.courses th { width: auto; }
+  table.assignments th, table.courses th,
+  table.strip th, table.openitems th { width: auto; }
+  td.day { padding-top: 0.9rem; }
 }

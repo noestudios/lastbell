@@ -65,8 +65,18 @@ def test_overview_lists_students_and_flags(populated):
     assert ">87.2<" in html          # one-decimal display of the raw "87.20%"
 
 
-def test_student_page_shows_assignments(populated):
+def test_student_page_defaults_to_problems_view(populated):
+    """C0: the student page opens on Problems — missing + ungraded past due;
+    graded work lives in the Recent/Everything views."""
     status, html = _get(populated, "/student/1")
+    assert status == 200
+    assert "Needs attention" in html
+    assert "Collage" in html and "MISSING" in html
+    assert "Fractions Quiz" not in html
+
+
+def test_student_everything_view_shows_assignments(populated):
+    status, html = _get(populated, "/student/1?view=everything")
     assert status == 200
     assert "Fractions Quiz" in html
     assert "80.0%" in html                    # score as a percentage…
@@ -78,6 +88,147 @@ def test_student_page_shows_assignments(populated):
 def test_unknown_student_404s(populated):
     status, html = _get(populated, "/student/999")
     assert status == 404
+
+
+# ── C0: four views, stat cards, course strip ──────────────────────────
+
+
+def _persist(conn, agu, courses, assignments, term="", name="Jasper P. Hays"):
+    snap = Snapshot(student_agu=agu, courses=courses,
+                    assignments=assignments, term=term)
+    store.persist_snapshot(
+        conn, Student(agu=agu, name=name, school="Example ES"), snap)
+
+
+def test_view_switcher_is_stat_cards(populated):
+    _, html = _get(populated, "/student/1")
+    for view in ("problems", "due", "recent", "everything"):
+        assert f"href='/student/1?view={view}'" in html
+    # the active view's card carries the accent-border class
+    assert "<a class='stat active' href='/student/1?view=problems'" in html
+    _, html = _get(populated, "/student/1?view=recent")
+    assert "<a class='stat active' href='/student/1?view=recent'" in html
+
+
+def test_unknown_view_falls_back_to_problems(populated):
+    status, html = _get(populated, "/student/1?view=nonsense")
+    assert status == 200
+    assert "<a class='stat active' href='/student/1?view=problems'" in html
+
+
+def test_problems_all_clear_with_due_soon_peek(conn):
+    today = datetime.date.today()
+    _persist(conn, "1",
+             [Course(edupoint_gu="c1", title="Math", term="MP1")],
+             [Assignment(edupoint_gu="a1", course_gu="c1", name="Quiz 1",
+                         score=9.0, points=10.0, status=AssignmentStatus.GRADED),
+              Assignment(edupoint_gu="a2", course_gu="c1", name="Homework 5",
+                         due_date=today + datetime.timedelta(days=2),
+                         status=AssignmentStatus.DUE)],
+             term="MP1")
+    _, html = _get(conn, "/student/1")
+    assert "Nothing needs attention" in html
+    assert "?view=recent'>See what came in recently" in html
+    assert "Homework 5" in html            # the due-soon peek below
+
+
+def test_due_view_lists_open_work_soonest_first(conn):
+    today = datetime.date.today()
+    _persist(conn, "1",
+             [Course(edupoint_gu="c1", title="Math", term="MP1")],
+             [Assignment(edupoint_gu="a1", course_gu="c1", name="Later",
+                         due_date=today + datetime.timedelta(days=5),
+                         status=AssignmentStatus.DUE),
+              Assignment(edupoint_gu="a2", course_gu="c1", name="Sooner",
+                         due_date=today + datetime.timedelta(days=1),
+                         status=AssignmentStatus.DUE)],
+             term="MP1")
+    _, html = _get(conn, "/student/1?view=due")
+    assert html.index("Sooner") < html.index("Later")
+
+
+def test_recent_view_groups_by_day_and_falls_back_to_history(populated):
+    """graded_at comes from the seeder only — the live collector doesn't
+    supply it, so the grade's date falls back to the score's first
+    grade_history row."""
+    snap = Snapshot(
+        student_agu="1",
+        courses=[Course(edupoint_gu="709775", title="Math <Adv>", term="MP1")],
+        assignments=[Assignment(edupoint_gu="a1", course_gu="709775",
+                                name="Fractions Quiz", score=9.0, points=10.0,
+                                kind="Assessment",
+                                status=AssignmentStatus.GRADED)],
+    )
+    store.persist_snapshot(populated, Student(agu="1", name="Jasper P. Hays"), snap)
+    _, html = _get(populated, "/student/1?view=recent")
+    assert "Fractions Quiz" in html
+    assert ">Today</td>" in html            # regrade landed just now
+    assert "90.0%" in html and "9/10" in html
+
+
+def test_course_strip_scopes_the_active_view(conn):
+    _persist(conn, "1",
+             [Course(edupoint_gu="g1", title="Art", term="MP1", percent="90.00%",
+                     mark="A"),
+              Course(edupoint_gu="g2", title="Math", term="MP1", percent="72.00%",
+                     mark="C")],
+             [Assignment(edupoint_gu="a1", course_gu="g1", name="Collage",
+                         status=AssignmentStatus.MISSING),
+              Assignment(edupoint_gu="a2", course_gu="g2", name="Worksheet",
+                         status=AssignmentStatus.MISSING)],
+             term="MP1")
+    _, html = _get(conn, "/student/1")
+    assert "table class='strip'" in html
+    assert "Collage" in html and "Worksheet" in html
+    # scoping to Math filters the list; the strip row marks the filter
+    _, html = _get(conn, "/student/1?course=g2")
+    assert "Worksheet" in html and "Collage" not in html
+    assert "class='scoped'" in html
+    # the scoped row's link clears the filter; other rows keep the view
+    assert "href='/student/1?view=problems' title='show all courses'" in html
+    # stat-card links carry the scope along
+    assert "href='/student/1?view=due&course=g2'" in html
+
+
+def test_single_course_student_skips_the_strip(populated):
+    _, html = _get(populated, "/student/1")
+    assert "table class='strip'" not in html
+
+
+def test_everything_collapses_graded_backlog(conn):
+    today = datetime.date.today()
+    graded = [Assignment(edupoint_gu=f"a{i}", course_gu="c1", name=f"Quiz {i}",
+                         due_date=today - datetime.timedelta(days=30 - i),
+                         score=8.0, points=10.0,
+                         status=AssignmentStatus.GRADED)
+              for i in range(8)]
+    _persist(conn, "1", [Course(edupoint_gu="c1", title="Math", term="MP1")],
+             graded, term="MP1")
+    _, html = _get(conn, "/student/1?view=everything")
+    assert "details class='more'" in html
+    assert "Show all 8 graded" in html
+    # newest five in the open table, the rest behind the expander
+    assert html.index("Quiz 7") < html.index("details class='more'")
+    assert html.index("details class='more'") < html.index("Quiz 0")
+
+
+def test_everything_closed_term_collapses_to_finals_line(conn):
+    _persist(conn, "1",
+             [Course(edupoint_gu="c1", title="1: Math A", term="MP1",
+                     percent="88.00%", mark="B"),
+              Course(edupoint_gu="c1", title="1: Math A", term="MP2",
+                     percent="91.00%", mark="A")],
+             [], term="MP2")
+    _, html = _get(conn, "/student/1?view=everything")
+    assert "MP2 — current" in html
+    assert "details class='closedterm'" in html
+    assert "finals:" in html and "Math A 88.0 B" in html
+
+
+def test_overview_badges_deep_link_into_views(populated):
+    _, html = _get(populated, "/")
+    assert ("<a href='/student/1?view=problems'>"
+            "<span class='badge bad'>1 missing</span></a>") in html
 
 
 def test_alerts_page(populated):

@@ -14,7 +14,10 @@ address as the access control; the write paths carry no auth of their own.
 """
 from __future__ import annotations
 
+import os
+import re
 import sqlite3
+from datetime import date, timedelta
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -59,13 +62,6 @@ def fetch_courses(conn: sqlite3.Connection, student_id: str,
     ).fetchall()
 
 
-def fetch_assignments(conn: sqlite3.Connection, course_id: str) -> list[sqlite3.Row]:
-    return conn.execute(
-        "SELECT * FROM assignments WHERE course_id = ? "
-        "ORDER BY due_date IS NULL, due_date DESC, name", (course_id,)
-    ).fetchall()
-
-
 def fetch_open_counts(conn: sqlite3.Connection, student_id: str,
                       term: str = "") -> dict:
     """Open-issue badge counts, scoped to one term when given — a closed
@@ -81,6 +77,224 @@ def fetch_open_counts(conn: sqlite3.Connection, student_id: str,
         params += (term,)
     row = conn.execute(sql, params).fetchone()
     return {k: row[k] or 0 for k in ("missing", "past_due", "due")}
+
+
+# ── student page data (C0: four views, stat cards, course strip) ──────
+
+_VIEWS = ("problems", "due", "recent", "everything")
+
+# What the Problems view (and its trend sparkline) counts.
+_PROBLEM_STATUSES = ("missing", "ungraded_past_due")
+
+
+def fetch_strip_rows(conn: sqlite3.Connection, student_id: str,
+                     term: str = "") -> list[sqlite3.Row]:
+    """Course-strip rows: each course with its open-issue counts and the date
+    a grade last landed. ``graded_at`` when the source supplied it (the demo
+    seeder does), else the day a score first appeared in grade_history — the
+    live collector never fills graded_at."""
+    sql = ("SELECT c.*, "
+           "  SUM(a.status = 'missing') AS missing, "
+           "  SUM(a.status = 'ungraded_past_due') AS past_due, "
+           "  SUM(a.status = 'due') AS due, "
+           "  MAX(CASE WHEN a.status = 'graded' THEN COALESCE(a.graded_at, "
+           "      (SELECT substr(MIN(h.seen_at), 1, 10) FROM grade_history h "
+           "       WHERE h.assignment_id = a.id AND h.field = 'score')) END) "
+           "  AS last_graded "
+           "FROM courses c LEFT JOIN assignments a ON a.course_id = c.id "
+           "WHERE c.student_id = ?")
+    params: list = [student_id]
+    if term:
+        sql += " AND c.term = ?"
+        params.append(term)
+    return conn.execute(sql + " GROUP BY c.id ORDER BY c.title", params).fetchall()
+
+
+def fetch_view_rows(conn: sqlite3.Connection, student_id: str,
+                    term: str = "") -> list[sqlite3.Row]:
+    """Assignments joined to their course, for the student-page views.
+    ``graded_on`` is the display date a grade landed (same fallback rule as
+    the strip's last_graded)."""
+    sql = ("SELECT a.*, c.title AS course_title, c.edupoint_gu AS course_gu, "
+           "  c.term AS course_term, "
+           "  COALESCE(a.graded_at, (SELECT substr(MIN(h.seen_at), 1, 10) "
+           "    FROM grade_history h WHERE h.assignment_id = a.id "
+           "    AND h.field = 'score')) AS graded_on "
+           "FROM assignments a JOIN courses c ON c.id = a.course_id "
+           "WHERE c.student_id = ?")
+    params: list = [student_id]
+    if term:
+        sql += " AND c.term = ?"
+        params.append(term)
+    return conn.execute(sql, params).fetchall()
+
+
+def _fetch_change_rows(conn, table: str, key: str, join: str, student_id: str,
+                       term: str, field: str) -> dict[str, list]:
+    """id -> ascending [(day, old, new), …] from one of the history tables."""
+    sql = (f"SELECT h.{key} AS k, substr(h.seen_at, 1, 10) AS d, "
+           f"  h.old_value, h.new_value FROM {table} h {join} "
+           f"WHERE c.student_id = ? AND h.field = ?")
+    params: list = [student_id, field]
+    if term:
+        sql += " AND c.term = ?"
+        params.append(term)
+    out: dict[str, list] = {}
+    for r in conn.execute(sql + " ORDER BY h.seen_at, h.id", params):
+        out.setdefault(r["k"], []).append((r["d"], r["old_value"], r["new_value"]))
+    return out
+
+
+def fetch_percent_history(conn, student_id: str, term: str = "") -> dict[str, list]:
+    """course_id -> the course's percent changes, ascending."""
+    return _fetch_change_rows(
+        conn, "course_history", "course_id",
+        "JOIN courses c ON c.id = h.course_id", student_id, term, "percent")
+
+
+def fetch_status_history(conn, student_id: str, term: str = "") -> dict[str, list]:
+    """assignment_id -> the assignment's status transitions, ascending."""
+    return _fetch_change_rows(
+        conn, "grade_history", "assignment_id",
+        "JOIN assignments a ON a.id = h.assignment_id "
+        "JOIN courses c ON c.id = a.course_id", student_id, term, "status")
+
+
+def _value_at(rows: list, day: str):
+    """The value in effect at end of ``day``, given ascending change rows.
+    Before the first recorded change, the value is that change's old_value;
+    empty rows mean "no changes ever" and the caller falls back to the
+    current value."""
+    value = None
+    for d, old, new in rows:
+        if d <= day:
+            value = new
+        else:
+            if value is None:
+                value = old
+            break
+    return value
+
+
+def _problem_series(rows, transitions: dict[str, list],
+                    days: list[str]) -> list[int]:
+    """How many assignments sat in a problem status on each sample day,
+    reconstructed from grade_history status transitions. Assignments not yet
+    assigned on a day don't count (best available proxy for existence)."""
+    counts = []
+    for day in days:
+        n = 0
+        for r in rows:
+            if r["assigned"] and r["assigned"] > day:
+                continue
+            trans = transitions.get(r["id"], ())
+            status = r["status"]
+            if trans:
+                status = _value_at(trans, day) or status
+            n += status in _PROBLEM_STATUSES
+        counts.append(n)
+    return counts
+
+
+def build_student_ctx(conn: sqlite3.Connection, student, view: str,
+                      course_gu: str, today: date | None = None) -> dict:
+    """Everything render_student needs: the strip, the four stat cards' data
+    stories, and the active view's rows (scoped to ?course= when given)."""
+    from .models import parse_percent
+
+    today = today or date.today()
+    view = view if view in _VIEWS else "problems"
+    sid, term = student["id"], student["current_term"] or ""
+    strip = fetch_strip_rows(conn, sid, term)
+    if course_gu and course_gu not in {
+            c["edupoint_gu"] for c in fetch_courses(conn, sid)}:
+        course_gu = ""
+
+    rows = fetch_view_rows(conn, sid, term)
+    problems = sorted(
+        (r for r in rows if r["status"] in _PROBLEM_STATUSES),
+        key=lambda r: (r["status"] != "missing", r["due_date"] or "9999",
+                       r["name"]))
+    due = sorted((r for r in rows if r["status"] == "due"),
+                 key=lambda r: (r["due_date"] or "9999", r["name"]))
+    graded = sorted(
+        (r for r in rows if r["status"] == "graded" and r["graded_on"]),
+        key=lambda r: r["graded_on"], reverse=True)
+
+    # Course strip: 2-week percent deltas from course_history.
+    phist = fetch_percent_history(conn, sid, term)
+    cutoff = (today - timedelta(days=14)).isoformat()
+    deltas: dict[str, tuple] = {}
+    percents = []
+    for c in strip:
+        cur = parse_percent(c["percent"])
+        hrows = phist.get(c["id"], [])
+        base = parse_percent(_value_at(hrows, cutoff)) if hrows else cur
+        deltas[c["id"]] = (cur, base if base is not None else cur)
+        if cur is not None:
+            percents.append(cur)
+    term_avg = sum(percents) / len(percents) if percents else None
+
+    # Problems card: 6-week open-problem trend (weekly samples).
+    sample = [(today - timedelta(days=7 * i)).isoformat()
+              for i in range(5, -1, -1)]
+    pseries = _problem_series(rows, fetch_status_history(conn, sid, term),
+                              sample)
+
+    # Everything card: the term-average trajectory (8 weekly samples).
+    tseries = []
+    for day in [(today - timedelta(days=7 * i)).isoformat()
+                for i in range(7, -1, -1)]:
+        vals = []
+        for c in strip:
+            hrows = phist.get(c["id"], [])
+            v = (parse_percent(_value_at(hrows, day)) if hrows
+                 else parse_percent(c["percent"]))
+            if v is not None:
+                vals.append(v)
+        if vals:
+            tseries.append(sum(vals) / len(vals))
+
+    # Recent card: the last 10 graded scores — the leading indicator.
+    pcts10 = [r["score"] / r["points"] * 100
+              for r in graded if r["points"] and r["score"] is not None][:10]
+
+    def scoped(items):
+        return [r for r in items
+                if not course_gu or r["course_gu"] == course_gu]
+
+    ctx = {
+        "view": view, "course_gu": course_gu, "today": today, "term": term,
+        "strip": strip, "deltas": deltas,
+        "problems": scoped(problems), "due": scoped(due),
+        "recent": scoped(graded),
+        "cards": {
+            "problems_count": len(problems),
+            "problems_week": pseries[-1] - pseries[-2],
+            "problems_series": pseries,
+            "due_count": len(due), "due_next": due[:2],
+            "recent_pcts": pcts10, "term_avg": term_avg,
+            "term_series": tseries, "courses": len(strip),
+        },
+    }
+    if view == "everything":
+        all_rows = fetch_view_rows(conn, sid)
+        by_course: dict[str, list] = {}
+        for r in all_rows:
+            by_course.setdefault(r["course_id"], []).append(r)
+        courses = [c for c in fetch_courses(conn, sid)
+                   if not course_gu or c["edupoint_gu"] == course_gu]
+        terms: list[str] = []
+        for c in courses:
+            if c["term"] not in terms:
+                terms.append(c["term"])
+        ordered = ([term] if term in terms else []) + sorted(
+            (t for t in terms if t != term), reverse=True)
+        ctx["sections"] = [
+            (t, [(c, by_course.get(c["id"], [])) for c in courses
+                 if c["term"] == t])
+            for t in ordered]
+    return ctx
 
 
 def fetch_alerts(conn: sqlite3.Connection, limit: int = 100) -> list[sqlite3.Row]:
@@ -278,13 +492,19 @@ def render_overview(students, courses_by_student, counts_by_student) -> str:
             f"<td class='num' data-label='%'>{escape(_pct(c['percent']))}</td>"
             f"<td data-label='Mark'>{escape(c['mark'] or '—')}</td></tr>"
             for c in courses)
+        # Badges deep-link into the student page's views: one mechanism,
+        # several doors ("1 missing" → the Problems view).
+        base = f"/student/{escape(s['agu'])}"
         flags = []
         if counts.get("missing"):
-            flags.append(f"<span class='badge bad'>{counts['missing']} missing</span>")
+            flags.append(f"<a href='{base}?view=problems'><span class='badge bad'>"
+                         f"{counts['missing']} missing</span></a>")
         if counts.get("past_due"):
-            flags.append(f"<span class='badge warn'>{counts['past_due']} ungraded past due</span>")
+            flags.append(f"<a href='{base}?view=problems'><span class='badge warn'>"
+                         f"{counts['past_due']} ungraded past due</span></a>")
         if counts.get("due"):
-            flags.append(f"<span class='badge info'>{counts['due']} due soon</span>")
+            flags.append(f"<a href='{base}?view=due'><span class='badge info'>"
+                         f"{counts['due']} due soon</span></a>")
         cards.append(
             f"<div class='card'><h3><a href='/student/{escape(s['agu'])}'>"
             f"{escape(s['name'])}</a></h3>"
@@ -296,49 +516,410 @@ def render_overview(students, courses_by_student, counts_by_student) -> str:
                  nav_students=students)
 
 
-def render_student(student, sections, nav_students=()) -> str:
-    """``sections`` is [(term, [(course, assignments), …]), …], current term
-    first. Term headings appear only once a second term exists — a
-    single-quarter database looks exactly as it did before rollover."""
-    parts = [f"<h1>{escape(student['name'])}</h1>"
-             f"<p class='small'>{escape(student['school'])} · AGU {escape(student['agu'])}</p>"]
-    current = student["current_term"] if "current_term" in student.keys() else ""
-    for term, courses_with_assignments in sections:
-        if len(sections) > 1:
-            label = term or "(no term)"
-            if term and term == current:
-                label += " — current"
-            parts.append(f"<h2 class='small' style='text-transform:uppercase;"
-                         f"letter-spacing:.06em'>{escape(label)}</h2>")
-        parts.append(_render_term_courses(courses_with_assignments))
-    return _page(student["name"], "".join(parts), nav_students=nav_students)
+# ── student page (C0): stat cards, course strip, four views ───────────
 
 
-def _render_term_courses(courses_with_assignments) -> str:
-    parts = []
-    for course, assignments in courses_with_assignments:
-        head = escape(course["title"])
-        pct = _pct(course["percent"]) if course["percent"] else ""
-        overall = " · ".join(x for x in (pct and f"{pct}%", course["mark"]) if x)
-        teacher = f" — {escape(course['teacher'])}" if course["teacher"] else ""
-        header = (
-            f"<h2>{head}{teacher}"
-            + (f" <span class='badge muted'>{escape(overall)}</span>" if overall else "")
-            + "</h2>")
-        if not assignments:
-            body = "<p class='small'>No assignments recorded.</p>"
+_CHECK_BIG = ("<svg viewBox='0 0 24 24' fill='none' style='stroke:var(--accent)' "
+              "stroke-width='2' stroke-linecap='round' stroke-linejoin='round' "
+              "aria-hidden='true'><path d='M22 11.08V12a10 10 0 1 1-5.93-9.14'/>"
+              "<polyline points='22 4 12 14.01 9 11.01'/></svg>")
+_CHEVRON = ("<svg viewBox='0 0 12 12' fill='none' stroke='currentColor' "
+            "stroke-width='1.8' stroke-linecap='round' aria-hidden='true'>"
+            "<path d='M2.5 4.5 L6 8 L9.5 4.5'/></svg>")
+_ARROWS = {"up": "M6 2 L10.5 9 L1.5 9 Z", "down": "M6 10 L10.5 3 L1.5 3 Z"}
+
+
+def _short_title(title: str) -> str:
+    """Course title without the schedule-period prefix ("2: Algebra 1A")."""
+    return re.sub(r"^\d+:\s*", "", title or "")
+
+
+def _ago(iso: str | None, today: date) -> str:
+    """Recency in words: today / yesterday / N days ago / Aug 12."""
+    if not iso:
+        return "—"
+    d = date.fromisoformat(iso[:10])
+    n = (today - d).days
+    if n <= 0:
+        return "today"
+    if n == 1:
+        return "yesterday"
+    if n < 7:
+        return f"{n} days ago"
+    return f"{d.strftime('%b')} {d.day}"
+
+
+def _due_word(iso: str, today: date) -> str:
+    """A deadline in words: yesterday / today / tomorrow / Thu / Sep 12.
+    (Yesterday happens: an item stays 'due' through the ungraded grace
+    window after its due date passes.)"""
+    d = date.fromisoformat(iso[:10])
+    n = (d - today).days
+    if n == -1:
+        return "yesterday"
+    if n == 0:
+        return "today"
+    if n == 1:
+        return "tomorrow"
+    if 1 < n < 7:
+        return d.strftime("%a")
+    return f"{d.strftime('%b')} {d.day}"
+
+
+def _day_heading(d: date, today: date) -> str:
+    if d == today:
+        return "Today"
+    if d == today - timedelta(days=1):
+        return "Yesterday"
+    return f"{d.strftime('%a %b')} {d.day}"
+
+
+def _spark_line(values, color: str, *, lo=None, hi=None) -> str:
+    """A 120×34 inline-SVG trend line with an end dot — JS-free."""
+    if len(values) < 2:
+        return ""
+    lo = min(values) if lo is None else lo
+    hi = max(values) if hi is None else hi
+    span = hi - lo
+    ys = [17.0 if span < 1e-9 else 5 + (1 - (v - lo) / span) * 24
+          for v in values]
+    step = 112 / (len(values) - 1)
+    pts = " ".join(f"{4 + i * step:.1f},{y:.1f}" for i, y in enumerate(ys))
+    return (f"<svg class='spark' viewBox='0 0 120 34' "
+            f"preserveAspectRatio='none' aria-hidden='true'>"
+            f"<polyline points='{pts}' fill='none' style='stroke:{color}' "
+            f"stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>"
+            f"<circle cx='116' cy='{ys[-1]:.1f}' r='3' style='fill:{color}'/>"
+            f"</svg>")
+
+
+def _spark_bars(pcts) -> str:
+    """Up to ten bottom-aligned score micro-bars (50–100% sets the height)."""
+    rects = []
+    for i, p in enumerate(pcts[:10]):
+        h = 4 + (min(max(p, 50.0), 100.0) - 50.0) / 50.0 * 26
+        rects.append(f"<rect x='{4 + i * 12}' y='{34 - h:.1f}' width='6' "
+                     f"height='{h:.1f}' rx='2' style='fill:var(--accent)'/>")
+    return ("<svg class='spark' viewBox='0 0 120 34' "
+            "preserveAspectRatio='none' aria-hidden='true'>"
+            + "".join(rects) + "</svg>")
+
+
+def _delta_html(cur, base) -> str:
+    if cur is None or base is None or abs(cur - base) < 0.05:
+        return "<span class='delta flat'>—</span>"
+    cls = "up" if cur > base else "down"
+    return (f"<span class='delta {cls}'><svg viewBox='0 0 12 12' "
+            f"fill='currentColor' aria-hidden='true'><path d='{_ARROWS[cls]}'/>"
+            f"</svg>{abs(cur - base):.1f}</span>")
+
+
+def _stat_cards(student, ctx) -> str:
+    """The view switcher: four mini stat cards, each a plain link carrying
+    its own data story (active view = accent border)."""
+    c = ctx["cards"]
+    agu = quote(student["agu"])
+    scope = f"&course={quote(ctx['course_gu'])}" if ctx["course_gu"] else ""
+
+    def card(view, label, big, ctxline, extra="") -> str:
+        cls = " active" if view == ctx["view"] else ""
+        return (f"<a class='stat{cls}' href='/student/{agu}?view={view}{scope}'>"
+                f"<span class='lbl'>{label}</span>"
+                f"<span class='big'>{big}</span>"
+                f"<span class='ctx'>{ctxline}</span>{extra}</a>")
+
+    wk = c["problems_week"]
+    if wk > 0:
+        p_ctx = f"<b style='color:var(--bad)'>+{wk}</b> this week"
+    elif wk < 0:
+        p_ctx = f"<b style='color:var(--ok)'>−{-wk}</b> this week"
+    else:
+        p_ctx = "no change this week"
+    p_spark = (_spark_line(c["problems_series"], "var(--bad)", lo=0)
+               if max(c["problems_series"], default=0) > 0 else "")
+    parts = [card("problems", "Problems", str(c["problems_count"]),
+                  p_ctx, p_spark)]
+
+    lookahead = os.environ.get("LASTBELL_LOOKAHEAD_DAYS", "7")
+    nextlines = "".join(
+        f"<div class='nextline'>{escape(r['name'])} <span class='small'>· "
+        f"{escape(_short_title(r['course_title']))}"
+        + (f" · {_due_word(r['due_date'], ctx['today'])}"
+           if r["due_date"] else "")
+        + "</span></div>"
+        for r in c["due_next"])
+    parts.append(card("due", "Due soon", str(c["due_count"]),
+                      f"next {escape(lookahead)} days", nextlines))
+
+    pcts = c["recent_pcts"]
+    if pcts:
+        big = f"{sum(pcts) / len(pcts):.1f}<span class='unit'>%</span>"
+        r_ctx = f"last {len(pcts)}"
+        if c["term_avg"] is not None:
+            r_ctx += f" · term avg {c['term_avg']:.1f}"
+        extra = _spark_bars(list(reversed(pcts)))
+    else:
+        big, r_ctx, extra = "—", "no grades yet", ""
+    parts.append(card("recent", "Recent grades", big, r_ctx, extra))
+
+    big = (f"{c['term_avg']:.1f}<span class='unit'>%</span>"
+           if c["term_avg"] is not None else "—")
+    n = c["courses"]
+    e_ctx = f"term average · {n} course{'s' if n != 1 else ''}"
+    e_extra = (_spark_line(c["term_series"], "var(--accent)")
+               if len(c["term_series"]) >= 2 else "")
+    parts.append(card("everything", "Everything", big, e_ctx, e_extra))
+    return "<div class='stats'>" + "".join(parts) + "</div>"
+
+
+def _course_strip(student, ctx) -> str:
+    """One compact row per current-term course; clicking a row scopes the
+    active view to that course (clicking the scoped row clears the filter).
+    This is also where per-course sparklines land later."""
+    agu = quote(student["agu"])
+    rows = []
+    for c in ctx["strip"]:
+        gu = c["edupoint_gu"]
+        active = gu == ctx["course_gu"]
+        href = f"/student/{agu}?view={ctx['view']}" + (
+            "" if active else f"&course={quote(gu)}")
+        tip = ("show all courses" if active
+               else f"show only {c['title']} in this view")
+        pct = _pct(c["percent"]) if c["percent"] else ""
+        # One wrapping span per cell: the stacked (phone) layout flexes a
+        # labeled cell's children apart, and grade + mark must stay together.
+        grade = (f"<span><strong>{escape(pct)}</strong> "
+                 f"<span class='small'>{escape(c['mark'] or '')}</span></span>"
+                 if pct else "<span class='small'>—</span>")
+        chips = []
+        if c["missing"]:
+            chips.append(f"<span class='badge bad'>{c['missing']} missing</span>")
+        if c["past_due"]:
+            chips.append(f"<span class='badge warn'>{c['past_due']} past due</span>")
+        rows.append(
+            f"<tr{' class=\'scoped\'' if active else ''}>"
+            f"<td><a href='{href}' title='{escape(tip)}'>{escape(c['title'])}</a></td>"
+            f"<td data-label='Grade'>{grade}</td>"
+            f"<td data-label='2 weeks'>{_delta_html(*ctx['deltas'][c['id']])}</td>"
+            f"<td data-label='Open'><span>{' '.join(chips)}</span></td>"
+            f"<td class='small' data-label='Last graded'>"
+            f"{_ago(c['last_graded'], ctx['today'])}</td></tr>")
+    label = (escape(ctx["term"]) + " — current") if ctx["term"] else ""
+    return (
+        "<div class='card tablecard'>"
+        "<h2 class='striphead'>Courses"
+        + (f" <span class='termtag'>{label}</span>" if label else "")
+        + "</h2><table class='strip'>"
+          "<tr class='head'><th>Course</th><th>Grade</th><th>2 weeks</th>"
+          "<th>Open</th><th>Last graded</th></tr>"
+        + "".join(rows) + "</table></div>")
+
+
+def _show_course_col(ctx) -> bool:
+    return not ctx["course_gu"] and len(ctx["strip"]) > 1
+
+
+def _card_h2(base: str, ctx) -> str:
+    if ctx["course_gu"]:
+        for c in ctx["strip"]:
+            if c["edupoint_gu"] == ctx["course_gu"]:
+                return f"{base} — {escape(c['title'])}"
+    return base
+
+
+def _assignment_table(rows, ctx) -> str:
+    """Open-item listing for the Problems and Due-soon views. The Course
+    column only earns its place unscoped on a multi-course student."""
+    with_course = _show_course_col(ctx)
+    head = ("<tr class='head'><th>Assignment</th>"
+            + ("<th>Course</th>" if with_course else "")
+            + "<th>Due</th><th>Status</th></tr>")
+    body = "".join(
+        f"<tr><td>{escape(r['name'])}</td>"
+        + (f"<td class='small' data-label='Course'>"
+           f"{escape(r['course_title'])}</td>" if with_course else "")
+        + f"<td class='small' data-label='Due'>{escape(r['due_date'] or '—')}</td>"
+        f"<td data-label='Status'>{_badge(r['status'])}</td></tr>"
+        for r in rows)
+    return f"<table class='openitems'>{head}{body}</table>"
+
+
+def _view_problems(student, ctx) -> str:
+    rows = ctx["problems"]
+    agu = quote(student["agu"])
+    scope = f"&course={quote(ctx['course_gu'])}" if ctx["course_gu"] else ""
+    if not rows:
+        # The earned all-clear — with a due-soon peek so the page is never
+        # a dead end.
+        peek = ""
+        if ctx["due"]:
+            n = len(ctx["due"])
+            more = (f"<p class='small' style='margin:0.7rem 0 0'>"
+                    f"<a href='/student/{agu}?view=due{scope}'>all {n} →</a></p>"
+                    if n > 5 else "")
+            peek = ("<div class='card tablecard'><h2>Due soon</h2>"
+                    + _assignment_table(ctx["due"][:5], ctx) + more + "</div>")
+        return ("<div class='card allclear'>" + _CHECK_BIG
+                + "<h2>Nothing needs attention</h2>"
+                f"<p class='small'>Everything is graded or on schedule. "
+                f"<a href='/student/{agu}?view=recent{scope}'>"
+                f"See what came in recently →</a></p></div>" + peek)
+    return ("<div class='card tablecard'>"
+            f"<h2>{_card_h2('Needs attention', ctx)}</h2>"
+            "<p class='small'>Marked missing by the teacher, or past due "
+            "with no grade posted.</p>"
+            + _assignment_table(rows, ctx) + "</div>")
+
+
+def _view_due(student, ctx) -> str:
+    rows = ctx["due"]
+    body = (_assignment_table(rows, ctx) if rows else
+            "<p class='small'>Nothing in the window — the calendar is clear.</p>")
+    return ("<div class='card tablecard'>"
+            f"<h2>{_card_h2('Due soon', ctx)}</h2>"
+            "<p class='small'>Open work, soonest first.</p>" + body + "</div>")
+
+
+def _view_recent(student, ctx) -> str:
+    rows = ctx["recent"]
+    if not rows:
+        return ("<div class='card tablecard'>"
+                f"<h2>{_card_h2('Recently graded', ctx)}</h2>"
+                "<p class='small'>No grades posted yet.</p></div>")
+    with_course = _show_course_col(ctx)
+    ncols = 3 + with_course
+    colgroup = ("<colgroup><col>"
+                + ("<col class='c-course'>" if with_course else "")
+                + "<col class='c-score'><col class='c-raw'></colgroup>")
+    out, last = [], None
+    for r in rows[:20]:
+        d = date.fromisoformat(r["graded_on"][:10])
+        if d != last:
+            out.append(f"<tr class='dayrow'><td class='day' colspan='{ncols}'>"
+                       f"{_day_heading(d, ctx['today'])}</td></tr>")
+            last = d
+        if r["points"] and r["score"] is not None:
+            pct = f"{r['score'] / r['points'] * 100:.1f}%"
+            raw = f"{r['score']:g}/{r['points']:g}"
         else:
-            rows = "".join(
-                f"<tr><td>{escape(a['name'])}</td>"
+            pct = f"{r['score']:g}" if r["score"] is not None else "—"
+            raw = "—"
+        out.append(
+            f"<tr><td>{escape(r['name'])}</td>"
+            + (f"<td class='small' data-label='Course'>"
+               f"{escape(r['course_title'])}</td>" if with_course else "")
+            + f"<td class='num' data-label='Score'>{escape(pct)}</td>"
+            f"<td class='raw' data-label='Points'>{escape(raw)}</td></tr>")
+    older = ""
+    if len(rows) > 20:
+        agu = quote(student["agu"])
+        scope = f"&course={quote(ctx['course_gu'])}" if ctx["course_gu"] else ""
+        older = (f"<p class='small' style='margin:0.8rem 0 0'>"
+                 f"<a href='/student/{agu}?view=everything{scope}'>"
+                 f"Older grades live in Everything →</a></p>")
+    return ("<div class='card tablecard'>"
+            f"<h2>{_card_h2('Recently graded', ctx)}</h2>"
+            "<p class='small'>Newest first"
+            + (", across all courses" if with_course else "") + ".</p>"
+            f"<table class='recent'>{colgroup}{''.join(out)}</table>"
+            + older + "</div>")
+
+
+_ASSIGN_COLGROUP = ("<colgroup><col><col class='c-type'><col class='c-due'>"
+                    "<col class='c-score'><col class='c-status'></colgroup>")
+
+
+def _course_card(course, rows, ctx) -> str:
+    """One course in the Everything archive: open items surfaced first, the
+    graded backlog collapsed to the newest five behind a no-JS expander."""
+    head = escape(course["title"])
+    pct = _pct(course["percent"]) if course["percent"] else ""
+    overall = " · ".join(x for x in (pct and f"{pct}%", course["mark"]) if x)
+    teacher = f" — {escape(course['teacher'])}" if course["teacher"] else ""
+    header = (
+        f"<h2>{head}{teacher}"
+        + (f" <span class='badge muted'>{escape(overall)}</span>" if overall else "")
+        + "</h2>")
+    if not rows:
+        return (f"<div class='card tablecard'>{header}"
+                "<p class='small'>No assignments recorded.</p></div>")
+    upcoming = sorted((r for r in rows if r["status"] in ("due", "not_due")),
+                      key=lambda r: (r["due_date"] or "9999", r["name"]))
+    missing = sorted((r for r in rows if r["status"] == "missing"),
+                     key=lambda r: r["due_date"] or "", reverse=True)
+    late = sorted((r for r in rows if r["status"] == "ungraded_past_due"),
+                  key=lambda r: r["due_date"] or "", reverse=True)
+    graded = sorted((r for r in rows if r["status"] == "graded"),
+                    key=lambda r: r["graded_on"] or r["due_date"] or "",
+                    reverse=True)
+
+    def tr(a) -> str:
+        return (f"<tr><td>{escape(a['name'])}</td>"
                 f"<td data-label='Type'>{escape(a['kind'] or '—')}</td>"
                 f"<td data-label='Due'>{escape(a['due_date'] or '—')}</td>"
                 f"<td class='num' data-label='Score'>{_score(a)}</td>"
-                f"<td data-label='Status'>{_badge(a['status'])}</td></tr>"
-                for a in assignments)
-            body = ("<table class='assignments'><tr class='head'><th>Assignment</th><th>Type</th>"
-                    "<th>Due</th><th>Score</th><th>Status</th></tr>" + rows + "</table>")
-        parts.append(f"<div class='card tablecard'>{header}{body}</div>")
+                f"<td data-label='Status'>{_badge(a['status'])}</td></tr>")
+
+    visible = upcoming + missing + late + graded[:5]
+    table = ("<table class='assignments'>" + _ASSIGN_COLGROUP
+             + "<tr class='head'><th>Assignment</th><th>Type</th><th>Due</th>"
+               "<th>Score</th><th>Status</th></tr>"
+             + "".join(tr(a) for a in visible) + "</table>")
+    more = ""
+    if len(graded) > 5:
+        more = (f"<details class='more'><summary>{_CHEVRON}"
+                f"<span>Show all {len(graded)} graded</span></summary>"
+                f"<table class='assignments'>{_ASSIGN_COLGROUP}"
+                + "".join(tr(a) for a in graded[5:]) + "</table></details>")
+    return f"<div class='card tablecard'>{header}{table}{more}</div>"
+
+
+def _closed_term(term, courses, ctx) -> str:
+    """A closed marking period collapses to its finals line; the full course
+    cards sit behind the <details>."""
+    finals = " · ".join(
+        " ".join(x for x in (escape(_short_title(c["title"])),
+                             escape(_pct(c["percent"])) if c["percent"] else "",
+                             escape(c["mark"] or "")) if x)
+        for c, _rows in courses if c["percent"] or c["mark"])
+    inner = "".join(_course_card(c, rows, ctx) for c, rows in courses)
+    return (f"<details class='closedterm'><summary>{_CHEVRON}"
+            f"<span><strong>{escape(term or '(no term)')}</strong>"
+            + (f" <span class='small'>finals: {finals}</span>" if finals else "")
+            + f"</span></summary><div class='closedbody'>{inner}</div></details>")
+
+
+def _view_everything(student, ctx) -> str:
+    parts = []
+    multi = len(ctx["sections"]) > 1
+    for term, courses in ctx["sections"]:
+        if multi and term != ctx["term"]:
+            parts.append(_closed_term(term, courses, ctx))
+            continue
+        if multi:
+            label = (term or "(no term)") + (" — current" if term else "")
+            parts.append(f"<h2 class='termhead'>{escape(label)}</h2>")
+        parts += [_course_card(c, rows, ctx) for c, rows in courses]
+    if not parts:
+        parts.append("<p class='small'>No courses recorded yet.</p>")
     return "".join(parts)
+
+
+def render_student(student, ctx, nav_students=()) -> str:
+    """The C0 student page: stat-card view switcher, course strip (skipped
+    for single-course students), then the active view's body."""
+    view_body = {"problems": _view_problems, "due": _view_due,
+                 "recent": _view_recent, "everything": _view_everything}
+    parts = [
+        f"<h1>{escape(student['name'])}</h1>",
+        f"<p class='small'>{escape(student['school'])} · "
+        f"AGU {escape(student['agu'])}</p>",
+        _stat_cards(student, ctx),
+    ]
+    if len(ctx["strip"]) > 1:
+        parts.append(_course_strip(student, ctx))
+    parts.append(view_body[ctx["view"]](student, ctx))
+    return _page(student["name"], "".join(parts), nav_students=nav_students)
 
 
 def render_alerts(alerts, watcher_list=(), nav_students=()) -> str:
@@ -657,19 +1238,10 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
         if student is None:
             return 404, _page("Not found", "<h1>Unknown student</h1>",
                               nav_students=students)
-        all_courses = fetch_courses(conn, student["id"])
-        current = student["current_term"] or ""
-        terms: list[str] = []
-        for c in all_courses:
-            if c["term"] not in terms:
-                terms.append(c["term"])
-        ordered = ([current] if current in terms else []) \
-            + sorted((t for t in terms if t != current), reverse=True)
-        sections = [
-            (t, [(c, fetch_assignments(conn, c["id"]))
-                 for c in all_courses if c["term"] == t])
-            for t in ordered]
-        return 200, render_student(student, sections, nav_students=students)
+        ctx = build_student_ctx(conn, student,
+                                (query.get("view") or [""])[0],
+                                (query.get("course") or [""])[0])
+        return 200, render_student(student, ctx, nav_students=students)
     if path == "/alerts":
         return 200, render_alerts(fetch_alerts(conn),
                                   watchermod.list_watchers(conn),
