@@ -713,10 +713,12 @@ details.allcourses::details-content {
               block-size var(--dur-base) var(--ease);
 }
 details.allcourses[open]::details-content { opacity: 1; block-size: auto; }
-/* The active-filter tag on the summary: legible while collapsed. Plain
- * inline (not flex) so its TEXT baseline lines up with the heading's —
- * a flex tag would hand its baseline to the icon and ride high. */
-.striptag {
+/* The active-filter tag on the summary: legible while collapsed, and the
+ * clear control (funnel · course · small ×, the scoped row at tag scale).
+ * Plain inline (not flex) so its TEXT baseline lines up with the
+ * heading's — a flex tag would hand its baseline to the icon and ride
+ * high. */
+a.striptag {
   font-size: 0.72rem;
   font-weight: 700;
   color: var(--accent-strong);
@@ -725,6 +727,13 @@ details.allcourses[open]::details-content { opacity: 1; block-size: auto; }
 }
 .striptag svg.filtericon { width: 11px; height: 11px;
                            vertical-align: -1.5px; margin-right: 0.3rem; }
+.striptag svg.filtericon:last-child {
+  margin-right: 0;
+  margin-left: 0.25rem;
+  opacity: 0.7;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+a.striptag:hover svg.filtericon:last-child { opacity: 1; }
 
 h2.termhead { font-size: 0.8rem; color: var(--text-muted);
               text-transform: uppercase; letter-spacing: 0.06em;
