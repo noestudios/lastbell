@@ -24,6 +24,9 @@ SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 # Assignment fields whose changes are worth an audit row.
 _TRACKED_FIELDS = ("name", "kind", "due_date", "graded_at", "score", "points", "status")
 
+# Course fields whose changes are worth an audit row (the grade trajectory).
+_COURSE_TRACKED_FIELDS = ("mark", "percent")
+
 
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -159,6 +162,18 @@ def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot)
     for c in snap.courses:
         cid = _course_id(student_id, c)
         course_ids[c.edupoint_gu] = cid
+        old_course = conn.execute(
+            "SELECT mark, percent FROM courses WHERE id = ?", (cid,)
+        ).fetchone()
+        if old_course is not None:
+            for field_name in _COURSE_TRACKED_FIELDS:
+                new_value = getattr(c, field_name)
+                if old_course[field_name] != new_value:
+                    conn.execute(
+                        "INSERT INTO course_history (course_id, field, old_value, new_value) "
+                        "VALUES (?, ?, ?, ?)",
+                        (cid, field_name, old_course[field_name], new_value),
+                    )
         conn.execute(
             "INSERT INTO courses (id, edupoint_gu, student_id, title, teacher, term, mark, percent) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "

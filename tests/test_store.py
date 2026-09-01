@@ -97,3 +97,27 @@ def test_record_alert(conn):
     row = conn.execute("SELECT type, body FROM alerts").fetchone()
     assert row["type"] == "grade_changed"
     assert "Fractions Quiz" in row["body"]
+
+
+def test_course_grade_changes_are_logged(conn):
+    store.persist_snapshot(conn, STUDENT, _snapshot(percent="87.20%"))
+    store.persist_snapshot(conn, STUDENT, _snapshot(percent="91.00%"))
+    rows = conn.execute(
+        "SELECT field, old_value, new_value FROM course_history").fetchall()
+    assert [(r["field"], r["old_value"], r["new_value"]) for r in rows] == [
+        ("percent", "87.20%", "91.00%"),
+    ]
+
+
+def test_first_and_identical_course_persists_log_nothing(conn):
+    store.persist_snapshot(conn, STUDENT, _snapshot())     # first sighting
+    store.persist_snapshot(conn, STUDENT, _snapshot())     # unchanged
+    assert conn.execute("SELECT COUNT(*) FROM course_history").fetchone()[0] == 0
+
+
+def test_new_term_course_starts_fresh_history(conn):
+    store.persist_snapshot(conn, STUDENT, _snapshot(percent="87.20%"))
+    mp2 = _snapshot(percent="50.00%")
+    mp2.courses[0].term = "MP2"          # new (gu, term) key -> new course row
+    store.persist_snapshot(conn, STUDENT, mp2)
+    assert conn.execute("SELECT COUNT(*) FROM course_history").fetchone()[0] == 0
