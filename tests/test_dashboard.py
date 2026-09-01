@@ -173,3 +173,18 @@ def test_theme_toggle_present_and_css_supports_override(populated):
     css = _STYLE_PATH.read_text(encoding="utf-8")
     assert ':root[data-theme="dark"]' in css
     assert ':root:not([data-theme="light"])' in css
+
+
+def test_history_page_includes_course_grade_changes(populated):
+    conn = populated
+    snap = Snapshot(
+        student_agu="1",
+        courses=[Course(edupoint_gu="709775", title="Math <Adv>", teacher="Pat Example",
+                        term="MP1", mark="A-", percent="91.00%")],
+    )
+    store.persist_snapshot(conn, Student(agu="1", name="Jasper P. Hays"), snap)
+    status, html = _get(conn, "/history")
+    assert status == 200
+    assert "Course grades" in html
+    assert "87.20% → 91.00%" in html
+    assert "B+ → A-" in html

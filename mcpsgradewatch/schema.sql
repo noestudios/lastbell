@@ -77,6 +77,19 @@ CREATE TABLE IF NOT EXISTS grade_history (
     seen_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Course-level counterpart: the overall mark/percent trajectory. Without
+-- this the course grade is upserted in place and its history is lost — and
+-- unlike parsing rules, history that wasn't captured can't be backfilled.
+-- This is the series any future trend chart draws from.
+CREATE TABLE IF NOT EXISTS course_history (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id  TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    field      TEXT NOT NULL,
+    old_value  TEXT,
+    new_value  TEXT,
+    seen_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS subscriptions (
     id           TEXT PRIMARY KEY,
     watcher_id   TEXT NOT NULL REFERENCES watchers(id) ON DELETE CASCADE,

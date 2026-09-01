@@ -89,6 +89,16 @@ def fetch_alerts(conn: sqlite3.Connection, limit: int = 100) -> list[sqlite3.Row
     ).fetchall()
 
 
+def fetch_course_history(conn: sqlite3.Connection, limit: int = 100) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT h.*, c.title AS course_title, c.term, st.name AS student_name "
+        "FROM course_history h "
+        "JOIN courses c ON c.id = h.course_id "
+        "JOIN students st ON st.id = c.student_id "
+        "ORDER BY h.seen_at DESC, h.id DESC LIMIT ?", (limit,)
+    ).fetchall()
+
+
 def fetch_history(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT h.*, a.name AS assignment_name, c.title AS course_title, "
@@ -288,19 +298,34 @@ def render_alerts(alerts, watcher_list=()) -> str:
                  + "".join(rows) + "</table>")
 
 
-def render_history(rows) -> str:
-    if not rows:
+def render_history(rows, course_rows=()) -> str:
+    if not rows and not course_rows:
         return _page("History", "<h1>Grade history</h1><p>No changes recorded yet.</p>")
-    body_rows = "".join(
-        f"<tr><td class='small'>{escape(r['seen_at'])}</td>"
-        f"<td>{escape(r['student_name'])}</td><td>{escape(r['course_title'])}</td>"
-        f"<td>{escape(r['assignment_name'])}</td><td>{escape(r['field'])}</td>"
-        f"<td>{escape(r['old_value'] if r['old_value'] is not None else '—')} → "
-        f"{escape(r['new_value'] if r['new_value'] is not None else '—')}</td></tr>"
-        for r in rows)
-    return _page("History", "<h1>Grade history</h1><table><tr><th>When (UTC)</th>"
-                 "<th>Student</th><th>Course</th><th>Assignment</th><th>Field</th>"
-                 "<th>Change</th></tr>" + body_rows + "</table>")
+    parts = ["<h1>Grade history</h1>"]
+    if course_rows:
+        c_rows = "".join(
+            f"<tr><td class='small'>{escape(r['seen_at'])}</td>"
+            f"<td>{escape(r['student_name'])}</td>"
+            f"<td>{escape(r['course_title'])} <span class='small'>{escape(r['term'])}</span></td>"
+            f"<td>{escape(r['field'])}</td>"
+            f"<td>{escape(r['old_value'] if r['old_value'] is not None else '—')} → "
+            f"{escape(r['new_value'] if r['new_value'] is not None else '—')}</td></tr>"
+            for r in course_rows)
+        parts.append("<h2>Course grades</h2><table><tr><th>When (UTC)</th>"
+                     "<th>Student</th><th>Course</th><th>Field</th><th>Change</th></tr>"
+                     + c_rows + "</table>")
+    if rows:
+        body_rows = "".join(
+            f"<tr><td class='small'>{escape(r['seen_at'])}</td>"
+            f"<td>{escape(r['student_name'])}</td><td>{escape(r['course_title'])}</td>"
+            f"<td>{escape(r['assignment_name'])}</td><td>{escape(r['field'])}</td>"
+            f"<td>{escape(r['old_value'] if r['old_value'] is not None else '—')} → "
+            f"{escape(r['new_value'] if r['new_value'] is not None else '—')}</td></tr>"
+            for r in rows)
+        parts.append("<h2>Assignments</h2><table><tr><th>When (UTC)</th>"
+                     "<th>Student</th><th>Course</th><th>Assignment</th><th>Field</th>"
+                     "<th>Change</th></tr>" + body_rows + "</table>")
+    return _page("History", "".join(parts))
 
 
 def render_watchers(watcher_list, subscriptions) -> str:
@@ -369,7 +394,7 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
         return 200, render_alerts(fetch_alerts(conn),
                                   watchermod.list_watchers(conn))
     if path == "/history":
-        return 200, render_history(fetch_history(conn))
+        return 200, render_history(fetch_history(conn), fetch_course_history(conn))
     if path == "/watchers":
         return 200, render_watchers(watchermod.list_watchers(conn),
                                     watchermod.list_subscriptions(conn))

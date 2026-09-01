@@ -89,12 +89,10 @@ the detail page (percent line over the term, assignment scores as points).
 The Purity template's chart cards are the visual precedent; server-rendered
 inline SVG keeps it JS-free.
 
-- **Data-model prerequisite (do early, regardless of the UX decision):**
-  `grade_history` only logs *assignment* field changes — course-level
-  mark/percent changes are upserted in place and their history is lost.
-  Add course grade logging (append-only, like grade_history) NOW so data
-  accumulates while the trend UX is being decided; history not captured
-  can't be backfilled.
+- **Data-model prerequisite — DONE (2026-08-31):** `course_history` now
+  logs every course mark/percent change append-only (mirrors
+  `grade_history`); shown on the dashboard History page under "Course
+  grades". Data accumulates from now on; trend charts draw from this series.
 - The demo-data seeder (above) should fabricate months of course-percent
   history so trend layouts can be designed at realistic density.
 - Decide: sparkline on overview cards vs. detail-only charts; whether the
