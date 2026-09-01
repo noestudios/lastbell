@@ -72,9 +72,9 @@ def test_resolve_student_empty_db_says_run_first(conn):
 def test_subscribe_is_idempotent(conn_with_student):
     conn = conn_with_student
     w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
-    assert watchers.subscribe(conn, w, "1") == 1                   # '*' / '*'
-    assert watchers.subscribe(conn, w, "1") == 0                   # same row again
-    assert watchers.subscribe(conn, w, "1", ["grade_changed"], ["email"]) == 1
+    assert len(watchers.subscribe(conn, w, "1")) == 1              # '*' / '*'
+    assert watchers.subscribe(conn, w, "1") == []                  # same row again
+    assert len(watchers.subscribe(conn, w, "1", ["grade_changed"], ["email"])) == 1
 
 
 def test_subscribe_rejects_unknown_alert_type(conn_with_student):
@@ -124,3 +124,52 @@ def test_ensure_default_watcher_with_no_students_still_creates(conn):
     w = watchers.ensure_default_watcher(conn, "parent_login")
     assert w is not None
     assert watchers.list_subscriptions(conn) == []
+
+
+def test_default_watcher_seeds_4pm_digest_with_urgent(conn_with_student):
+    conn = conn_with_student
+    watchers.ensure_default_watcher(conn, "parent_login", "mom@example.com")
+    (sub,) = watchers.list_subscriptions(conn)
+    assert (sub.send_at, sub.urgent_now) == ("16:00", True)
+
+
+def test_set_subscription_group_reconciles_types(conn_with_student):
+    conn = conn_with_student
+    w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
+    watchers.subscribe(conn, w, "1", ["grade_changed", "grade_drop"], ["email"])
+    ids = [s.id for s in watchers.list_subscriptions(conn)]
+    # drop grade_drop, add assignment_missing, move everything to a digest
+    watchers.set_subscription_group(
+        conn, ids, ["grade_changed", "assignment_missing"], "email", "16:00", True)
+    subs = watchers.list_subscriptions(conn)
+    assert sorted(s.alert_type for s in subs) == ["assignment_missing", "grade_changed"]
+    assert all((s.channel, s.send_at, s.urgent_now) == ("email", "16:00", True)
+               for s in subs)
+    # kept row keeps its id (history/identity), dropped row is gone
+    kept = next(s for s in subs if s.alert_type == "grade_changed")
+    assert kept.id in ids
+
+
+def test_set_subscription_group_wildcard_collapses(conn_with_student):
+    conn = conn_with_student
+    w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
+    watchers.subscribe(conn, w, "1", ["grade_changed", "grade_drop"])
+    ids = [s.id for s in watchers.list_subscriptions(conn)]
+    watchers.set_subscription_group(conn, ids, ["*", "grade_changed"], "*", None)
+    (sub,) = watchers.list_subscriptions(conn)
+    assert sub.alert_type == "*"
+
+
+def test_set_subscription_group_conflict_rolls_back(conn_with_student):
+    conn = conn_with_student
+    w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
+    watchers.subscribe(conn, w, "1", ["grade_changed"], ["email"])         # group A
+    watchers.subscribe(conn, w, "1", ["grade_drop"], ["email"])            # group B
+    subs = {s.alert_type: s.id for s in watchers.list_subscriptions(conn)}
+    with pytest.raises(watchers.WatcherError, match="identical"):
+        watchers.set_subscription_group(
+            conn, [subs["grade_drop"]], ["grade_drop", "grade_changed"],
+            "email", None)
+    # nothing changed: both original rows intact
+    assert sorted(s.alert_type for s in watchers.list_subscriptions(conn)) \
+        == ["grade_changed", "grade_drop"]

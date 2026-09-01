@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from . import notify, watchers
 from .differ import Event
+from .models import URGENT_ALERT_TYPES
 
 
 @dataclass
@@ -46,7 +47,8 @@ def plan(conn: sqlite3.Connection, student_id: str,
     matched_map: dict[tuple[str, str], dict[int, tuple[Event, str | None]]] = {}
     context: dict[str, watchers.Watcher] = {}
 
-    for watcher, alert_type, channel_name, send_at in watchers.subscriptions_for_student(conn, student_id):
+    for watcher, alert_type, channel_name, send_at, urgent_now in \
+            watchers.subscriptions_for_student(conn, student_id):
         matched = [e for e in events
                    if alert_type == watchers.ALL or e.type.value == alert_type]
         if not matched:
@@ -65,9 +67,13 @@ def plan(conn: sqlite3.Connection, student_id: str,
                 continue
             slot = matched_map.setdefault((watcher.id, ch), {})
             for e in matched:
+                # An urgent-flagged row sends its urgent types now, not at
+                # the digest hour (quiet hours still defer downstream).
+                effective = None if (urgent_now and e.type in URGENT_ALERT_TYPES) \
+                    else send_at
                 prev = slot.get(id(e))
-                if prev is None or _sooner(send_at, prev[1]):
-                    slot[id(e)] = (e, send_at)
+                if prev is None or _sooner(effective, prev[1]):
+                    slot[id(e)] = (e, effective)
 
     deliveries: list[Delivery] = []
     for (watcher_id, ch), slot in matched_map.items():

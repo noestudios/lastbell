@@ -97,7 +97,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     alert_type   TEXT NOT NULL,
     channel      TEXT NOT NULL,
     send_at      TEXT,                    -- HH:MM: digest/summary delivery time (NULL = immediate)
-    last_sent_on TEXT                     -- date the last scheduled send went out (summary gating)
+    last_sent_on TEXT,                    -- date the last scheduled send went out (summary gating)
+    urgent_now   INTEGER NOT NULL DEFAULT 0  -- urgent alert types skip the digest wait
 );
 
 CREATE TABLE IF NOT EXISTS alerts (

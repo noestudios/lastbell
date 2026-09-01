@@ -35,6 +35,15 @@ class AlertType(str, Enum):
     TERM_FINAL = "term_final"       # marking period closed: final grades summary
 
 
+# The alert types a parent may want NOW rather than in the daily digest —
+# things still actionable today. Grade changes are informational and batch.
+URGENT_ALERT_TYPES = frozenset({
+    AlertType.ASSIGNMENT_MISSING,
+    AlertType.UPCOMING_DEADLINE,
+    AlertType.GRADE_DROP,
+})
+
+
 def parse_percent(raw: str) -> Optional[float]:
     """``"87.20%"`` -> ``87.2``; None when the text isn't a number."""
     try:
