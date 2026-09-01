@@ -138,10 +138,14 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
   design-system tooltip (tokens: surface, radius, shadow), not the browser's
   tiny native `title` bubble. CSS-only where possible (positioned
   pseudo-element/`data-tip` attribute), no JS dependency.
-  **Built:** `.tip[data-tip]` + `::after` bubble, hover/decay on the fast
+  **Built:** `[data-tip]` + `::after` bubble, hover/decay on the fast
   tier; card tables get `overflow: visible` so bubbles escape (their radius
-  is 0, hidden bought nothing). Native `title` remains only on controls
-  (nav, buttons), where it's a label, not a data reveal.
+  is 0, hidden bought nothing). **Extended app-wide (owner's call
+  2026-09-01):** NO native `title` bubble anywhere — nav, settings forms,
+  buttons, everything rides `data-tip`, with placement variants (`tip-b`
+  below for the nav row, `tip-e`/`tip-s` end/start-aligned for edge
+  elements) and wrapping for long text. A regression test asserts no
+  `title=` in any page body.
 
 ### D. Interaction — ack
 - One-time viewer identity picker (choose your watcher), remembered in
@@ -242,6 +246,15 @@ inline where reality forced a call.**
   stays consistent) with the strip's inset accent bar and a "N
   unacknowledged — surfaced first" note; 50 rows per page with ← newer /
   older → links (`?page=`, filter preserved). No JS anywhere in it.
+  Additions (owner's calls 2026-09-01): an **ack-all** button in the Ack
+  column's header — acks every unacked alert in the current type filter,
+  count on the button, kept visible in the phone layout (the header row
+  collapses to just that cell); stacked rows pad their text off the
+  unacked accent bar. Overview polish rode along: student/course names
+  underlined (course names deep-link to the scoped student page), school
+  line got breathing room, the theme toggle became icon-only
+  (auto ◐ / sun / moon, gear-sized), and settings toasts now name who and
+  what changed ("Removed Mom's email (mom@example.com)") with a 6s hold.
 
 Original pre-decision framing, kept for the record:
 

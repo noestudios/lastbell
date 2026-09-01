@@ -26,10 +26,11 @@
     var toast = document.querySelector(".toast");
     if (!toast || toast.dataset.armed) return;
     toast.dataset.armed = "1";
+    // 6s hold: the messages name who/what changed and deserve a real read.
     setTimeout(function () {
       toast.classList.add("toast-exit");
       setTimeout(function () { toast.remove(); }, LINGER);
-    }, 3000);
+    }, 6000);
   }
 
   /* Strip ?ok=/&new= after a full-page (JS-off style) navigation so a
