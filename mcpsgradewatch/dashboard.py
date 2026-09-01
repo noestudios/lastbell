@@ -206,8 +206,8 @@ def render_overview(students, courses_by_student, counts_by_student) -> str:
             f"{escape(s['name'])}</a></h3>"
             f"<div class='small'>{escape(s['school'])}</div>"
             f"<div>{' '.join(flags) or '<span class=small>all clear</span>'}</div>"
-            f"<table><tr><th>Course</th><th>Teacher</th><th>%</th><th>Mark</th></tr>"
-            f"{rows}</table></div>")
+            f"<table class='courses'><tr><th>Course</th><th>Teacher</th>"
+            f"<th>%</th><th>Mark</th></tr>{rows}</table></div>")
     return _page("Students", "<h1>Students</h1><div class='cards'>" + "".join(cards) + "</div>")
 
 
@@ -236,8 +236,10 @@ def _render_term_courses(courses_with_assignments) -> str:
         pct = _pct(course["percent"]) if course["percent"] else ""
         overall = " · ".join(x for x in (pct and f"{pct}%", course["mark"]) if x)
         teacher = f" — {escape(course['teacher'])}" if course["teacher"] else ""
-        parts.append(f"<h2>{head}{teacher}"
-                     f"{f' <span class=badge>{escape(overall)}</span>' if overall else ''}</h2>")
+        parts.append(
+            f"<h2>{head}{teacher}"
+            + (f" <span class='badge muted'>{escape(overall)}</span>" if overall else "")
+            + "</h2>")
         if not assignments:
             parts.append("<p class='small'>No assignments recorded.</p>")
             continue
@@ -246,8 +248,8 @@ def _render_term_courses(courses_with_assignments) -> str:
             f"<td>{escape(a['due_date'] or '—')}</td>"
             f"<td class='num'>{_score(a)}</td><td>{_badge(a['status'])}</td></tr>"
             for a in assignments)
-        parts.append("<table><tr><th>Assignment</th><th>Type</th><th>Due</th>"
-                     "<th>Score</th><th>Status</th></tr>" + rows + "</table>")
+        parts.append("<table class='assignments'><tr><th>Assignment</th><th>Type</th>"
+                     "<th>Due</th><th>Score</th><th>Status</th></tr>" + rows + "</table>")
     return "".join(parts)
 
 
