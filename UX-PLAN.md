@@ -73,7 +73,12 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
   and **text message** — sms is its own channel name riding the email
   transport (carrier email→SMS gateway address). ntfy/telegram/pushover
   stay in the codebase as CLI-only; Signal rejected (no official bot API;
-  signal-cli is brittle). Addresses are validated at entry
+  signal-cli is brittle). Same call extended to the setup wizard
+  (2026-09-02): it offers text message first, then email, then ntfy
+  (labeled terminal-managed), and creates an `sms` channel — never an
+  `email` one holding a gateway address — so the dashboard shows what the
+  parent chose. The wizard replaces the first run's seeded placeholder
+  channel instead of adding to it. Addresses are validated at entry
   (`notify.validate_address`, dashboard + CLI): email/sms must look like
   user@host, and the sms error teaches the carrier gateway format — a bare
   phone number is the mistake it exists to catch.
