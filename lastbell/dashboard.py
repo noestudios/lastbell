@@ -948,10 +948,12 @@ def _stat_cards(student, ctx) -> str:
         p_ctx = "no change this week"
     ps = c["problems_series"]
     p_spark = (_spark_line(ps, "var(--bad-ink)", lo=0,
-                           label=f"open problems over 6 weeks: "
+                           label=f"items needing attention over 6 weeks: "
                                  f"{ps[0]:g} then, {ps[-1]:g} now")
                if max(ps, default=0) > 0 else "")
-    parts = [card("problems", "Problems", str(c["problems_count"]),
+    # Labelled to match the panel it opens; the ?view=problems key is kept
+    # so existing links and bookmarks survive.
+    parts = [card("problems", "Needs attention", str(c["problems_count"]),
                   p_ctx, p_spark)]
 
     lookahead = os.environ.get("LASTBELL_LOOKAHEAD_DAYS", "7")
@@ -1303,7 +1305,7 @@ def render_student(student, ctx, nav_students=()) -> str:
         parts.append(_course_strip(student, ctx))
     parts.append(_stat_cards(student, ctx))
     parts.append(view_body[ctx["view"]](student, ctx))
-    view_titles = {"problems": "Problems", "due": "Due soon",
+    view_titles = {"problems": "Needs attention", "due": "Due soon",
                    "recent": "Recent grades", "everything": "Everything"}
     return _page(f"{student['name']} — {view_titles[ctx['view']]}",
                  "".join(parts), nav_students=nav_students,
