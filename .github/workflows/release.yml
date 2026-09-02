@@ -1,7 +1,8 @@
 name: release
 
 # Tag-driven release to PyPI via trusted publishing (OIDC) — no long-lived
-# token lives in this repo. One-time setup on pypi.org (after the manual
+# token lives in this repo — followed by a GitHub Release whose notes come
+# from the tag's section of CHANGELOG.md (with the wheel + sdist attached). One-time setup on pypi.org (after the manual
 # first upload claims the name): project "lastbell" → Settings → Publishing →
 # add this repo/workflow ("release.yml", environment "pypi").
 on:
@@ -39,3 +40,29 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to create the Release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: release notes from CHANGELOG.md
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" '/^## /{p = ($2 == v)} p' CHANGELOG.md | tail -n +2 > notes.md
+          if [ ! -s notes.md ]; then
+            echo "No CHANGELOG.md section for $v — see the commit history for this tag." > notes.md
+          fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+      - name: create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag --title "Last Bell $VERSION" --notes-file notes.md
