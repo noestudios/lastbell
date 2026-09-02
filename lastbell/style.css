@@ -187,12 +187,14 @@ nav a:hover { color: var(--text); text-decoration: none; }
  * (aria-current='page' carries it programmatically too). */
 nav a[aria-current='page'] { color: var(--text); }
 nav a svg { display: none; width: 17px; height: 17px; flex: none; }
+/* The brand mark stays at every width (the page-link icons above appear
+ * only when the labels go). Slightly bigger than the icons; the source
+ * bell is drawn tilted, so the box gets a hair of optical room. */
+nav .brand svg.mark { display: inline-block; width: 20px; height: 20px; }
 nav .brand {
   color: var(--text);
   font-weight: 800;
   font-size: 0.85rem;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
   margin-right: 0.6rem;
 }
 /* Student links: direct name links at desktop width. On narrow they yield
@@ -226,8 +228,7 @@ nav .smenu-list {
   animation: msel-in var(--dur-fast) var(--ease);
 }
 nav .smenu-list a { white-space: nowrap; }
-/* Settings is icon-only at every width, pushed right against the toggle. */
-nav a.gear { margin-left: auto; }
+/* Settings is icon-only at every width. */
 nav a.gear svg { display: inline-block; }
 /* Icon-only, gear-sized: auto = half-filled circle, light = sun,
  * dark = moon (the state rides the tooltip/aria-label). */
@@ -245,8 +246,19 @@ nav a.gear svg { display: inline-block; }
 nav a.gear, #themetoggle, nav details.smenu summary {
   padding: 0.35rem; margin: -0.35rem;
 }
+/* The gear+toggle pair is pushed right, apart from the page links. Must
+ * stay AFTER the hit-area rule above: its `margin` shorthand would reset
+ * this `margin-left: auto` at equal specificity. */
+nav a.gear { margin-left: auto; }
 nav .smenu-list a { padding: 0.25rem 0; }
-#themetoggle svg { width: 17px; height: 17px; }
+#themetoggle svg { width: 17px; height: 17px; display: none; }
+/* The button carries all three icons; the saved choice on <html> (set
+ * before first paint) picks one, so nothing swaps after the page shows. */
+#themetoggle .ic-auto { display: inline-block; }
+:root[data-theme='light'] #themetoggle .ic-auto,
+:root[data-theme='dark'] #themetoggle .ic-auto { display: none; }
+:root[data-theme='light'] #themetoggle .ic-light { display: inline-block; }
+:root[data-theme='dark'] #themetoggle .ic-dark { display: inline-block; }
 
 /* ── type ───────────────────────────────────────────────────────────── */
 
@@ -783,11 +795,17 @@ details.more summary {
 }
 details.more summary:hover { color: var(--text); }
 details.more[open] summary svg { transform: rotate(180deg); }
+/* Open swaps the label: "Show all N" while closed, "Show less" once the
+ * rows are out (the toggle sits at the table's end in both states). */
+details.more summary .when-open { display: none; }
+details.more[open] summary .when-closed { display: none; }
+details.more[open] summary .when-open { display: inline; }
 
-/* History "Show all": the overflow rows are a hidden <tbody> of the same
- * table (one header, aligned columns); the <details> after the table is
- * only the toggle. Opening it also restores the border the preview tbody's
- * last row sheds via tr:last-child — the seam between the two tbodies. */
+/* Overflow "Show all" (graded backlog, history): the overflow rows are a
+ * hidden <tbody> of the same table (one header, aligned columns); the
+ * <details> after the table is only the toggle. Opening it also restores
+ * the border the preview tbody's last row sheds via tr:last-child — the
+ * seam between the two tbodies. */
 tbody.overflow { display: none; }
 .tablecard:has(> details.more[open]) tbody.overflow { display: table-row-group; }
 .tablecard:has(> details.more[open]) tbody:not(:last-child) tr:last-child td {
@@ -974,8 +992,36 @@ a.chip.active { color: var(--on-fill); background: var(--accent);
                 border-color: var(--accent); }
 a.chip b { font-weight: 700; opacity: 0.75; margin-left: 0.15rem; }
 
-.pager { display: flex; justify-content: space-between; margin-top: 0.8rem;
-         font-size: 0.8rem; font-weight: 600; }
+/* Alerts paging: "Showing 51–100 of 1,305" above a centered
+ * Previous | 1 … 5 6 7 … 27 | Next row, everything on one baseline. The
+ * active number fills like the active chip; a dead end is a muted span. */
+.pager-range {
+  margin: 0.9rem 0 0.35rem; text-align: center;
+  font-size: 0.78rem; color: var(--text-muted);
+}
+.pager {
+  display: flex; justify-content: center; align-items: center;
+  flex-wrap: nowrap; gap: 0.6rem; font-size: 0.8rem; font-weight: 600;
+  /* It's a <nav> for assistive tech, so the top bar's element rule lands
+   * on it too — undo that chrome (and its wrap) here. */
+  background: none; box-shadow: none; border-radius: 0;
+  padding: 0; margin: 0;
+}
+.pager ol {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; align-items: center; gap: 0.2rem;
+}
+.pager a, .pager .gap, .pager [aria-disabled] {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.9rem; min-height: 1.9rem; padding: 0 0.45rem;
+  border-radius: var(--radius-sm); color: var(--text-muted);
+}
+.pager a:hover { color: var(--text); background: var(--surface-2);
+                 text-decoration: none; }
+.pager a[aria-current='page'] { color: var(--on-fill); background: var(--accent); }
+.pager .gap { min-width: 1.2rem; }
+.pager [aria-disabled] { opacity: 0.45; }
+.pager .prev, .pager .next { gap: 0.3rem; }
 
 /* Respect reduced-motion: collapse every duration so states land instantly;
  * app.js guards its scripted (inline-style) motion separately. */
@@ -1011,6 +1057,14 @@ a.chip b { font-weight: 700; opacity: 0.75; margin-left: 0.15rem; }
  * without a label (the row's identity — assignment/course name) read as the
  * block's title line. */
 @media (max-width: 40rem) {
+  /* Phone width: Previous/Next shrink to their arrows and the slots
+   * tighten, so seven numbers plus both ends still sit on one row. */
+  .pager .lbl { display: none; }
+  .pager { gap: 0.35rem; }
+  .pager a, .pager .gap, .pager [aria-disabled] {
+    min-width: 1.6rem; padding: 0 0.3rem;
+  }
+  .pager .gap { min-width: 0.9rem; }
   table, tbody, tr, td { display: block; width: 100%; }
   tr.head { display: none; }
   table { table-layout: auto; }

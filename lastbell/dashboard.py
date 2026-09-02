@@ -42,6 +42,19 @@ _STATUS_LABELS = {
     "ungraded_past_due": ("ungraded past due", "warn"),
 }
 
+# The alerts page's Type cell, on the same severity ladder as the status
+# badges above: red for what needs action now, amber for slipping work,
+# teal for the heads-up, muted for the informational/report types.
+_ALERT_TYPE_BADGE = {
+    "grade_drop": ("grade drop", "bad"),
+    "assignment_missing": ("assignment missing", "bad"),
+    "ungraded_past_due": ("ungraded past due", "warn"),
+    "upcoming_deadline": ("upcoming deadline", "info"),
+    "grade_changed": ("grade changed", "muted"),
+    "daily_summary": ("daily summary", "muted"),
+    "term_final": ("term final", "muted"),
+}
+
 # Phase C row signal: statuses that earn a tint + leading icon, so a mixed
 # table scans by color before it's read. Escalation ladder: due soon is a
 # light caution, ungraded-past-due a stronger one, missing is red. The icons
@@ -78,6 +91,7 @@ def _score_cutoff() -> float | None:
 # app.js is the page's one script: settings-form niceties (dirty tracking,
 # row enter/exit motion, toast dismissal) that degrade to plain form posts.
 _STYLE_PATH = Path(__file__).with_name("style.css")
+_FAVICON_PATH = Path(__file__).with_name("favicon.png")
 _APPJS_PATH = Path(__file__).with_name("app.js")
 
 
@@ -346,15 +360,15 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
     return ctx
 
 
-# Alerts page size ("older →" paging replaces the old silent 100-row cap).
+# Alerts page size (numbered paging replaces the old silent 100-row cap).
 _ALERTS_PAGE = 50
 
 
 def fetch_alerts(conn: sqlite3.Connection, page: int = 1,
-                 alert_type: str = "") -> tuple[list[sqlite3.Row], bool]:
-    """One page of alerts, newest first, plus whether an older page exists.
-    Offset paging is safe here because the sort key is stable between
-    requests."""
+                 alert_type: str = "") -> list[sqlite3.Row]:
+    """One page of alerts, newest first. Offset paging is safe here because
+    the sort key is stable between requests; the total (for the page count)
+    comes from fetch_alert_counts, which the chips need anyway."""
     sql = ("SELECT al.*, st.name AS student_name "
            "FROM alerts al "
            "JOIN students st ON st.id = al.student_id ")
@@ -363,9 +377,8 @@ def fetch_alerts(conn: sqlite3.Connection, page: int = 1,
         sql += "WHERE al.type = ? "
         params.append(alert_type)
     sql += "ORDER BY al.created_at DESC, al.rowid DESC LIMIT ? OFFSET ?"
-    params += [_ALERTS_PAGE + 1, (page - 1) * _ALERTS_PAGE]
-    rows = conn.execute(sql, params).fetchall()
-    return rows[:_ALERTS_PAGE], len(rows) > _ALERTS_PAGE
+    params += [_ALERTS_PAGE, (page - 1) * _ALERTS_PAGE]
+    return conn.execute(sql, params).fetchall()
 
 
 def fetch_alert_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -373,6 +386,36 @@ def fetch_alert_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT type, COUNT(*) AS n "
         "FROM alerts GROUP BY type ORDER BY n DESC, type").fetchall()
+
+
+def alerts_total(counts, alert_type: str = "") -> int:
+    """How many alerts the current filter covers, from the chip counts."""
+    return sum(c["n"] for c in counts if not alert_type or c["type"] == alert_type)
+
+
+def alerts_last_page(total: int) -> int:
+    return max(1, -(-total // _ALERTS_PAGE))   # ceiling division
+
+
+def _page_window(page: int, last: int, *, edge: int = 1,
+                 around: int = 1) -> list:
+    """Which page numbers a pager shows: the first and last ``edge`` pages,
+    ``around`` on each side of the current one, and ``None`` wherever a run
+    is elided — e.g. page 6 of 27 → [1, None, 5, 6, 7, None, 27]. Short
+    ranges (nothing to elide) list every page."""
+    keep = set(range(1, edge + 1)) | set(range(last - edge + 1, last + 1))
+    keep |= set(range(page - around, page + around + 1))
+    out: list = []
+    for n in range(1, last + 1):
+        if n in keep:
+            # A gap of exactly one page is shown, not elided — "…" would be
+            # longer than the number it hides.
+            if out and out[-1] is not None and n - out[-1] == 2:
+                out.append(n - 1)
+            elif out and out[-1] is not None and n - out[-1] > 2:
+                out.append(None)
+            out.append(n)
+    return out
 
 
 def _history_filter(course: str, field: str) -> tuple[str, list]:
@@ -450,41 +493,39 @@ def fetch_history_field_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 # Theme toggle: cycles auto → light → dark, saved per browser. Icon-only,
 # gear-sized (auto = half-filled circle, light = sun, dark = moon); the
-# state rides the title/aria-label. The first statement runs before paint
-# so a saved choice never flashes the wrong theme.
-_THEME_SVG_OPEN = ("<svg viewBox='0 0 24 24' fill='none' stroke='currentColor'"
-                   " stroke-width='2' stroke-linecap='round'"
-                   " stroke-linejoin='round' aria-hidden='true'>")
-_THEME_ICON_AUTO = (_THEME_SVG_OPEN + "<circle cx='12' cy='12' r='10'/>"
-                    "<path d='M12 2a10 10 0 0 0 0 20z' fill='currentColor' "
-                    "stroke='none'/></svg>")
+# state rides the title/aria-label. All three icons ship in the button and
+# style.css shows the one matching <html data-theme> — which the head
+# script sets before paint — so neither the colors nor the icon ever flash
+# (an innerHTML swap on DOMContentLoaded used to lag a frame behind).
+def _theme_svg(kind: str, body: str) -> str:
+    return (f"<svg class='ic-{kind}' viewBox='0 0 24 24' fill='none' "
+            "stroke='currentColor' stroke-width='2' stroke-linecap='round' "
+            f"stroke-linejoin='round' aria-hidden='true'>{body}</svg>")
+
+
+_THEME_ICONS = (
+    _theme_svg("auto", "<circle cx='12' cy='12' r='10'/>"
+               "<path d='M12 2a10 10 0 0 0 0 20z' fill='currentColor' stroke='none'/>")
+    + _theme_svg("light", "<circle cx='12' cy='12' r='5'/>"
+                 "<line x1='12' y1='1' x2='12' y2='3'/><line x1='12' y1='21' x2='12' y2='23'/>"
+                 "<line x1='4.22' y1='4.22' x2='5.64' y2='5.64'/>"
+                 "<line x1='18.36' y1='18.36' x2='19.78' y2='19.78'/>"
+                 "<line x1='1' y1='12' x2='3' y2='12'/><line x1='21' y1='12' x2='23' y2='12'/>"
+                 "<line x1='4.22' y1='19.78' x2='5.64' y2='18.36'/>"
+                 "<line x1='18.36' y1='5.64' x2='19.78' y2='4.22'/>")
+    + _theme_svg("dark", "<path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'/>"))
 _THEME_JS = """
 (function(){
   var KEY='lastbell-theme', root=document.documentElement, choice=null;
-  var OPEN = "%s";
-  var ICON = {
-    auto: OPEN + "<circle cx='12' cy='12' r='10'/>"
-        + "<path d='M12 2a10 10 0 0 0 0 20z' fill='currentColor' stroke='none'/></svg>",
-    light: OPEN + "<circle cx='12' cy='12' r='5'/>"
-        + "<line x1='12' y1='1' x2='12' y2='3'/><line x1='12' y1='21' x2='12' y2='23'/>"
-        + "<line x1='4.22' y1='4.22' x2='5.64' y2='5.64'/>"
-        + "<line x1='18.36' y1='18.36' x2='19.78' y2='19.78'/>"
-        + "<line x1='1' y1='12' x2='3' y2='12'/><line x1='21' y1='12' x2='23' y2='12'/>"
-        + "<line x1='4.22' y1='19.78' x2='5.64' y2='18.36'/>"
-        + "<line x1='18.36' y1='5.64' x2='19.78' y2='4.22'/></svg>",
-    dark: OPEN + "<path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'/></svg>"
-  };
   try { choice = localStorage.getItem(KEY); } catch (e) {}
   function apply(){
     if (choice==='light'||choice==='dark') root.setAttribute('data-theme', choice);
     else root.removeAttribute('data-theme');
     var b=document.getElementById('themetoggle');
     if (!b) return;
-    var state = choice || 'auto';
-    b.innerHTML = ICON[state];
     b.setAttribute('data-tip', 'Theme: '
                    + (choice || 'auto (follows your system)'));
-    b.setAttribute('aria-label', 'Theme: ' + state);
+    b.setAttribute('aria-label', 'Theme: ' + (choice || 'auto'));
   }
   apply();
   window.addEventListener('DOMContentLoaded', function(){
@@ -501,7 +542,7 @@ _THEME_JS = """
     });
   });
 })();
-""" % _THEME_SVG_OPEN.replace('"', '\\"')
+"""
 
 
 # Feather-style 24-viewbox stroke icons; shown in place of nav labels below
@@ -521,6 +562,20 @@ _NAV_ITEMS = (
     ("/history", "History",
      "<circle cx='12' cy='12' r='10'/><polyline points='12 6 12 12 16 14'/>"),
 )
+
+# The brand mark: the Last Bell bell, drawn in currentColor so it follows
+# the brand text through both themes (the source export hard-codes cream).
+_BRAND_ICON = (
+    "<svg class='mark' viewBox='0 0 148 147' fill='none' stroke='currentColor' "
+    "stroke-width='11' stroke-linecap='round' stroke-linejoin='round' "
+    "aria-hidden='true'><path d='M64.8092 115.767C63.4984 116.768 61.9474 "
+    "117.408 60.3116 117.622C58.6758 117.835 57.0125 117.615 55.4884 116.984"
+    "C53.9643 116.353 52.6328 115.332 51.6271 114.024C50.6215 112.717 49.9771 "
+    "111.168 49.7584 109.532M106.807 66.9113C109.674 59.9892 109.674 52.2117 "
+    "106.807 45.2897C103.94 38.3676 98.4401 32.8681 91.5181 30.0009C84.596 "
+    "27.1337 76.8185 27.1337 69.8964 30.0009C62.9744 32.8681 57.4748 38.3676 "
+    "54.6076 45.2897C41.995 75.7392 25.3416 79.0337 25.3416 79.0337L103.64 "
+    "111.466C103.64 111.466 94.1942 97.3608 106.807 66.9113Z'/></svg>")
 
 # Settings sits apart from the page links: always icon-only (no label at any
 # width), right-aligned against the theme toggle.
@@ -587,16 +642,17 @@ def _page(title: str, body: str, nav_students=(), path="") -> str:
         "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
         f"<title>{escape(title)} · Last Bell</title>"
+        "<link rel='icon' type='image/png' href='/static/favicon.png'>"
         "<link rel='stylesheet' href='/static/style.css'>"
         f"<script>{_THEME_JS}</script>"
         "<script src='/static/app.js' defer></script></head><body>"
         "<a class='skip' href='#main'>Skip to content</a>"
-        f"<nav><a class='brand' href='/'>Last Bell</a>"
+        f"<nav><a class='brand' href='/'>{_BRAND_ICON}Last Bell</a>"
         f"{_nav_students(nav_students, path)}{links}"
         f"<a class='gear'{cur('/settings')} href='/settings' "
         f"aria-label='Settings'>{_GEAR_ICON}</a>"
         f"<button id='themetoggle' class='tip-b tip-e' "
-        f"aria-label='Theme'>{_THEME_ICON_AUTO}</button></nav>"
+        f"aria-label='Theme: auto'>{_THEME_ICONS}</button></nav>"
         f"<main id='main'>{body}</main>"
         "<div id='announce' class='vh' role='status' aria-live='polite'>"
         "</div></body></html>"
@@ -962,8 +1018,9 @@ def _course_strip(student, ctx) -> str:
             chips.append(f"<span class='badge bad'>{c['missing']} missing</span>")
         if c["past_due"]:
             chips.append(f"<span class='badge warn'>{c['past_due']} past due</span>")
+        row_class = " class='scoped'" if active else ""
         rows.append(
-            f"<tr{' class=\'scoped\'' if active else ''}>"
+            f"<tr{row_class}>"
             f"<td><a class='tip-s'{_CURRENT if active else ''} href='{href}' "
             f"data-tip='{escape(tip)}'>"
             f"{escape(c['title'])}"
@@ -1145,7 +1202,10 @@ _ASSIGN_COLGROUP = ("<colgroup><col><col class='c-type'><col class='c-due'>"
 
 def _course_card(course, rows, ctx) -> str:
     """One course in the Everything archive: open items surfaced first, the
-    graded backlog collapsed to the newest five behind a no-JS expander."""
+    graded backlog collapsed to the newest five. The rest hide in a
+    ``tbody.overflow`` of the SAME table with the no-JS ``details.more``
+    toggle after it (history's pattern) — so expanding continues the list
+    and the toggle reads "Show less" at the table's end, never mid-table."""
     head = escape(course["title"])
     pct = _pct(course["percent"]) if course["percent"] else ""
     overall = " · ".join(x for x in (pct and f"{pct}%", course["mark"]) if x)
@@ -1180,13 +1240,21 @@ def _course_card(course, rows, ctx) -> str:
              + _ASSIGN_COLGROUP
              + "<tr class='head'><th scope='col'>Assignment</th><th scope='col'>Type</th><th scope='col'>Due</th>"
                "<th scope='col'>Score</th><th scope='col'>Status</th></tr>"
-             + "".join(tr(a) for a in visible) + "</table>")
+             + "".join(tr(a) for a in visible))
     more = ""
     if len(graded) > 5:
-        more = (f"<details class='more'><summary>{_CHEVRON}"
-                f"<span>Show all {len(graded)} graded</span></summary>"
-                f"<table class='assignments'>{_ASSIGN_COLGROUP}"
-                + "".join(tr(a) for a in graded[5:]) + "</table></details>")
+        # Course ids carry colons/spaces ("student:GU:term") — not id-safe.
+        slug = "".join(ch if ch.isalnum() else "-" for ch in course["id"])
+        overflow_id = f"overflow-graded-{slug}"
+        table += (f"<tbody class='overflow' id='{overflow_id}'>"
+                  + "".join(tr(a) for a in graded[5:]) + "</tbody>")
+        more = (f"<details class='more'><summary "
+                f"aria-controls='{overflow_id}'>{_CHEVRON}"
+                f"<span class='when-closed'>Show all {len(graded)} graded</span>"
+                f"<span class='when-open'>Show less</span>"
+                f"<span class='vh'> — the remaining graded rows are added to "
+                f"the table above</span></summary></details>")
+    table += "</table>"
     return f"<div class='card tablecard'>{header}{table}{more}</div>"
 
 
@@ -1242,8 +1310,46 @@ def render_student(student, ctx, nav_students=()) -> str:
                  path=f"/student/{student['agu']}")
 
 
+def _alert_type_badge(alert_type: str) -> str:
+    label, klass = _ALERT_TYPE_BADGE.get(
+        alert_type, (alert_type.replace("_", " "), "muted"))
+    return f"<span class='badge {klass}'>{escape(label)}</span>"
+
+
+def _pager(page: int, last: int, href) -> str:
+    """Previous | 1 … 5 6 7 … 27 | Next — real links (keyboard/SR reachable
+    by default), aria-current on the active number, and the ends rendered as
+    non-focusable spans when there's nowhere to go. Pages are full server
+    loads, so a click lands at the top of the new page by construction —
+    which is why the links carry no #fragment."""
+    if last <= 1:
+        return ""
+
+    def end(kind: str, target: int, arrow: str, label: str, ok: bool) -> str:
+        inner = (f"{arrow}<span class='lbl'>{label}</span>" if kind == "prev"
+                 else f"<span class='lbl'>{label}</span>{arrow}")
+        if not ok:
+            return f"<span class='{kind}' aria-disabled='true'>{inner}</span>"
+        return (f"<a class='{kind}' rel='{kind}' href='{href(target)}' "
+                f"aria-label='{label} page'>{inner}</a>")
+
+    items = []
+    for n in _page_window(page, last):
+        if n is None:
+            items.append("<li class='gap' aria-hidden='true'>…</li>")
+        elif n == page:
+            items.append(f"<li><a aria-current='page' href='{href(n)}'>{n}</a></li>")
+        else:
+            items.append(f"<li><a href='{href(n)}' aria-label='Page {n}'>{n}</a></li>")
+    return (f"<nav class='pager' aria-label='Alert pages'>"
+            + end("prev", page - 1, "←", "Previous", page > 1)
+            + "<ol>" + "".join(items) + "</ol>"
+            + end("next", page + 1, "→", "Next", page < last)
+            + "</nav>")
+
+
 def render_alerts(alerts, counts=(), nav_students=(),
-                  page: int = 1, alert_type: str = "", more: bool = False,
+                  page: int = 1, alert_type: str = "", total: int = 0,
                   today: date | None = None) -> str:
     if not counts:
         body = "<h1>Alerts</h1><p>No alerts yet — quiet is good.</p>"
@@ -1251,6 +1357,7 @@ def render_alerts(alerts, counts=(), nav_students=(),
     import json as _json
 
     today = today or date.today()
+    last = alerts_last_page(total)
 
     def href(t: str, p: int = 1) -> str:
         q = ([f"type={quote(t)}"] if t else []) + ([f"page={p}"] if p > 1 else [])
@@ -1258,10 +1365,10 @@ def render_alerts(alerts, counts=(), nav_students=(),
 
     # Type-group chips: one door per alert type present, with counts. The
     # active chip marks the filter; "all" clears it.
-    total = sum(c["n"] for c in counts)
+    all_n = sum(c["n"] for c in counts)   # every type; `total` is the filter's
     chips = [f"<a class='chip{'' if alert_type else ' active'}'"
              f"{'' if alert_type else _CURRENT} "
-             f"href='/alerts'>all <b>{total}</b></a>"]
+             f"href='/alerts'>all <b>{all_n}</b></a>"]
     chips += [
         f"<a class='chip{' active' if c['type'] == alert_type else ''}'"
         f"{_CURRENT if c['type'] == alert_type else ''} "
@@ -1281,30 +1388,33 @@ def render_alerts(alerts, counts=(), nav_students=(),
             f"<td class='small' data-label='When'>"
             f"{_when_html(al['created_at'], today)}</td>"
             f"<td data-label='Student'>{escape(al['student_name'])}</td>"
-            f"<td data-label='Type'>{escape(al['type'].replace('_', ' '))}</td></tr>")
+            f"<td data-label='Type'>{_alert_type_badge(al['type'])}</td></tr>")
     table = ("<table class='alerts'><tr class='head'><th scope='col'>Detail</th><th scope='col'>When</th>"
              "<th scope='col'>Student</th><th scope='col'>Type</th></tr>"
              + "".join(rows) + "</table>"
              if rows else "<p class='small'>Nothing on this page.</p>")
 
-    pager = ""
-    if page > 1 or more:
-        newer = (f"<a href='{href(alert_type, page - 1)}'>← newer</a>"
-                 if page > 1 else "<span></span>")
-        older = (f"<a href='{href(alert_type, page + 1)}'>older →</a>"
-                 if more else "<span></span>")
-        pager = f"<div class='pager'>{newer}{older}</div>"
+    # "Showing 51–100 of 1,305 alerts" sets expectations before the pager;
+    # a filter names itself so the total reads as that type's count.
+    first = (page - 1) * _ALERTS_PAGE + 1 if total else 0
+    span = (f"{first:,}–{min(page * _ALERTS_PAGE, total):,} of {total:,}"
+            if total > _ALERTS_PAGE else f"all {total:,}")
+    what = f"{alert_type.replace('_', ' ')} alerts" if alert_type else "alerts"
+    range_line = f"<p class='pager-range'>Showing {span} {what}</p>"
+    pager = _pager(page, last, lambda p: href(alert_type, p))
 
     heading = "Recent alerts" if page == 1 else f"Alerts — page {page}"
-    # The tab title carries the active filter — distinguishable history
-    # entries, and screen readers announce where a chip click landed.
+    # The tab title carries the active filter and page — distinguishable
+    # history entries, and screen readers announce where a click landed.
     title = (f"Alerts — {alert_type.replace('_', ' ')}" if alert_type
              else "Alerts")
+    if last > 1:
+        title += f" — page {page} of {last}"
     return _page(title, "<h1>Alerts</h1><div class='card tablecard'>"
                  f"<h2>{heading}</h2>"
                  f"<div class='chips'>{''.join(chips)}</div>"
-                 + table + pager + "</div>", nav_students=nav_students,
-                 path="/alerts")
+                 + table + range_line + pager + "</div>",
+                 nav_students=nav_students, path="/alerts")
 
 
 _HISTORY_PREVIEW = 8   # recent rows shown per section; the rest go behind "Show all"
@@ -1378,7 +1488,9 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
                       + "".join(body_rows[_HISTORY_PREVIEW:]) + "</tbody>")
             more = (f"<details class='more'><summary "
                     f"aria-controls='overflow-{slug}'>{_CHEVRON}"
-                    f"<span>Show all {n}</span><span class='vh'> — "
+                    f"<span class='when-closed'>Show all {n}</span>"
+                    f"<span class='when-open'>Show less</span>"
+                    f"<span class='vh'> — "
                     f"the remaining rows are added to the table "
                     f"above</span></summary></details>")
         table += "</table>"
@@ -1700,10 +1812,18 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
         except ValueError:
             page = 1
         alert_type = (query.get("type") or [""])[0]
-        alert_rows, more = fetch_alerts(conn, page, alert_type)
-        return 200, render_alerts(alert_rows, fetch_alert_counts(conn),
+        counts = fetch_alert_counts(conn)
+        total = alerts_total(counts, alert_type)
+        last = alerts_last_page(total)
+        if page > last:
+            # Past the end (stale bookmark, hand-edited URL): land on the
+            # last real page rather than an empty table, URL kept truthful.
+            q = ([f"type={quote(alert_type)}"] if alert_type else []) + (
+                [f"page={last}"] if last > 1 else [])
+            return 301, "/alerts" + ("?" + "&".join(q) if q else "")
+        return 200, render_alerts(fetch_alerts(conn, page, alert_type), counts,
                                   nav_students=students, page=page,
-                                  alert_type=alert_type, more=more)
+                                  alert_type=alert_type, total=total)
     if path == "/history":
         h_course = (query.get("course") or [""])[0]
         h_field = (query.get("field") or [""])[0]
@@ -1887,6 +2007,9 @@ def serve(db_path: Path, host: str, port: int) -> None:
         _STATIC = {
             "/static/style.css": (_STYLE_PATH, "text/css; charset=utf-8"),
             "/static/app.js": (_APPJS_PATH, "text/javascript; charset=utf-8"),
+            "/static/favicon.png": (_FAVICON_PATH, "image/png"),
+            # Browsers ask for this on their own; answer it rather than 404.
+            "/favicon.ico": (_FAVICON_PATH, "image/png"),
         }
 
         def do_GET(self) -> None:  # noqa: N802 (stdlib name)
