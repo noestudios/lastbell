@@ -339,6 +339,41 @@ def _cmd_watcher_set_channel(args: argparse.Namespace) -> int:
         conn.close()
 
 
+def _cmd_watcher_test(args: argparse.Namespace) -> int:
+    """Send the test message to a watcher's channels — the wizard's "did it
+    arrive?" moment, on demand, for any watcher."""
+    from . import notify, watchers
+
+    conn = _db(cfg.load())
+    try:
+        w = watchers.require_watcher(conn, args.name)
+    finally:
+        conn.close()
+    targets = dict(w.channels)
+    if args.channel:
+        if args.channel not in targets:
+            raise watchers.WatcherError(
+                f"{w.name} has no {args.channel} channel "
+                f"(has: {', '.join(targets) or 'none'})")
+        targets = {args.channel: targets[args.channel]}
+    if not targets:
+        raise watchers.WatcherError(
+            f"{w.name} has no channels yet — add one in the dashboard's "
+            f"Settings page or with `lastbell watcher set-channel`")
+    label = {"sms": "text message"}
+    failed = 0
+    for cname, address in targets.items():
+        where = next(iter(address.values()), "") if address else ""
+        try:
+            notify.send_test(cname, address)
+        except Exception as e:  # missing SMTP settings, network, bad token …
+            failed += 1
+            print(f"✗ {label.get(cname, cname)} {where}: {e}")
+            continue
+        print(f"✓ {label.get(cname, cname)} {where} — sent; check it arrived")
+    return 1 if failed else 0
+
+
 def _cmd_subscribe(args: argparse.Namespace) -> int:
     from . import watchers
 
@@ -575,6 +610,12 @@ def main() -> None:
     p_wc.add_argument("channel", nargs="+", metavar="CH=ADDR",
                       help="CH=ADDR to set; bare CH= to remove")
     p_wc.set_defaults(func=_cmd_watcher_set_channel)
+
+    p_wt = w_sub.add_parser("test", help="send a test message to a watcher's "
+                                          "channels, to prove they work")
+    p_wt.add_argument("name")
+    p_wt.add_argument("--channel", help="just this channel (default: all of them)")
+    p_wt.set_defaults(func=_cmd_watcher_test)
 
     p_wq = w_sub.add_parser("quiet-hours",
                             help="hold this watcher's alerts during a daily window")

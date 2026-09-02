@@ -173,3 +173,72 @@ def test_set_subscription_group_conflict_rolls_back(conn_with_student):
     # nothing changed: both original rows intact
     assert sorted(s.alert_type for s in watchers.list_subscriptions(conn)) \
         == ["grade_changed", "grade_drop"]
+
+
+# ── 0.1.3: `lastbell watcher test` ────────────────────────────────────
+
+
+def _run_cli(monkeypatch, capsys, *argv):
+    import sys
+
+    from lastbell import cli
+    monkeypatch.setattr(sys, "argv", ["lastbell", *argv])
+    try:
+        cli.main()
+    except SystemExit as e:
+        return e.code, capsys.readouterr()
+    raise AssertionError("cli.main() didn't exit")
+
+
+@pytest.fixture
+def cli_db(monkeypatch, tmp_path):
+    from lastbell import store
+    from lastbell.models import WatcherKind
+
+    db = tmp_path / "t.db"
+    monkeypatch.setenv("LASTBELL_DISTRICT", "host.example")
+    monkeypatch.setenv("LASTBELL_USERNAME", "parent1")
+    monkeypatch.setenv("LASTBELL_DB_PATH", str(db))
+    conn = store.connect(db)
+    store.ensure_schema(conn)
+    watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
+                {"sms": {"to": "3015551234@vtext.com"},
+                 "email": {"to": "mom@example.com"}})
+    watchers.add_watcher(conn, "Dad", WatcherKind.GUARDIAN, {})
+    conn.close()
+    return db
+
+
+def test_watcher_test_sends_to_every_channel(cli_db, monkeypatch, capsys):
+    from lastbell import notify
+    sent = []
+    monkeypatch.setattr(notify, "send_test", lambda c, a: sent.append((c, a)))
+    code, out = _run_cli(monkeypatch, capsys, "watcher", "test", "Mom")
+    assert code == 0
+    assert sorted(sent) == [("email", {"to": "mom@example.com"}),
+                            ("sms", {"to": "3015551234@vtext.com"})]
+    assert "✓ text message 3015551234@vtext.com" in out.out
+    assert "✓ email mom@example.com" in out.out
+
+
+def test_watcher_test_one_channel_and_failures(cli_db, monkeypatch, capsys):
+    from lastbell import notify
+
+    def flaky(c, a):
+        if c == "email":
+            raise ValueError("LASTBELL_SMTP_HOST is not set")
+    monkeypatch.setattr(notify, "send_test", flaky)
+    code, out = _run_cli(monkeypatch, capsys, "watcher", "test", "Mom", "--channel", "sms")
+    assert code == 0 and "email" not in out.out
+
+    code, out = _run_cli(monkeypatch, capsys, "watcher", "test", "Mom")
+    assert code == 1
+    assert "✗ email mom@example.com: LASTBELL_SMTP_HOST is not set" in out.out
+    assert "✓ text message" in out.out                 # the other one still went
+
+    code, out = _run_cli(monkeypatch, capsys, "watcher", "test", "Mom", "--channel", "ntfy")
+    assert code == 2 and "has no ntfy channel" in out.err
+    code, out = _run_cli(monkeypatch, capsys, "watcher", "test", "Dad")
+    assert code == 2 and "no channels yet" in out.err
+    code, out = _run_cli(monkeypatch, capsys, "watcher", "test", "Nobody")
+    assert code == 2 and "no watcher named" in out.err
