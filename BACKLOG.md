@@ -31,13 +31,6 @@ services (mention, not license), and anything a fresh sweep of the code
 turns up. Licenses verified, wording consistent with the existing Credits
 section.
 
-## Favicon + wordmark icon
-A favicon, and the same mark rendered small in the nav bar to the left of
-the "LAST BELL" title (added 2026-09-01). One SVG asset should serve both
-(served locally — no external hosts, per the no-internet-LAN-box rule).
-Bell motif is the obvious direction; avoid anything trademark-adjacent
-(Edupoint's VUE marks).
-
 ## Data-freshness indicator (catch-up already works)
 Verified 2026-09-01: the poll loop's wall-clock deadline means a machine
 that was off/asleep polls once within a minute of waking — no hammering,
