@@ -145,8 +145,10 @@ alerts sit in a local SQLite file in your user data dir (in a checkout,
 `data/` — git-ignored, as is `.env`).
 There is no telemetry, no analytics, no phone-home: the only outbound HTTP in
 the codebase is the portal client ([`client.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/client.py)), the
-district preflight ([`preflight.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/preflight.py)), and the alert
-channels **you** configure ([`notify/`](https://github.com/noestudios/lastbell/blob/main/lastbell/notify)).
+district preflight ([`preflight.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/preflight.py)), the alert
+channels **you** configure ([`notify/`](https://github.com/noestudios/lastbell/blob/main/lastbell/notify)), and one
+public PyPI page fetched when — and only when — you click **Check for
+updates** in the dashboard's footer ([`updates.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/updates.py)).
 
 **What leaves is only what you route — and it's low-PII by design.** Alert
 payloads carry initials + course + assignment, never a child's full name
@@ -245,7 +247,9 @@ log, and a **Settings** page where you add the people who should hear about
 each student, give each a text-message or email address, pick which alert
 types they get, and set quiet hours. Every address row has a **test** button
 that sends the same one-line message the wizard did, so "does this actually
-reach Grandma's phone?" is one click. You start with one watcher automatically:
+reach Grandma's phone?" is one click. The footer shows the version you're
+running and a **Check for updates** link that asks PyPI, on that click only,
+whether a newer release exists. You start with one watcher automatically:
 the first run creates a guardian named after the credential holder, subscribed
 to every student, on the considerate default — one daily digest at 4pm, with
 urgent alert types (missing assignment, upcoming deadline, grade drop) sent

@@ -4,6 +4,18 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.1.4 — 2026-09-02
+
+**The dashboard knows what version it is.** The Settings page footer now
+starts with the version you're running, linked to its release notes, and adds
+**What's new** and **Report a problem** links.
+
+**Check for updates, on your click only.** Next to those, **Check for
+updates** asks PyPI whether a newer Last Bell exists and tells you the upgrade
+command. It runs when you click it and never otherwise — no timer, no
+background check — so the "no phone-home" promise stays true; the README says
+so in the same sentence.
+
 ## 0.1.3 — 2026-09-02
 
 **Test any address, any time.** Every address row on the dashboard's Settings
