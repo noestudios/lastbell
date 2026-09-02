@@ -39,12 +39,12 @@ end-of-quarter volume, no real students.
 **Home** — every student at a glance: each course with its current grade,
 and the open-item badges that matter today.
 
-![Home: one card per student with courses, grades, and open-item badges](https://raw.githubusercontent.com/noestudios/lastbell/main/assets/screenshots/home.png)
+![Home: one card per student with courses, grades, and open-item badges](assets/screenshots/home.png)
 
 **The four tracking cards** — a student's page is a set of views, and the
 cards are both the summary and the switch. Each carries its own data story:
 
-![The four tracking cards: Needs attention, Due soon, Recent grades, Everything](https://raw.githubusercontent.com/noestudios/lastbell/main/assets/screenshots/stat-cards.png)
+![The four tracking cards: Needs attention, Due soon, Recent grades, Everything](assets/screenshots/stat-cards.png)
 
 - **Needs attention** — work the teacher marked missing, plus anything
   past due with no grade posted. The count, this week's change, and a
@@ -63,23 +63,23 @@ cards are the front door) and expanded (grade, two-week movement, open
 items, last graded — each course name filters the view below to that class):
 
 <p>
-<img src="https://raw.githubusercontent.com/noestudios/lastbell/main/assets/screenshots/student-collapsed.png" width="49%" alt="Student page with the All Courses strip collapsed">
-<img src="https://raw.githubusercontent.com/noestudios/lastbell/main/assets/screenshots/student-expanded.png" width="49%" alt="Student page with the All Courses strip expanded">
+<img src="assets/screenshots/student-collapsed.png" width="49%" alt="Student page with the All Courses strip collapsed">
+<img src="assets/screenshots/student-expanded.png" width="49%" alt="Student page with the All Courses strip expanded">
 </p>
 
 **Needs attention** — the default view: missing work first, then ungraded
 past-due, each row tinted and iconed so the list scans by color before
 it's read.
 
-![Needs attention panel: missing and ungraded-past-due assignments](https://raw.githubusercontent.com/noestudios/lastbell/main/assets/screenshots/needs-attention-panel.png)
+![Needs attention panel: missing and ungraded-past-due assignments](assets/screenshots/needs-attention-panel.png)
 
 **Alerts and history** — Alerts is everything a watcher was told about,
 grouped by type and paged; History is every grade and status change ever
 seen, filterable by class and by kind of change.
 
 <p>
-<img src="https://raw.githubusercontent.com/noestudios/lastbell/main/assets/screenshots/alerts.png" width="49%" alt="Alerts log with type badges and paging">
-<img src="https://raw.githubusercontent.com/noestudios/lastbell/main/assets/screenshots/history.png" width="49%" alt="Grade history with class and change-kind filters">
+<img src="assets/screenshots/alerts.png" width="49%" alt="Alerts log with type badges and paging">
+<img src="assets/screenshots/history.png" width="49%" alt="Grade history with class and change-kind filters">
 </p>
 
 **Settings** — watchers (guardians *and* students) with their channels,
@@ -87,15 +87,15 @@ and subscriptions: who hears about which student, over which channel,
 immediately or in a daily digest, with the urgent types allowed through
 right away.
 
-![Settings: watchers, channels, and subscriptions](https://raw.githubusercontent.com/noestudios/lastbell/main/assets/screenshots/settings.png)
+![Settings: watchers, channels, and subscriptions](assets/screenshots/settings.png)
 
 **On a phone** — the same pages, no separate app: tables restack into
 cards and the nav collapses to icons.
 
 <p align="center">
-<img src="https://raw.githubusercontent.com/noestudios/lastbell/main/assets/screenshots/mobile-student.png" width="40%" alt="Student page on a phone">
+<img src="assets/screenshots/mobile-student.png" width="40%" alt="Student page on a phone">
 &nbsp;&nbsp;
-<img src="https://raw.githubusercontent.com/noestudios/lastbell/main/assets/screenshots/mobile-alerts.png" width="40%" alt="Alerts on a phone">
+<img src="assets/screenshots/mobile-alerts.png" width="40%" alt="Alerts on a phone">
 </p>
 
 ## Being a good neighbor to the portal
