@@ -50,14 +50,22 @@ def test_parse_index_dedupes_by_id_and_skips_nav():
     assert len(schools) == 6                             # 6 unique; nav links ignored
 
 
-def test_parse_overview_extracts_own_site_and_details():
+def test_parse_overview_extracts_own_site_and_nothing_else():
     ov = R.parse_overview(
         (FIXTURES / "schooloverview_bcc.html").read_text(encoding="utf-8"), "04406")
     assert ov["website"] == "https://bcc-hs.mcpsmd.org/"
     assert ov["short_name"] == "Bethesda-Chevy Chase HS"
-    assert ov["address"] == "4301 East-West Highway, Bethesda, MD 20814"
-    assert ov["phone"] == "240-740-0400"                 # "Phone:" label stripped
     assert ov["overview_url"].endswith("schooloverview.aspx?s=04406")
+    # a link table, not a directory copy: address/phone are on the page
+    # but deliberately not collected
+    assert set(ov) == {"website", "short_name", "overview_url"}
+
+
+def test_bundled_json_is_a_link_table_only():
+    import json
+    data = json.loads((R.OUT_PATH).read_text(encoding="utf-8"))
+    keys = {k for s in data["schools"] for k in s}
+    assert keys == {"id", "name", "short_name", "level", "website", "overview_url"}
 
 
 def test_parse_overview_without_site_falls_back():

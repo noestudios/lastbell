@@ -11,6 +11,12 @@ and the app resolves ParentVUE school names against it in ``lastbell/schools``.
 Re-run it roughly once per school year, or when a school link breaks: review
 the ``git diff`` of the JSON, run ``pytest``, and commit.
 
+Do not run it without MCPS's permission. Their Terms of Use reserve automated
+collection "except as expressly permitted by MCPS"; linking, which is all the
+app does with the result, needs no permission. The JSON is kept to the
+minimum a link table needs — id, names, level, the school's own site and its
+directory page — and nothing else from the directory is copied.
+
 The parsing functions (``parse_index``, ``parse_overview``) are pure and are
 covered by ``tests/test_refresh_schools.py``; only ``refresh`` touches the
 network.
@@ -31,7 +37,7 @@ INDEX_URL = "https://ww2.montgomeryschoolsmd.org/schools/index.aspx"
 OVERVIEW_URL = ("https://ww2.montgomeryschoolsmd.org/schoolodex/"
                 "schooloverview.aspx?s={sid}")
 OUT_PATH = Path(__file__).resolve().parent.parent / "lastbell" / "mcps_schools.json"
-USER_AGENT = "lastbell schools-refresh (+https://github.com/lastbell)"
+USER_AGENT = "lastbell schools-refresh (+https://github.com/noestudios/lastbell)"
 
 # <h2> section headers on the index page, mapped to a coarse level tag. The
 # level is informational metadata; matching in lastbell/schools.py is by name.
@@ -63,24 +69,6 @@ _SITE_RE = re.compile(
 _NAME_RE = re.compile(
     r'id="ContentPlaceHolder1_Schooldata1_ltlSchoolName"[^>]*>(?P<v>[^<]*)<',
     re.IGNORECASE)
-_ADDR_RE = re.compile(
-    r'id="ContentPlaceHolder1_Schooldata1_lblAddress"[^>]*>(?P<v>[^<]*)<',
-    re.IGNORECASE)
-_CITY_RE = re.compile(
-    r'id="ContentPlaceHolder1_Schooldata1_lblCity"[^>]*>(?P<v>[^<]*)<',
-    re.IGNORECASE)
-_STATE_RE = re.compile(
-    r'id="ContentPlaceHolder1_Schooldata1_lblState"[^>]*>(?P<v>[^<]*)<',
-    re.IGNORECASE)
-_ZIP_RE = re.compile(
-    r'id="ContentPlaceHolder1_Schooldata1_lblPostCode"[^>]*>(?P<v>[^<]*)<',
-    re.IGNORECASE)
-# Phone wraps a "<strong>Phone:</strong> 240-…" label, so grab the whole span.
-_PHONE_RE = re.compile(
-    r'id="ContentPlaceHolder1_Schooldata1_lblPhoneMain"[^>]*>(?P<v>.*?)</span>',
-    re.IGNORECASE | re.DOTALL)
-_PHONE_LABEL_RE = re.compile(r"(?i)^phone:\s*")
-
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 
@@ -116,34 +104,17 @@ def parse_index(html: str) -> list[dict]:
 
 
 def parse_overview(html: str, sid: str) -> dict:
-    """Own-site URL (``""`` when the school has none), the overview page's own
-    short name, plus address/phone. ``overview_url`` is the fallback link."""
+    """Own-site URL (``""`` when the school has none) and the overview page's
+    own short name. ``overview_url`` is the fallback link. Nothing else on
+    the page is kept (see the module docstring)."""
     site = _SITE_RE.search(html)
     website = unescape(site.group("url")).strip() if site else ""
     name = _NAME_RE.search(html)
     short_name = _text(name.group("v")) if name else ""
-
-    addr = _ADDR_RE.search(html)
-    city = _CITY_RE.search(html)
-    state = _STATE_RE.search(html)
-    zipc = _ZIP_RE.search(html)
-    street = _text(addr.group("v")) if addr else ""
-    locality = " ".join(p for p in (
-        (_text(city.group("v")) if city else "") +
-        ("," if city else ""),
-        _text(state.group("v")) if state else "",
-        _text(zipc.group("v")) if zipc else "",
-    ) if p).strip()
-    address = ", ".join(p for p in (street, locality) if p)
-
-    phone = _PHONE_RE.search(html)
-    phone_txt = _PHONE_LABEL_RE.sub("", _text(phone.group("v"))) if phone else ""
     return {
         "website": website,
         "short_name": short_name,
         "overview_url": OVERVIEW_URL.format(sid=sid),
-        "address": address,
-        "phone": phone_txt,
     }
 
 
@@ -177,8 +148,7 @@ def refresh(*, out_path: Path = OUT_PATH, dry_run: bool = False,
         except requests.RequestException as e:
             failed += 1
             print(f"  ! {s['name']} (s={s['id']}): {e}", file=sys.stderr)
-            ov = {"website": "", "short_name": "",
-                  "overview_url": url, "address": "", "phone": ""}
+            ov = {"website": "", "short_name": "", "overview_url": url}
         if ov["website"]:
             with_site += 1
         else:
@@ -190,8 +160,6 @@ def refresh(*, out_path: Path = OUT_PATH, dry_run: bool = False,
             "level": s["level"],
             "website": ov["website"],
             "overview_url": ov["overview_url"],
-            "address": ov["address"],
-            "phone": ov["phone"],
         })
         if i % 25 == 0:
             print(f"  …{i}/{len(schools)}", file=sys.stderr)
