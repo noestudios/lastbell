@@ -133,7 +133,7 @@ def test_happy_path_ntfy(wizard_world, monkeypatch):
     script = Script(
         asks=[None,          # district — accept the MCPS default
               "parent1",     # username
-              "1"],          # channel menu: ntfy
+              "3"],          # channel menu: ntfy
         yns=[True,           # ready for test push
              True,           # push arrived
              True],          # run the baseline now
@@ -144,6 +144,7 @@ def test_happy_path_ntfy(wizard_world, monkeypatch):
 
     # district default was offered, answers hit the keyring and the env file
     assert script.ask_log[0][1] == wiz.MCPS_HOST
+    assert script.ask_log[2][1] == "1"                    # text message is the default
     assert wizard_world["keyring"]["parent1"] == "hunter2"
     saved = wiz.read_env(wiz.paths.default_env_file())
     assert saved["LASTBELL_DISTRICT"] == wiz.MCPS_HOST
@@ -170,7 +171,7 @@ def test_rerun_offers_saved_values_as_defaults(wizard_world, monkeypatch):
                    "LASTBELL_USERNAME": "parent1"})
     wizard_world["keyring"]["parent1"] = "stored-pw"
     script = Script(
-        asks=[None, None, "3"],          # accept both saved defaults; console
+        asks=[None, None, "4"],          # accept both saved defaults; console
         yns=[True],                      # run baseline
         passwords=[""])                  # keep the stored password
     script.install(monkeypatch)
@@ -241,7 +242,7 @@ def test_write_env_none_removes_a_key(tmp_path, monkeypatch):
 def test_no_keyring_falls_back_to_env_file(wizard_world, monkeypatch):
     monkeypatch.setattr(wiz, "_keyring_available", lambda: False)
     script = Script(
-        asks=[None, "parent1", "1"],
+        asks=[None, "parent1", "3"],
         yns=[True,        # keep the password in the settings file
              True, True,  # ntfy test push, arrived
              True],       # baseline
@@ -273,7 +274,7 @@ def test_no_keyring_declined_stops_cleanly(wizard_world, monkeypatch):
 def test_linux_unattended_uses_env_file_even_with_keyring(wizard_world, monkeypatch):
     monkeypatch.setattr(wiz, "_is_linux", lambda: True)
     script = Script(
-        asks=[None, "parent1", "3"],
+        asks=[None, "parent1", "4"],
         yns=[True,   # will run as a background service
              True,   # use the settings file
              True],  # baseline
@@ -291,7 +292,7 @@ def test_linux_unattended_uses_env_file_even_with_keyring(wizard_world, monkeypa
 
 def test_linux_attended_keeps_the_keyring(wizard_world, monkeypatch):
     monkeypatch.setattr(wiz, "_is_linux", lambda: True)
-    script = Script(asks=[None, "parent1", "3"],
+    script = Script(asks=[None, "parent1", "4"],
                     yns=[False,  # not a background service
                          True],  # baseline
                     passwords=["hunter2"])
@@ -309,7 +310,7 @@ def test_env_backend_rerun_keeps_stored_password(wizard_world, monkeypatch):
                   {"LASTBELL_USERNAME": "parent1",
                    "LASTBELL_SECRET_BACKEND": "env",
                    "LASTBELL_PASSWORD": "stored-pw"})
-    script = Script(asks=[None, None, "3"], yns=[True, True], passwords=[""])
+    script = Script(asks=[None, None, "4"], yns=[True, True], passwords=[""])
     script.install(monkeypatch)
     prompts = []
     monkeypatch.setattr(wiz, "_getpass", lambda p: prompts.append(p) or "")
@@ -326,7 +327,7 @@ def test_switching_back_to_keyring_scrubs_the_file(wizard_world, monkeypatch):
                   {"LASTBELL_USERNAME": "parent1",
                    "LASTBELL_SECRET_BACKEND": "env",
                    "LASTBELL_PASSWORD": "old-pw"})
-    script = Script(asks=[None, None, "3"],
+    script = Script(asks=[None, None, "4"],
                     yns=[False,  # no longer unattended (default was True: env before)
                          True],
                     passwords=["new-pw"])
@@ -403,6 +404,30 @@ def test_offer_service_survives_installer_error(monkeypatch):
     assert "no launcher" in "\n".join(said)
 
 
+def test_text_message_first_creates_sms_channel(wizard_world, monkeypatch):
+    """Menu option 1 is text message, matching the dashboard's channel set;
+    the watcher gets an `sms` channel, not an `email` one."""
+    monkeypatch.setattr(wiz.secretstore, "set_smtp_password", lambda p: None)
+    script = Script(
+        asks=[None, "parent1", "1",
+              "smtp.example", "587", "me@example.com", None,
+              "3015551234",                    # bare number: rejected, re-asked
+              "3015551234@vtext.com"],
+        yns=[True, True, True],                # test text, arrived, baseline
+        passwords=["hunter2", "smtp-secret"])
+    script.install(monkeypatch)
+
+    assert wiz.main() == 0
+    assert "email-to-SMS gateway" in script.output       # the fix, taught
+    chosen = ("sms", {"to": "3015551234@vtext.com"})
+    assert wizard_world["sends"] == [chosen]
+    assert wizard_world["attached"] == [("parent1", chosen)]
+    saved = wiz.read_env(wiz.paths.default_env_file())
+    assert saved["LASTBELL_SMTP_TO"] == "3015551234@vtext.com"
+    assert saved["LASTBELL_NOTIFY_CHANNEL"] == "email"     # the transport
+    assert "arrive by text message" in script.output
+
+
 def test_non_interactive_refuses(monkeypatch, capsys):
     monkeypatch.setattr(wiz, "_interactive", lambda: False)
     assert wiz.main() == 2
@@ -430,5 +455,17 @@ def test_attach_channel_replaces_console_on_default_watcher(monkeypatch, tmp_pat
     w = watchers.get_watcher(conn, "parent1")
     conn.close()
     assert w.channels == {"ntfy": {"topic": "lastbell-abc"}}
+
+    # the first run seeds an *email* channel from LASTBELL_SMTP_TO; choosing
+    # text message in the wizard must replace it, not deliver twice
+    conn = store.connect(db)
+    watchers.set_channels(conn, "parent1",
+                          {"ntfy": None, "email": {"to": "3015551234@vtext.com"}})
+    conn.close()
+    assert wiz._attach_channel("parent1", ("sms", {"to": "3015551234@vtext.com"}))
+    conn = store.connect(db)
+    w = watchers.get_watcher(conn, "parent1")
+    conn.close()
+    assert w.channels == {"sms": {"to": "3015551234@vtext.com"}}
 
     assert not wiz._attach_channel("nobody", ("ntfy", {"topic": "t"}))

@@ -191,8 +191,9 @@ lastbell run --loop
 `lastbell setup` is an interactive wizard: it confirms your district's portal
 (MCPS offered as the default) before asking anything personal, puts your
 password straight into the OS keyring, verifies login + data path + parsers
-with the preflight, walks you through one notification channel (ntfy push /
-email / SMS) ending in a live test message, offers to run the first
+with the preflight, walks you through one notification channel (text message
+or email; ntfy push for the terminal-minded) ending in a live test message,
+offers to run the first
 collection, and offers to install itself as a background service so the
 third command above becomes optional. Re-run it any time — it remembers your
 answers. Settings land in your user config dir, data in your user data dir
@@ -238,41 +239,46 @@ installed settings file, and typically pins `LASTBELL_DB_PATH=data/lastbell.db`
 to keep state inside the repo tree.
 </details>
 
-Then route alerts to the people who should get them (Phase 3):
-
-```bash
-lastbell watcher add Mom --kind guardian --channel email=mom@example.com
-lastbell watcher add Jasper --kind student --channel ntfy=some-long-secret-topic
-lastbell subscribe Mom jasper                 # all alert types, all her channels
-lastbell subscribe Jasper jasper \
-    --types assignment_missing,upcoming_deadline    # students see nudges, not grades
-lastbell subscriptions                        # who gets what
-lastbell dashboard                            # web UI on 127.0.0.1:8321
-```
+Everything after that happens in the dashboard. `lastbell dashboard` serves
+it at http://127.0.0.1:8321: students, assignments, grade history, the alert
+log, and a **Settings** page where you add the people who should hear about
+each student, give each a text-message or email address, pick which alert
+types they get, and set quiet hours. You start with one watcher automatically:
+the first run creates a guardian named after the credential holder, subscribed
+to every student, on the considerate default — one daily digest at 4pm, with
+urgent alert types (missing assignment, upcoming deadline, grade drop) sent
+immediately. Rename or remove it freely.
 
 Want to see it populated before pointing it at your own kids? `lastbell
 seed-demo` fabricates a fake family at end-of-quarter volume (two marking
 periods, hundreds of assignments, months of history — no real student data)
 and `lastbell dashboard --db <path it prints>` serves it.
 
-Students are referenced by AGU or any unique name/initials prefix; watchers by
-the name you gave them. You start with one automatically: the first `run`
-creates a guardian watcher named after the credential holder, subscribed to
-every student — email seeded from `LASTBELL_SMTP_TO` when set, console
-otherwise. Its delivery follows the considerate default: one daily digest at
-4pm, with urgent alert types (missing assignment, upcoming deadline, grade
-drop) sent immediately. Rename or remove it freely; it's only re-created if
-the watcher list is ever empty again.
+<details>
+<summary>Doing it from the terminal instead</summary>
 
-And shape *when and how much* each person hears (Phase 4):
+Everything the Settings page does has a command, plus three channels the
+dashboard doesn't offer (ntfy push, Telegram, Pushover — see the channel
+table below):
 
 ```bash
+lastbell watcher add Mom --kind guardian --channel sms=3015551234@vtext.com
+lastbell watcher add Jasper --kind student --channel ntfy=some-long-secret-topic
+lastbell subscribe Mom jasper                 # all alert types, all her channels
+lastbell subscribe Jasper jasper \
+    --types assignment_missing,upcoming_deadline    # students see nudges, not grades
 lastbell subscribe Mom jasper --at 17:00      # batch her alerts into a 5pm digest
 lastbell subscribe Mom jasper --types daily_summary --at 07:00   # morning report
 lastbell watcher quiet-hours Jasper 21:00-07:00   # held overnight, never dropped
+lastbell subscriptions                        # who gets what
 lastbell alerts                               # the alert log
 lastbell flush                                # send due digests/summaries now
 ```
+
+Students are referenced by AGU or any unique name/initials prefix; watchers by
+the name you gave them. The default watcher is only re-created if the watcher
+list is ever empty again.
+</details>
 
 In `run --loop`, the portal is polled every `POLL_MINUTES` but the outbox and
 summaries are checked **every minute**, so a 17:00 digest goes out at 17:00 —
@@ -309,14 +315,17 @@ events reach them, over which channels, filtered by alert type. One poll, one
 message per watcher-channel — a watcher subscribed to three alert types gets a
 single message listing everything.
 
-| Channel    | Watcher address        | Transport setup (env)                      |
-|------------|------------------------|--------------------------------------------|
-| `email`    | `email=who@example.com`| `LASTBELL_SMTP_*` (any SMTP account) |
-| *SMS*      | carrier gateway addr, e.g. `email=3015551234@vtext.com` | same as email |
-| `ntfy`     | `ntfy=secret-topic`    | none (public ntfy.sh) or `NTFY_SERVER/TOKEN` |
-| `telegram` | `telegram=<chat_id>`   | `LASTBELL_TELEGRAM_TOKEN` (@BotFather bot) |
-| `pushover` | `pushover=<user_key>`  | `LASTBELL_PUSHOVER_TOKEN` (app token) |
-| `console`  | —                      | none; prints to the run's stdout           |
+| Channel    | Where it goes                                   | Setup                                        |
+|------------|-------------------------------------------------|----------------------------------------------|
+| `sms` (text message) | your phone, via the carrier's free email-to-SMS gateway — the address is `3015551234@vtext.com` (Verizon), `@txt.att.net` (AT&T), `@tmomail.net` (T-Mobile) | `LASTBELL_SMTP_*`: any email account you own; `lastbell setup` asks |
+| `email`    | an inbox                                        | same                                         |
+| `ntfy`     | the free ntfy app (terminal-only)               | none (public ntfy.sh) or `NTFY_SERVER/TOKEN` |
+| `telegram` | a Telegram chat (terminal-only)                 | `LASTBELL_TELEGRAM_TOKEN` (@BotFather bot)   |
+| `pushover` | the Pushover app (terminal-only)                | `LASTBELL_PUSHOVER_TOKEN` (app token)        |
+| `console`  | the run's stdout                                | none                                         |
+
+The wizard and the dashboard offer text message and email — the two every
+parent already has. The other three stay available from `lastbell watcher`.
 
 The web dashboard (`lastbell dashboard`) is for looking things up on
 demand — students, assignments, alert log, grade history, watcher routing —
