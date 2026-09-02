@@ -275,21 +275,17 @@ def _step_notifications(env_path: Path, env: dict) -> Optional[tuple]:
     or None for console/dashboard-only."""
     _say("")
     _say("Step 4 of 5 — how alerts reach you.")
-    _say("  1) text message — to your phone, sent from an email account you own")
-    _say("     through your carrier's free email-to-SMS gateway (recommended)")
-    _say("  2) email — same setup, to an inbox")
-    _say("  3) ntfy — free push-notification app, no account; managed from the")
+    _say("  1) email — to any inbox, sent from an email account you own (recommended)")
+    _say("  2) ntfy — free push-notification app, no account; managed from the")
     _say("     terminal rather than the dashboard")
-    _say("  4) none — just the dashboard and terminal output")
+    _say("  3) none — just the dashboard and terminal output")
     choice = ""
-    while choice not in ("1", "2", "3", "4"):
+    while choice not in ("1", "2", "3"):
         choice = _ask("Pick one", "1")
 
     if choice == "1":
-        return _setup_email(env_path, env, "sms")
+        return _setup_email(env_path, env)
     if choice == "2":
-        return _setup_email(env_path, env, "email")
-    if choice == "3":
         return _setup_ntfy(env_path)
     write_env(env_path, {"LASTBELL_NOTIFY_CHANNEL": "console"})
     _say("  okay — alerts print to the terminal; the dashboard has everything.")
@@ -322,17 +318,14 @@ def _setup_ntfy(env_path: Path) -> Optional[tuple]:
              "then we'll resend.")
 
 
-def _setup_email(env_path: Path, env: dict, kind: str = "email") -> Optional[tuple]:
-    """Text message (``sms``) and email are the same SMTP transport; the
-    channel name is what the dashboard shows and validates against, so the
-    wizard keeps the two apart exactly as the settings page does."""
+def _setup_email(env_path: Path, env: dict) -> Optional[tuple]:
+    """Email over an SMTP account the parent owns. (Text message via the
+    carriers' email-to-SMS gateways was withdrawn in 0.1.5: T-Mobile's and
+    AT&T's are shut down and Verizon's is being retired, so some people
+    would simply never get the message.)"""
     _say("")
     _say("  Alerts are sent from an email account you own, over SMTP —")
     _say("  your provider's docs have the host/port (for Gmail use an App Password).")
-    if kind == "sms":
-        _say("  The text goes to your carrier's free email-to-SMS gateway address:")
-        _say("  3015551234@vtext.com (Verizon) or 3015551234@tmomail.net (T-Mobile).")
-        _say("  (AT&T shut its gateway down in 2025 — AT&T customers: pick email.)")
     values = {
         "LASTBELL_NOTIFY_CHANNEL": "email",   # the Phase-1 fallback transport
         "LASTBELL_SMTP_HOST": _ask("  SMTP host", env.get("LASTBELL_SMTP_HOST", "")),
@@ -344,14 +337,11 @@ def _setup_email(env_path: Path, env: dict, kind: str = "email") -> Optional[tup
         "  From address", env.get("LASTBELL_SMTP_FROM")
         or values["LASTBELL_SMTP_USER"])
     recipient = ""
-    if kind == "sms":
-        prompt = "  Your phone's gateway address (number@carrier-gateway)"
-    else:
-        prompt = "  Send alerts to (email address)"
     while not recipient:
         try:
             recipient = notify.validate_address(
-                kind, _ask(prompt, env.get("LASTBELL_SMTP_TO", "")))
+                "email", _ask("  Send alerts to (email address)",
+                              env.get("LASTBELL_SMTP_TO", "")))
         except ValueError as e:
             _say(f"  ✗ {e}")
     values["LASTBELL_SMTP_TO"] = recipient
@@ -368,21 +358,18 @@ def _setup_email(env_path: Path, env: dict, kind: str = "email") -> Optional[tup
         if smtp_password:
             secretstore.set_smtp_password(smtp_password)
     write_env(env_path, values)
-    chosen = (kind, {"to": recipient})
-    what = "text" if kind == "sms" else "email"
+    chosen = ("email", {"to": recipient})
     while True:
-        if not _ask_yn(f"  Send a test {what} now?", default=True):
+        if not _ask_yn("  Send a test email now?", default=True):
             return chosen
         try:
-            _test_send(kind, {"to": recipient})
+            _test_send("email", {"to": recipient})
         except Exception as e:
             _say(f"  ✗ sending failed ({e.__class__.__name__}: {e})")
             if not _ask_yn("  Re-enter the SMTP settings?", default=True):
                 return chosen
-            return _setup_email(env_path, read_env(env_path), kind)
-        arrived = ("  Test sent — did it arrive (check spam too)?" if kind == "email"
-                   else "  Test sent — did the text arrive?")
-        if _ask_yn(arrived, default=True):
+            return _setup_email(env_path, read_env(env_path))
+        if _ask_yn("  Test sent — did it arrive (check spam too)?", default=True):
             _say("  ✓ notifications are working")
             return chosen
 
@@ -463,19 +450,13 @@ def _step_first_run(username: str, chosen: Optional[tuple]) -> None:
     if chosen is not None:
         channel_name, address = chosen
         address_str = next(iter(address.values()), "")
-        label = {"sms": "text message"}.get(channel_name, channel_name)
         if ran and _attach_channel(username, chosen):
-            _say(f"  ✓ your alerts will arrive by {label}")
+            _say(f"  ✓ your alerts will arrive by {channel_name}")
         elif channel_name == "ntfy":
             # Email needs no fix-up (the first run seeds it from LASTBELL_SMTP_TO),
             # but an ntfy topic lives on the watcher, created by the first run.
             _say(f"  after your first `lastbell run`, attach your topic with:")
             _say(f"      lastbell watcher set-channel {username} ntfy={address_str}")
-        elif channel_name == "sms":
-            # Delivery works either way (the seeded email channel points at the
-            # same gateway address); this just makes the dashboard say "text".
-            _say(f"  after your first `lastbell run`, the dashboard's Settings page")
-            _say(f"  will show that address as email — switch it to text message there.")
 
 
 def main(argv: Optional[list] = None) -> int:

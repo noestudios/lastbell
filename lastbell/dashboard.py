@@ -1582,10 +1582,11 @@ def render_settings(watcher_list, subscriptions, students=(),
     from . import notify
 
     watcher_opts = [(w.name, w.name) for w in watcher_list]
-    # The web UI offers email and text message only (sms rides the email
-    # transport but is its own field). Other channels stay CLI territory.
-    channel_opts = [("email", "email"), ("sms", "text message")]
-    channel_label = dict(channel_opts)
+    # The web UI offers email only (owner's call 2026-09-02: text message via
+    # carrier gateways withdrawn — they're shut down or being retired). Other
+    # channels stay CLI territory; pre-0.1.5 sms rows still render and work.
+    channel_opts = [("email", "email")]
+    channel_label = {"email": "email", "sms": "text message"}
 
     if watcher_list:
         # One row per watcher, then one row per channel under it (each
@@ -1659,9 +1660,8 @@ def render_settings(watcher_list, subscriptions, students=(),
                     f"{_options(remaining)}</select></td>"
                     f"<td data-label='Address'>"
                     f"<input name='to' form='{fid}' aria-label='Address' autocomplete='off' "
-                    f"placeholder='name@example.com / 5551234567@vtext.com' "
-                    f"data-tip='Email address — or, for text message, your carrier&#39;s "
-                    f"email-to-SMS gateway address'></td>"
+                    f"placeholder='name@example.com' "
+                    f"data-tip='Email address'></td>"
                     f"<td data-label='Actions'>"
                     f"<form id='{fid}' method='post' action='/settings/channel' "
                     f"class='rowform'>"
@@ -1679,9 +1679,8 @@ def render_settings(watcher_list, subscriptions, students=(),
         f"<select name='kind' aria-label='Watcher role'>{_options([('guardian', 'guardian'), ('student', 'student')])}</select>"
         f"<select name='channel' aria-label='Channel'>{_options([('', 'no channel yet')] + channel_opts)}</select>"
         "<input name='to' aria-label='Address' autocomplete='off' "
-        "placeholder='name@example.com / 5551234567@vtext.com' "
-        "data-tip='Email address — or, for text message, your carrier&#39;s "
-        "email-to-SMS gateway address'>"
+        "placeholder='name@example.com' "
+        "data-tip='Email address'>"
         "<button>Add watcher</button></form>")
     w_card = ("<div class='card tablecard'><h2>Watchers</h2>"
               + add_form + w_body + "</div>")

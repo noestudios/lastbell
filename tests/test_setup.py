@@ -133,7 +133,7 @@ def test_happy_path_ntfy(wizard_world, monkeypatch):
     script = Script(
         asks=[None,          # district — accept the MCPS default
               "parent1",     # username
-              "3"],          # channel menu: ntfy
+              "2"],          # channel menu: ntfy
         yns=[True,           # ready for test push
              True,           # push arrived
              True],          # run the baseline now
@@ -144,7 +144,7 @@ def test_happy_path_ntfy(wizard_world, monkeypatch):
 
     # district default was offered, answers hit the keyring and the env file
     assert script.ask_log[0][1] == wiz.MCPS_HOST
-    assert script.ask_log[2][1] == "1"                    # text message is the default
+    assert script.ask_log[2][1] == "1"                    # email is the default
     assert wizard_world["keyring"]["parent1"] == "hunter2"
     saved = wiz.read_env(wiz.paths.default_env_file())
     assert saved["LASTBELL_DISTRICT"] == wiz.MCPS_HOST
@@ -171,7 +171,7 @@ def test_rerun_offers_saved_values_as_defaults(wizard_world, monkeypatch):
                    "LASTBELL_USERNAME": "parent1"})
     wizard_world["keyring"]["parent1"] = "stored-pw"
     script = Script(
-        asks=[None, None, "4"],          # accept both saved defaults; console
+        asks=[None, None, "3"],          # accept both saved defaults; console
         yns=[True],                      # run baseline
         passwords=[""])                  # keep the stored password
     script.install(monkeypatch)
@@ -204,9 +204,9 @@ def test_email_path_stores_smtp_password_in_keyring(wizard_world, monkeypatch):
     monkeypatch.setattr(wiz.secretstore, "set_smtp_password",
                         lambda p: smtp_slot.__setitem__("pw", p))
     script = Script(
-        asks=[None, "parent1", "2",              # email channel
+        asks=[None, "parent1", "1",              # email channel
               "smtp.example", "587", "me@example.com", None,   # host/port/user/from
-              "5551234567@vtext.com"],           # recipient (carrier gateway)
+              "mom@example.com"],           # recipient
         yns=[True,   # send test email
              True,   # it arrived
              True],  # run baseline
@@ -217,13 +217,13 @@ def test_email_path_stores_smtp_password_in_keyring(wizard_world, monkeypatch):
     assert smtp_slot["pw"] == "smtp-secret"
     saved = wiz.read_env(wiz.paths.default_env_file())
     assert saved["LASTBELL_SMTP_HOST"] == "smtp.example"
-    assert saved["LASTBELL_SMTP_TO"] == "5551234567@vtext.com"
+    assert saved["LASTBELL_SMTP_TO"] == "mom@example.com"
     assert saved["LASTBELL_SMTP_FROM"] == "me@example.com"   # defaulted from user
     # neither password ever lands in the settings file
     assert "LASTBELL_PASSWORD" not in saved
     assert "LASTBELL_PASSWORD_SMTP" not in saved
     assert "smtp-secret" not in wiz.paths.default_env_file().read_text()
-    assert wizard_world["sends"] == [("email", {"to": "5551234567@vtext.com"})]
+    assert wizard_world["sends"] == [("email", {"to": "mom@example.com"})]
 
 
 # ── Phase 3a: no usable keyring / always-on box → env-file store ──────
@@ -242,7 +242,7 @@ def test_write_env_none_removes_a_key(tmp_path, monkeypatch):
 def test_no_keyring_falls_back_to_env_file(wizard_world, monkeypatch):
     monkeypatch.setattr(wiz, "_keyring_available", lambda: False)
     script = Script(
-        asks=[None, "parent1", "3"],
+        asks=[None, "parent1", "2"],
         yns=[True,        # keep the password in the settings file
              True, True,  # ntfy test push, arrived
              True],       # baseline
@@ -274,7 +274,7 @@ def test_no_keyring_declined_stops_cleanly(wizard_world, monkeypatch):
 def test_linux_unattended_uses_env_file_even_with_keyring(wizard_world, monkeypatch):
     monkeypatch.setattr(wiz, "_is_linux", lambda: True)
     script = Script(
-        asks=[None, "parent1", "4"],
+        asks=[None, "parent1", "3"],
         yns=[True,   # will run as a background service
              True,   # use the settings file
              True],  # baseline
@@ -292,7 +292,7 @@ def test_linux_unattended_uses_env_file_even_with_keyring(wizard_world, monkeypa
 
 def test_linux_attended_keeps_the_keyring(wizard_world, monkeypatch):
     monkeypatch.setattr(wiz, "_is_linux", lambda: True)
-    script = Script(asks=[None, "parent1", "4"],
+    script = Script(asks=[None, "parent1", "3"],
                     yns=[False,  # not a background service
                          True],  # baseline
                     passwords=["hunter2"])
@@ -310,7 +310,7 @@ def test_env_backend_rerun_keeps_stored_password(wizard_world, monkeypatch):
                   {"LASTBELL_USERNAME": "parent1",
                    "LASTBELL_SECRET_BACKEND": "env",
                    "LASTBELL_PASSWORD": "stored-pw"})
-    script = Script(asks=[None, None, "4"], yns=[True, True], passwords=[""])
+    script = Script(asks=[None, None, "3"], yns=[True, True], passwords=[""])
     script.install(monkeypatch)
     prompts = []
     monkeypatch.setattr(wiz, "_getpass", lambda p: prompts.append(p) or "")
@@ -327,7 +327,7 @@ def test_switching_back_to_keyring_scrubs_the_file(wizard_world, monkeypatch):
                   {"LASTBELL_USERNAME": "parent1",
                    "LASTBELL_SECRET_BACKEND": "env",
                    "LASTBELL_PASSWORD": "old-pw"})
-    script = Script(asks=[None, None, "4"],
+    script = Script(asks=[None, None, "3"],
                     yns=[False,  # no longer unattended (default was True: env before)
                          True],
                     passwords=["new-pw"])
@@ -347,7 +347,7 @@ def test_email_with_env_backend_writes_smtp_password_to_file(wizard_world, monke
     monkeypatch.setattr(wiz.secretstore, "set_smtp_password",
                         lambda p: smtp_slot.__setitem__("pw", p))
     script = Script(
-        asks=[None, "parent1", "2",
+        asks=[None, "parent1", "1",
               "smtp.example", "587", "me@example.com", None, "you@example.com"],
         yns=[True,          # settings-file store
              True, True,    # test email, arrived
@@ -404,28 +404,28 @@ def test_offer_service_survives_installer_error(monkeypatch):
     assert "no launcher" in "\n".join(said)
 
 
-def test_text_message_first_creates_sms_channel(wizard_world, monkeypatch):
-    """Menu option 1 is text message, matching the dashboard's channel set;
-    the watcher gets an `sms` channel, not an `email` one."""
+def test_email_is_first_and_gateway_addresses_are_refused(wizard_world, monkeypatch):
+    """Menu option 1 is email (text message was withdrawn in 0.1.5); a
+    carrier gateway address is refused with the reason and re-asked."""
     monkeypatch.setattr(wiz.secretstore, "set_smtp_password", lambda p: None)
     script = Script(
         asks=[None, "parent1", "1",
               "smtp.example", "587", "me@example.com", None,
-              "3015551234",                    # bare number: rejected, re-asked
-              "3015551234@vtext.com"],
-        yns=[True, True, True],                # test text, arrived, baseline
+              "3015551234@vtext.com",          # gateway: refused, re-asked
+              "3015551234@tmomail.net",        # dead gateway: refused, re-asked
+              "mom@example.com"],
+        yns=[True, True, True],                # test email, arrived, baseline
         passwords=["hunter2", "smtp-secret"])
     script.install(monkeypatch)
 
     assert wiz.main() == 0
-    assert "email-to-SMS gateway" in script.output       # the fix, taught
-    chosen = ("sms", {"to": "3015551234@vtext.com"})
+    assert "Verizon is retiring" in script.output
+    assert "T-Mobile shut down" in script.output
+    assert "text message" not in script.output.lower()   # not offered anywhere
+    chosen = ("email", {"to": "mom@example.com"})
     assert wizard_world["sends"] == [chosen]
     assert wizard_world["attached"] == [("parent1", chosen)]
-    saved = wiz.read_env(wiz.paths.default_env_file())
-    assert saved["LASTBELL_SMTP_TO"] == "3015551234@vtext.com"
-    assert saved["LASTBELL_NOTIFY_CHANNEL"] == "email"     # the transport
-    assert "arrive by text message" in script.output
+    assert "arrive by email" in script.output
 
 
 def test_non_interactive_refuses(monkeypatch, capsys):
