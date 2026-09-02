@@ -85,3 +85,81 @@ A test parent on a clean machine goes from nothing → first test
 notification in under 10 minutes using only: install pipx, `pipx install
 lastbell`, `lastbell setup`. No file edited by hand, no README required
 beyond the quickstart block.
+
+## Phase 3 — the always-on box (Raspberry Pi, headless or desktop)
+
+*Handoff written 2026-09-01 for a fresh session. State at handoff: Phases 1–2
+shipped; `lastbell` 0.1.0 is on PyPI (tag → `release.yml`, trusted
+publisher); repo is private at `noestudios/lastbell` (`origin`), suite is
+224 tests green except one known UTC/local-date flake in
+`test_recent_view_groups_by_day…` being fixed on branch
+`claude/awesome-fermi-ca8e9c` in another session — check whether it merged.
+Commit trailer in use: `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
+Demo server for eyeballing UI: launch config `dashboard-demo-2` (port 8329,
+`data/demo.db` from `lastbell seed-demo --db data/demo.db`).*
+
+Motivation: the owner wants this on a Pi that also runs Pi-hole (with a
+desktop session). Two things stand in the way.
+
+### 3a. `lastbell setup` must survive a machine with no usable keyring
+
+Today `setup_wizard._step_credentials` calls `secretstore.get_password`
+(catching only `SecretError`) and `secretstore.set_password` (which calls
+`keyring.set_password` directly). On a box with no Secret Service backend,
+`keyring` raises `keyring.errors.NoKeyringError` (or reports the
+`fail.Keyring` backend) → the wizard dies with a traceback. Even where a
+desktop keyring exists, a daemon started at boot runs outside the login
+session and cannot unlock it — so for an always-on install the keyring is
+the wrong store regardless.
+
+Build:
+1. A probe in `secrets.py` (`keyring_available() -> bool`): try
+   `keyring.get_keyring()` and reject the fail backend / `NoKeyringError`.
+2. In the wizard's credentials step: if the probe fails, **or** the user says
+   the service will run unattended on Linux (ask: "Will Last Bell run as a
+   background service on this machine?"), offer the env-file fallback —
+   explain in one sentence that the password then lives in the settings
+   file (mode 0600) instead of a keyring, write
+   `LASTBELL_SECRET_BACKEND=env` + `LASTBELL_PASSWORD=…` via `write_env`
+   (which already chmods 0600). Same treatment for the SMTP password
+   (`LASTBELL_PASSWORD_SMTP`, read by `secrets.get_smtp_password`).
+3. `secrets.get_password`'s error text should mention the `env` backend.
+4. Tests in `tests/test_setup.py` use the existing `Script` fixture pattern
+   (scripted `_ask/_ask_yn/_getpass`, stubbed keyring); add cases for the
+   fallback path and assert the password never lands in the file when the
+   keyring path is taken.
+5. README "Configuration & secrets" table: add the always-on/Pi row with the
+   stated trade-off (the trust story must stay honest).
+
+### 3b. `lastbell install-service`
+
+"Keep it running" is still the user's problem. Build a subcommand that
+writes and enables the right thing, with `--print` (show, don't install)
+and `--uninstall`:
+
+- **Linux** → a *user* unit at `~/.config/systemd/user/lastbell.service`
+  (no sudo), then `systemctl --user enable --now lastbell` and
+  `loginctl enable-linger $USER` so it runs at boot without a login.
+  `ExecStart` is the resolved `lastbell` executable
+  (`shutil.which` / `sys.argv[0]`; under pipx it's `~/.local/bin/lastbell`)
+  with `run --loop`; `Restart=on-failure`, `RestartSec=60`,
+  `After=network-online.target`. Warn (don't block) when the host timezone
+  is UTC — digests use the local clock (Pi-hole images often ship UTC;
+  fix is `timedatectl set-timezone …`).
+- **macOS** → launchd agent `~/Library/LaunchAgents/com.noestudios.lastbell.plist`
+  (`RunAtLoad`, `KeepAlive`), loaded with `launchctl bootstrap gui/$UID`.
+  Validate generated plists with `plutil -lint` in a test.
+- **Windows** → print the `schtasks` command rather than run it (keep scope
+  small).
+- Tests: generate unit/plist text and assert on content; installation paths
+  go through a `LASTBELL_HOME`-style override or monkeypatched
+  `Path.home()` so nothing touches the real machine. Subprocess calls
+  (`systemctl`, `launchctl`) behind a small runner that tests replace.
+- Wizard step 5 gains "Install it as a background service now?" calling the
+  same code; README quickstart becomes install pipx → `pipx install
+  lastbell` → `lastbell setup` (which offers the service).
+
+### Release afterwards
+Bump `pyproject.toml` and `lastbell/__init__.py` to 0.1.1, tag `v0.1.1`,
+push the tag — `release.yml` publishes. The 0.1.1 README on PyPI will also
+pick up the screenshot tour (0.1.0's predates it).
