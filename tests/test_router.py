@@ -138,17 +138,19 @@ def test_sms_channel_rides_the_email_transport(conn):
 # ── 0.1.3: dead carrier gateways are refused at entry ─────────────────
 
 
-def test_validate_address_refuses_att_gateway():
+def test_validate_address_refuses_every_carrier_gateway():
     from lastbell import notify
-    for domain in ("txt.att.net", "TXT.ATT.NET", "mms.att.net"):
-        with pytest.raises(ValueError, match="AT&T shut down"):
-            notify.validate_address("sms", f"3015551234@{domain}")
-        with pytest.raises(ValueError, match="AT&T shut down"):
-            notify.validate_address("email", f"3015551234@{domain}")
-    assert notify.validate_address("sms", " 3015551234@vtext.com ") == "3015551234@vtext.com"
+    cases = {"txt.att.net": "AT&T shut down", "TXT.ATT.NET": "AT&T shut down",
+             "mms.att.net": "AT&T shut down", "tmomail.net": "T-Mobile shut down",
+             "vtext.com": "Verizon is retiring", "vzwpix.com": "Verizon is retiring"}
+    for domain, reason in cases.items():
+        for channel_name in ("email", "sms"):
+            with pytest.raises(ValueError, match=reason):
+                notify.validate_address(channel_name, f"3015551234@{domain}")
+    assert notify.validate_address("email", " mom@example.com ") == "mom@example.com"
     with pytest.raises(ValueError) as exc:
         notify.validate_address("sms", "3015551234")
-    assert "att.net" not in str(exc.value)             # no longer suggested
+    assert "gateway" not in str(exc.value)             # nothing suggested
 
 
 def test_send_test_uses_the_channel_transport(monkeypatch):

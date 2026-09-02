@@ -339,8 +339,10 @@ def test_settings_page(populated):
     assert (html.index("action='/settings/subscribe'")
             < html.index("<table class='manage' aria-label='Subscriptions'>",
                         html.index("Subscriptions")))
-    # the web UI offers exactly email and text message as channels
-    assert "text message" in html
+    # the web UI offers exactly one channel: email (text message withdrawn
+    # in 0.1.5 — the carrier gateways are gone)
+    assert "text message" not in html
+    assert "vtext" not in html
     for gone in ("ntfy", "telegram", "pushover"):
         assert f"<option value='{gone}'>" not in html
     # the quiet footer credit: © + repo + license links, and it sits outside
@@ -359,11 +361,12 @@ def test_settings_channels_are_rows_under_their_watcher(populated):
     assert "<td class='chname'>email</td>" in html
     assert "value='mom@example.com'" in html
     assert f"form='ch-{w.id}-email'" in html
-    # the add-channel row offers only channels the watcher doesn't have yet
-    start = html.index(f"chadd-{w.id}")
-    add_select = html[start:html.index("</select>", start)]
-    assert "<option value='sms'>text message</option>" in add_select
-    assert "<option value='email'>" not in add_select
+    # the add-channel row offers only channels the watcher doesn't have yet —
+    # and email is the only channel the web UI offers at all (text message
+    # was withdrawn in 0.1.5)
+    assert f"chadd-{w.id}" not in html
+    assert "<option value='sms'>" not in html
+    assert "vtext" not in html
 
 
 def test_watchers_url_redirects_to_settings(populated):
@@ -779,21 +782,27 @@ def test_channel_inputs_dodge_street_address_autofill(populated):
     assert "autocomplete='off'" in html
 
 
-def test_sms_address_must_be_a_gateway_not_a_phone_number(populated):
+def test_gateway_addresses_are_refused_but_legacy_sms_rows_still_work(populated):
+    """Text message was withdrawn in 0.1.5: a carrier gateway is refused on
+    any channel with the reason, while a pre-0.1.5 sms row can still be
+    updated to a real address (it delivers over SMTP) or removed."""
+    from urllib.parse import unquote
     conn = populated
-    watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
+    watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
+                         {"sms": {"to": "3015551234@vtext.com"}})
+    status, target = _post(conn, "channel", watcher="Mom", channel="email",
+                           to="3015551234@vtext.com")
+    assert status == 303 and "Verizon is retiring" in unquote(target)
     status, target = _post(conn, "channel", watcher="Mom", channel="sms",
-                           to="3015551234")
-    assert status == 303 and "err=" in target
-    assert "vtext.com" in target        # the error teaches the gateway format
+                           to="3015551234@tmomail.net")
+    assert status == 303 and "T-Mobile shut down" in unquote(target)
+    # the legacy row still renders (labelled) and can be repointed or removed
+    _, html = _get(conn, "/settings")
+    assert "<td class='chname'>text message</td>" in html
+    _ok(_post(conn, "channel", watcher="Mom", channel="sms", to="mom@example.com"))
+    assert watchers.get_watcher(conn, "Mom").channels == {"sms": {"to": "mom@example.com"}}
+    _ok(_post(conn, "channel-remove", watcher="Mom", channel="sms"))
     assert watchers.get_watcher(conn, "Mom").channels == {}
-    # a proper gateway address goes through
-    _ok(_post(conn, "channel", watcher="Mom", channel="sms",
-              to="3015551234@vtext.com"))
-    assert watchers.get_watcher(conn, "Mom").channels == {
-        "sms": {"to": "3015551234@vtext.com"}}
-
-
 def test_email_address_must_look_like_email(populated):
     conn = populated
     status, target = _post(conn, "watcher-add", name="Dad", kind="guardian",

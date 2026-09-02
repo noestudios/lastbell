@@ -195,9 +195,9 @@ lastbell run --loop
 `lastbell setup` is an interactive wizard: it confirms your district's portal
 (MCPS offered as the default) before asking anything personal, puts your
 password straight into the OS keyring, verifies login + data path + parsers
-with the preflight, walks you through one notification channel (text message
-or email; ntfy push for the terminal-minded) ending in a live test message,
-offers to run the first
+with the preflight, walks you through one notification channel (email; ntfy
+push for the terminal-minded) ending in a live test message, offers to run
+the first
 collection, and offers to install itself as a background service so the
 third command above becomes optional. Re-run it any time — it remembers your
 answers. Settings land in your user config dir, data in your user data dir
@@ -246,8 +246,8 @@ to keep state inside the repo tree.
 Everything after that happens in the dashboard. `lastbell dashboard` serves
 it at http://127.0.0.1:8321: students, assignments, grade history, the alert
 log, and a **Settings** page where you add the people who should hear about
-each student, give each a text-message or email address, pick which alert
-types they get, and set quiet hours. Every address row has a **test** button
+each student, give each an email address, pick which alert types they get,
+and set quiet hours. Every address row has a **test** button
 that sends the same one-line message the wizard did, so "does this actually
 reach Grandma's phone?" is one click. The footer shows the version you're
 running and a **Check for updates** link that asks PyPI, on that click only,
@@ -270,7 +270,7 @@ dashboard doesn't offer (ntfy push, Telegram, Pushover — see the channel
 table below):
 
 ```bash
-lastbell watcher add Mom --kind guardian --channel sms=3015551234@vtext.com
+lastbell watcher add Mom --kind guardian --channel email=mom@example.com
 lastbell watcher add Jasper --kind student --channel ntfy=some-long-secret-topic
 lastbell subscribe Mom jasper                 # all alert types, all her channels
 lastbell subscribe Jasper jasper \
@@ -326,15 +326,19 @@ single message listing everything.
 
 | Channel    | Where it goes                                   | Setup                                        |
 |------------|-------------------------------------------------|----------------------------------------------|
-| `sms` (text message) | your phone, via the carrier's free email-to-SMS gateway — the address is `3015551234@vtext.com` (Verizon) or `@tmomail.net` (T-Mobile). AT&T shut its gateway down in 2025, so AT&T customers use email | `LASTBELL_SMTP_*`: any email account you own; `lastbell setup` asks |
-| `email`    | an inbox                                        | same                                         |
+| `email`    | any inbox                                       | `LASTBELL_SMTP_*`: any email account you own; `lastbell setup` asks |
 | `ntfy`     | the free ntfy app (terminal-only)               | none (public ntfy.sh) or `NTFY_SERVER/TOKEN` |
 | `telegram` | a Telegram chat (terminal-only)                 | `LASTBELL_TELEGRAM_TOKEN` (@BotFather bot)   |
 | `pushover` | the Pushover app (terminal-only)                | `LASTBELL_PUSHOVER_TOKEN` (app token)        |
 | `console`  | the run's stdout                                | none                                         |
 
-The wizard and the dashboard offer text message and email — the two every
-parent already has. The other three stay available from `lastbell watcher`.
+The wizard and the dashboard offer email; the other three stay available
+from `lastbell watcher`. **No text messages**, on purpose: the carriers'
+free email-to-text gateways are gone or going (T-Mobile's shut down in
+December 2024, AT&T's in June 2025, Verizon's is being retired by March 2027
+and already drops messages silently), and a channel that reaches some
+people and never reaches others is worse than none. A gateway address is
+refused at entry with that explanation.
 
 The web dashboard (`lastbell dashboard`) is for looking things up on
 demand — students, assignments, alert log, grade history, watcher routing —

@@ -13,8 +13,11 @@ Two layers:
 * ``Notifier`` (Phase 1) — the single global fallback used when no watcher is
   subscribed to a student; kept so a bare single-user install needs zero setup.
 
-SMS rides the email channel: every US carrier exposes an email→SMS gateway
-(e.g. ``3015551234@vtext.com``), so a watcher's "sms" is just an email address.
+"sms" is legacy: it rode the carriers' email→SMS gateways, which are gone —
+T-Mobile's shut down in December 2024, AT&T's in June 2025, and Verizon is
+retiring its by March 2027 with deliveries already being dropped. Nothing
+offers the channel any more (withdrawn in 0.1.5); rows created earlier keep
+delivering over the email transport rather than silently breaking.
 """
 from __future__ import annotations
 
@@ -33,8 +36,7 @@ class Channel(Protocol):
 
 # The key a bare CLI shorthand value fills in, per channel:
 #   --channel email=kid@example.com  ->  {"to": "kid@example.com"}
-# "sms" IS the email transport (carrier email→SMS gateway address) but keeps
-# its own name so a phone number and an inbox stay two separate fields.
+# "sms" stays only so pre-0.1.5 rows still render, update, and deliver.
 ADDRESS_KEY = {
     "email": "to",
     "sms": "to",
@@ -50,32 +52,36 @@ CHANNEL_NAMES = tuple(ADDRESS_KEY)
 def validate_address(channel_name: str, address: str) -> str:
     """Sanity-check a channel address at entry time (dashboard and CLI).
 
-    email and sms ride SMTP, so the address must look like user@host. The
-    sms case is the one people get wrong: a bare phone number can't be
-    delivered — texting goes through the carrier's email→SMS gateway.
+    email (and legacy sms) ride SMTP, so the address must look like
+    user@host. A carrier email-to-text gateway is refused outright: those
+    are shut down or being retired, and accepting one would mean alerts that
+    silently never arrive — the worst failure this tool can have.
     Raises ValueError with the fix; returns the stripped address.
     """
     address = address.strip()
     if channel_name in ("email", "sms"):
         local, sep, domain = address.partition("@")
         if not sep or not local or "." not in domain:
-            if channel_name == "sms":
-                raise ValueError(
-                    f"{address!r} can't receive texts — use your carrier's "
-                    f"email-to-SMS gateway address, e.g. 5551234567@vtext.com "
-                    f"(Verizon) or 5551234567@tmomail.net (T-Mobile)")
             raise ValueError(
                 f"{address!r} doesn't look like an email address (name@example.com)")
-        if domain.lower() in DEAD_GATEWAYS:
+        dead = DEAD_GATEWAYS.get(domain.lower())
+        if dead:
             raise ValueError(
-                f"{address!r} won't deliver: AT&T shut down its email-to-text "
-                f"gateway in 2025. AT&T customers should use email instead.")
+                f"{address!r} won't deliver: {dead}. Use an email address instead.")
     return address
 
 
-# Carrier gateways that no longer exist. Accepting one would mean alerts that
-# silently never arrive — the worst failure this tool can have.
-DEAD_GATEWAYS = frozenset({"txt.att.net", "mms.att.net"})
+# Carrier email-to-text gateways, all gone or going. Kept as a refusal list so
+# nobody is left waiting for a text that will never come.
+DEAD_GATEWAYS = {
+    "txt.att.net": "AT&T shut down its email-to-text gateway in June 2025",
+    "mms.att.net": "AT&T shut down its email-to-text gateway in June 2025",
+    "tmomail.net": "T-Mobile shut down its email-to-text gateway in December 2024",
+    "vtext.com": "Verizon is retiring its email-to-text gateway (by March 2027) "
+                 "and already drops messages without notice",
+    "vzwpix.com": "Verizon is retiring its email-to-text gateway (by March 2027) "
+                  "and already drops messages without notice",
+}
 
 TEST_SUBJECT = "Last Bell test"
 TEST_BODY = ("This is your Last Bell test message. Alerts about your students "

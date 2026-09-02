@@ -4,6 +4,20 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.1.5 — 2026-09-02
+
+**Text message is withdrawn; email is the default.** The "text message"
+channel relied on the carriers' free email-to-text gateways, and those are
+gone or going: T-Mobile's shut down in December 2024, AT&T's in June 2025,
+and Verizon's is being retired by March 2027 and already drops messages
+without telling anyone — a daily summary sent to a Verizon address was
+accepted by Gmail and never arrived. A channel that reaches some people and
+never reaches others is worse than none, so the wizard and the dashboard now
+offer email (plus ntfy for the terminal-minded), and any carrier-gateway
+address is refused at entry with the reason. Rows created earlier with a
+text-message address keep delivering over the same email transport rather
+than silently breaking; switch them to an email address in Settings.
+
 ## 0.1.4 — 2026-09-02
 
 **The dashboard knows what version it is.** The Settings page footer now

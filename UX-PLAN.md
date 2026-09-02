@@ -80,7 +80,14 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
   (labeled terminal-managed), and creates an `sms` channel — never an
   `email` one holding a gateway address — so the dashboard shows what the
   parent chose. The wizard replaces the first run's seeded placeholder
-  channel instead of adding to it. Addresses are validated at entry
+  channel instead of adding to it. **Reversed later the same day
+  (2026-09-02):** the carriers' email-to-text gateways turned out to be
+  shut down (T-Mobile Dec 2024, AT&T Jun 2025) or being retired with
+  silent drops (Verizon, by Mar 2027) — a daily summary to a vtext.com
+  address was accepted by Gmail and never arrived. Owner's call: text
+  message is withdrawn everywhere (wizard, dashboard, docs); email is the
+  default; gateway addresses are refused at entry; pre-0.1.5 `sms` rows
+  keep delivering over SMTP so nothing silently breaks. Addresses are validated at entry
   (`notify.validate_address`, dashboard + CLI): email/sms must look like
   user@host, and the sms error teaches the carrier gateway format — a bare
   phone number is the mistake it exists to catch.
