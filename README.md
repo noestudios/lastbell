@@ -13,6 +13,8 @@ already use.
 > go](#credentials--student-data-the-actual-guarantees) — every sentence there
 > is backed by linked code.
 
+**Why it's shaped this way.** The people being watched are on the watcher list. Students subscribe to their own missing work and deadlines; grades go to the guardians. That one decision drives the rest: alerts carry initials so a lock screen can show them, the dashboard with full names stays on the machine, and the poller checks the district about as often as a parent would. The rest of this README is the data path and how to run it.
+
 **Status: all roadmap phases complete.** `lastbell run` sweeps **every class** per
 student (via each class row's own `data-focus` payload, the same drill-down
 the portal UI performs), persists a snapshot keyed on the Edupoint assignment
