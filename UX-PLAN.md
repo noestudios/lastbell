@@ -26,6 +26,8 @@ score-as-percent with hover, teacher-named elementary classes, term grouping).
    Per-student cutoffs are a later maybe.
    **Implemented (2026-09-01, Phase C):** default 70, `0` disables;
    documented in `.env.example`. Read at render time by the dashboard only.
+   Env-only and undiscoverable from a pipx install — moving it to a
+   Settings-page control is backlogged (BACKLOG.md, 2026-09-02).
 
 ## Phases
 
