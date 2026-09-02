@@ -1633,6 +1633,12 @@ def render_settings(watcher_list, subscriptions, students=(),
                             f"action='/settings/channel' class='rowform'>{hidden}"
                             f"<button class='upd'>Update</button> "
                             f"<button class='ghost' "
+                            f"aria-label='Send a test "
+                            f"{escape(channel_label.get(cname, cname))} to "
+                            f"{escape(address)}' "
+                            f"formaction='/settings/channel-test'>"
+                            f"test</button> "
+                            f"<button class='ghost' "
                             f"aria-label='Remove "
                             f"{escape(channel_label.get(cname, cname))} channel' "
                             f"formaction='/settings/channel-remove'>"
@@ -1935,6 +1941,23 @@ def _handle_settings_post(conn: sqlite3.Connection, action: str,
             return done(f"Added {label} for {existing.name}"
                         + (f": {addr}" if addr else ""),
                         (f"row-ch-{existing.id}-{cname}",))
+        if action == "channel-test":
+            # Tests the *saved* address: what the next alert would use. An
+            # edited-but-not-updated field is the Update button's business.
+            w = watchermod.require_watcher(conn, val("watcher"))
+            cname = val("channel")
+            if cname not in w.channels:
+                raise watchermod.WatcherError(
+                    f"{w.name} has no {chlabel.get(cname, cname)} channel")
+            address = w.channels[cname]
+            where = next(iter(address.values()), "") if address else ""
+            try:
+                notify.send_test(cname, address)
+            except Exception as e:
+                raise watchermod.WatcherError(
+                    f"Test {chlabel.get(cname, cname)} to {where} failed: {e}")
+            return done(f"Sent a test {chlabel.get(cname, cname)} to {where} — "
+                        f"check that it arrived")
         if action == "channel-remove":
             w = watchermod.require_watcher(conn, val("watcher"))
             cname = val("channel")

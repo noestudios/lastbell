@@ -63,11 +63,31 @@ def validate_address(channel_name: str, address: str) -> str:
                 raise ValueError(
                     f"{address!r} can't receive texts — use your carrier's "
                     f"email-to-SMS gateway address, e.g. 5551234567@vtext.com "
-                    f"(Verizon), 5551234567@txt.att.net (AT&T), or "
-                    f"5551234567@tmomail.net (T-Mobile)")
+                    f"(Verizon) or 5551234567@tmomail.net (T-Mobile)")
             raise ValueError(
                 f"{address!r} doesn't look like an email address (name@example.com)")
+        if domain.lower() in DEAD_GATEWAYS:
+            raise ValueError(
+                f"{address!r} won't deliver: AT&T shut down its email-to-text "
+                f"gateway in 2025. AT&T customers should use email instead.")
     return address
+
+
+# Carrier gateways that no longer exist. Accepting one would mean alerts that
+# silently never arrive — the worst failure this tool can have.
+DEAD_GATEWAYS = frozenset({"txt.att.net", "mms.att.net"})
+
+TEST_SUBJECT = "Last Bell test"
+TEST_BODY = ("This is your Last Bell test message. Alerts about your students "
+             "will arrive here.")
+
+
+def send_test(channel_name: str, address: dict) -> None:
+    """Send the one-line test message a person can recognize on their phone.
+    Used by the setup wizard, `lastbell watcher test`, and the dashboard's
+    Test button, so all three prove the same thing the same way. Raises
+    whatever the transport raises (missing SMTP settings, network, …)."""
+    channel(channel_name).send(address, TEST_SUBJECT, TEST_BODY)
 
 
 def channel(name: str) -> Channel:

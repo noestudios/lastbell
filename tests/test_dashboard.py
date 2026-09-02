@@ -1107,3 +1107,41 @@ def test_history_when_is_local_date_words(populated):
     _, html = _get(populated, "/history")
     assert "When (UTC)" not in html
     assert ">today<span class='vh'>" in html  # visible word + SR timestamp suffix
+
+
+# ── 0.1.3: the per-row test button ────────────────────────────────────
+
+
+def test_settings_channel_rows_offer_a_test_button(populated):
+    watchers.add_watcher(populated, "Mom", WatcherKind.GUARDIAN,
+                         {"email": {"to": "mom@example.com"}})
+    _, html = _get(populated, "/settings")
+    assert "formaction='/settings/channel-test'" in html
+    assert "Send a test email to mom@example.com" in html
+
+
+def test_settings_channel_test_sends_the_saved_address(populated, monkeypatch):
+    from lastbell import notify
+    sent = []
+    monkeypatch.setattr(notify, "send_test", lambda c, a: sent.append((c, a)))
+    conn = populated
+    watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
+                         {"email": {"to": "mom@example.com"}})
+    target = _ok(_post(conn, "channel-test", watcher="Mom", channel="email",
+                       to="edited-but-not-saved@example.com"))
+    assert sent == [("email", {"to": "mom@example.com"})]   # saved, not the field
+    from urllib.parse import unquote
+    assert "Sent a test email to mom@example.com" in unquote(target)
+    assert "check that it arrived" in unquote(target)
+
+    # a transport failure is a banner with the reason, not a 500
+    def boom(c, a):
+        raise ValueError("LASTBELL_SMTP_HOST is not set")
+    monkeypatch.setattr(notify, "send_test", boom)
+    status, target = _post(conn, "channel-test", watcher="Mom", channel="email")
+    assert status == 303 and target.startswith("/settings?err=")
+    assert "LASTBELL_SMTP_HOST" in target
+
+    # asking for a channel the watcher doesn't have
+    status, target = _post(conn, "channel-test", watcher="Mom", channel="sms")
+    assert status == 303 and "no text message channel" in unquote(target)

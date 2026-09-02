@@ -133,3 +133,35 @@ def test_sms_channel_rides_the_email_transport(conn):
     # the real registry maps sms to the email transport class
     from lastbell.notify import ADDRESS_KEY
     assert ADDRESS_KEY["sms"] == "to"
+
+
+# ── 0.1.3: dead carrier gateways are refused at entry ─────────────────
+
+
+def test_validate_address_refuses_att_gateway():
+    from lastbell import notify
+    for domain in ("txt.att.net", "TXT.ATT.NET", "mms.att.net"):
+        with pytest.raises(ValueError, match="AT&T shut down"):
+            notify.validate_address("sms", f"3015551234@{domain}")
+        with pytest.raises(ValueError, match="AT&T shut down"):
+            notify.validate_address("email", f"3015551234@{domain}")
+    assert notify.validate_address("sms", " 3015551234@vtext.com ") == "3015551234@vtext.com"
+    with pytest.raises(ValueError) as exc:
+        notify.validate_address("sms", "3015551234")
+    assert "att.net" not in str(exc.value)             # no longer suggested
+
+
+def test_send_test_uses_the_channel_transport(monkeypatch):
+    from lastbell import notify
+    calls = []
+
+    class Fake:
+        name = "email"
+
+        def send(self, to, subject, body):
+            calls.append((to, subject, body))
+    monkeypatch.setattr(notify, "channel", lambda name: Fake())
+    notify.send_test("email", {"to": "mom@example.com"})
+    (to, subject, body), = calls
+    assert to == {"to": "mom@example.com"}
+    assert subject == "Last Bell test" and "test message" in body

@@ -139,10 +139,7 @@ def _full_check(district: str, username: str, password: str) -> preflight.Report
 
 
 def _test_send(channel_name: str, address: dict) -> None:
-    notify.channel(channel_name).send(
-        address, "Last Bell test",
-        "This is your Last Bell test message. Alerts about your students "
-        "will arrive here.")
+    notify.send_test(channel_name, address)
 
 
 # ── steps ─────────────────────────────────────────────────────────────
@@ -334,7 +331,8 @@ def _setup_email(env_path: Path, env: dict, kind: str = "email") -> Optional[tup
     _say("  your provider's docs have the host/port (for Gmail use an App Password).")
     if kind == "sms":
         _say("  The text goes to your carrier's free email-to-SMS gateway address:")
-        _say("  3015551234@vtext.com (Verizon), @txt.att.net (AT&T), @tmomail.net (T-Mobile).")
+        _say("  3015551234@vtext.com (Verizon) or 3015551234@tmomail.net (T-Mobile).")
+        _say("  (AT&T shut its gateway down in 2025 — AT&T customers: pick email.)")
     values = {
         "LASTBELL_NOTIFY_CHANNEL": "email",   # the Phase-1 fallback transport
         "LASTBELL_SMTP_HOST": _ask("  SMTP host", env.get("LASTBELL_SMTP_HOST", "")),

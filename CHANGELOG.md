@@ -4,6 +4,18 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.1.3 — 2026-09-02
+
+**Test any address, any time.** Every address row on the dashboard's Settings
+page has a **test** button, and `lastbell watcher test <name>` does the same
+from the terminal — the one-line message the setup wizard sends, so "does this
+actually reach Grandma's phone?" no longer means walking the wizard again.
+
+**AT&T's email-to-text gateway is gone, and Last Bell says so.** AT&T shut it
+down in 2025; a `@txt.att.net` address is now refused at entry, in the wizard
+and the dashboard, with the fix (AT&T customers use email). Before this it was
+accepted and the texts silently never arrived.
+
 ## 0.1.2 — 2026-09-01
 
 **Text message is now the first choice in setup.** `lastbell setup` offers

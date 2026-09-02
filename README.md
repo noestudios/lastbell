@@ -243,7 +243,9 @@ Everything after that happens in the dashboard. `lastbell dashboard` serves
 it at http://127.0.0.1:8321: students, assignments, grade history, the alert
 log, and a **Settings** page where you add the people who should hear about
 each student, give each a text-message or email address, pick which alert
-types they get, and set quiet hours. You start with one watcher automatically:
+types they get, and set quiet hours. Every address row has a **test** button
+that sends the same one-line message the wizard did, so "does this actually
+reach Grandma's phone?" is one click. You start with one watcher automatically:
 the first run creates a guardian named after the credential holder, subscribed
 to every student, on the considerate default — one daily digest at 4pm, with
 urgent alert types (missing assignment, upcoming deadline, grade drop) sent
@@ -270,6 +272,7 @@ lastbell subscribe Jasper jasper \
 lastbell subscribe Mom jasper --at 17:00      # batch her alerts into a 5pm digest
 lastbell subscribe Mom jasper --types daily_summary --at 07:00   # morning report
 lastbell watcher quiet-hours Jasper 21:00-07:00   # held overnight, never dropped
+lastbell watcher test Mom                     # send a test to each of her channels
 lastbell subscriptions                        # who gets what
 lastbell alerts                               # the alert log
 lastbell flush                                # send due digests/summaries now
@@ -317,7 +320,7 @@ single message listing everything.
 
 | Channel    | Where it goes                                   | Setup                                        |
 |------------|-------------------------------------------------|----------------------------------------------|
-| `sms` (text message) | your phone, via the carrier's free email-to-SMS gateway — the address is `3015551234@vtext.com` (Verizon), `@txt.att.net` (AT&T), `@tmomail.net` (T-Mobile) | `LASTBELL_SMTP_*`: any email account you own; `lastbell setup` asks |
+| `sms` (text message) | your phone, via the carrier's free email-to-SMS gateway — the address is `3015551234@vtext.com` (Verizon) or `@tmomail.net` (T-Mobile). AT&T shut its gateway down in 2025, so AT&T customers use email | `LASTBELL_SMTP_*`: any email account you own; `lastbell setup` asks |
 | `email`    | an inbox                                        | same                                         |
 | `ntfy`     | the free ntfy app (terminal-only)               | none (public ntfy.sh) or `NTFY_SERVER/TOKEN` |
 | `telegram` | a Telegram chat (terminal-only)                 | `LASTBELL_TELEGRAM_TOKEN` (@BotFather bot)   |
