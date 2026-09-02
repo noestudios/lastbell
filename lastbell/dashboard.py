@@ -23,7 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
-from . import schools
+from . import __version__, schools
 
 # The public home of the project — the settings-footer credit links here.
 _REPO_URL = "https://github.com/noestudios/lastbell"
@@ -1766,12 +1766,23 @@ def render_settings(watcher_list, subscriptions, students=(),
     # The one place the app credits itself: quiet, at the very bottom of the
     # page people already come to for housekeeping. Outside #settings-main so
     # fetch-swaps never repaint it.
+    # Version first: the one thing a bug report needs and a parent can't
+    # otherwise answer. Check for updates is a POST so it only ever runs on
+    # a click — the README promises no phone-home, and this keeps it true.
+    ext = "target='_blank' rel='noopener noreferrer'"
     credit = (
-        "<footer class='credit'>© 2026 "
-        f"<a href='{_REPO_URL}' target='_blank' rel='noopener noreferrer'>"
-        "Chris Hays</a> · "
-        f"<a href='{_REPO_URL}/blob/main/LICENSE' target='_blank' "
-        "rel='noopener noreferrer'>MIT license</a></footer>")
+        "<footer class='credit'>"
+        f"<a href='{_REPO_URL}/releases/tag/v{__version__}' {ext}>"
+        f"Last Bell {__version__}</a> · "
+        f"© 2026 <a href='{_REPO_URL}' {ext}>Chris Hays</a> · "
+        f"<a href='{_REPO_URL}/blob/main/LICENSE' {ext}>MIT license</a> · "
+        f"<a href='{_REPO_URL}/releases' {ext}>What's new</a> · "
+        f"<a href='{_REPO_URL}/issues' {ext}>Report a problem</a> · "
+        "<form method='post' action='/settings/check-updates' class='inline'>"
+        "<button class='linkish' aria-label='Check for updates: asks PyPI "
+        "whether a newer release exists, only when clicked'>"
+        "Check for updates</button></form>"
+        "</footer>")
     # settings-main is the region app.js swaps in place after a fetch-based
     # form post — banner, cards, and toast all live inside it.
     return _page("Settings", "<h1>Settings</h1><div id='settings-main'>"
@@ -1958,6 +1969,14 @@ def _handle_settings_post(conn: sqlite3.Connection, action: str,
                     f"Test {chlabel.get(cname, cname)} to {where} failed: {e}")
             return done(f"Sent a test {chlabel.get(cname, cname)} to {where} — "
                         f"check that it arrived")
+        if action == "check-updates":
+            from . import updates
+
+            try:
+                status, latest = updates.check()
+            except updates.UpdateCheckError as e:
+                raise watchermod.WatcherError(f"Update check failed: {e}")
+            return done(updates.describe(status, latest))
         if action == "channel-remove":
             w = watchermod.require_watcher(conn, val("watcher"))
             cname = val("channel")

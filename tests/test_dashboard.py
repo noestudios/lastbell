@@ -1145,3 +1145,46 @@ def test_settings_channel_test_sends_the_saved_address(populated, monkeypatch):
     # asking for a channel the watcher doesn't have
     status, target = _post(conn, "channel-test", watcher="Mom", channel="sms")
     assert status == 303 and "no text message channel" in unquote(target)
+
+
+# ── 0.1.4: the footer knows its version; Check for updates is on-click ─
+
+
+def test_settings_footer_has_version_links_and_update_check(populated):
+    from lastbell import __version__
+    _, html = _get(populated, "/settings")
+    foot = html[html.index("<footer class='credit'>"):html.index("</footer>")]
+    assert f">Last Bell {__version__}</a>" in foot
+    assert f"/releases/tag/v{__version__}" in foot
+    assert "/releases'" in foot and ">What's new</a>" in foot
+    assert "/issues'" in foot and ">Report a problem</a>" in foot
+    assert "action='/settings/check-updates'" in foot   # a POST: never on load
+    assert "MIT license" in foot and "Chris Hays" in foot
+    # nothing on the students page fetches anything: the footer is Settings-only
+    _, students = _get(populated, "/")
+    assert "check-updates" not in students
+
+
+def test_settings_check_updates_reports_and_never_runs_on_get(populated, monkeypatch):
+    from urllib.parse import unquote
+
+    from lastbell import updates
+    calls = []
+
+    def fake_check():
+        calls.append(1)
+        return "newer", "9.9.9"
+    monkeypatch.setattr(updates, "check", fake_check)
+    _get(populated, "/settings")
+    assert calls == []                                    # rendering never checks
+    target = _ok(_post(populated, "check-updates"))
+    assert calls == [1]
+    assert "9.9.9 is available" in unquote(target)
+    assert "pipx upgrade lastbell" in unquote(target)
+
+    def down():
+        raise updates.UpdateCheckError("couldn't reach PyPI (ConnectionError)")
+    monkeypatch.setattr(updates, "check", down)
+    status, target = _post(populated, "check-updates")
+    assert status == 303 and "Update check failed" in unquote(target)
+    assert "ConnectionError" in unquote(target)
