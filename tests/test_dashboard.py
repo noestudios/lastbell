@@ -250,9 +250,19 @@ def test_everything_collapses_graded_backlog(conn):
     _, html = _get(conn, "/student/1?view=everything")
     assert "details class='more'" in html
     assert "Show all 8 graded" in html
-    # newest five in the open table, the rest behind the expander
-    assert html.index("Quiz 7") < html.index("details class='more'")
-    assert html.index("details class='more'") < html.index("Quiz 0")
+    # History's geometry: ALL rows live in the one table (the backlog in a
+    # hidden tbody.overflow), and the toggle sits after it — so expanding
+    # continues the list and the control ends up at the bottom, never
+    # wedged mid-table.
+    assert "<tbody class='overflow' id='overflow-graded-" in html
+    assert html.index("Quiz 7") < html.index("Quiz 0")          # newest 5 first
+    assert html.index("Quiz 0") < html.index("details class='more'")
+    card = html[html.index("tablecard"):]
+    card = card[:card.index("</div>")]
+    assert card.count("<table") == 1                # one table, one header
+    assert card.count("<tr class='head'>") == 1
+    # the open state relabels the toggle "Show less" (CSS swaps the spans)
+    assert "<span class='when-open'>Show less</span>" in card
 
 
 def test_everything_closed_term_collapses_to_finals_line(conn):
@@ -482,6 +492,7 @@ def test_history_caps_section_with_expander(conn):
     _, html = _get(conn, "/history")
     assert f"Assignments <span class='small'>{n}</span>" in html   # count in heading
     assert "details class='more'" in html and f"Show all {n}" in html
+    assert "<span class='when-open'>Show less</span>" in html
     # Expanding continues the SAME table: overflow rows in a hidden tbody,
     # not a second table with a repeated header.
     assert "<tbody class='overflow' id='overflow-assignments'>" in html
@@ -526,6 +537,19 @@ def test_nav_student_menu_for_narrow_widths(populated):
     css = _STYLE_PATH.read_text(encoding="utf-8")
     assert "nav .navstudents { display: none; }" in css     # collapse rule
     assert "nav details.smenu { display: inline-block; }" in css
+
+
+def test_nav_gear_right_alignment_survives_the_cascade():
+    """The gear's `margin-left: auto` (what pushes gear+theme to the nav's
+    right edge) must come AFTER the hit-area rule whose `margin` shorthand
+    would otherwise reset it at equal specificity — a regression that once
+    left the icons squashed against the page links."""
+    from lastbell.dashboard import _STYLE_PATH
+
+    css = _STYLE_PATH.read_text(encoding="utf-8")
+    push = css.index("nav a.gear { margin-left: auto; }")
+    hit_area = css.index("padding: 0.35rem; margin: -0.35rem;")
+    assert hit_area < push
 
 
 def test_nav_first_names_fall_back_to_full_on_collision():
@@ -889,16 +913,78 @@ def test_alerts_are_newest_first(populated):
     assert html.index("newer alert") < html.index("older alert")
 
 
-def test_alerts_page_older_paging_replaces_the_cap(populated):
+def test_alerts_page_numbered_paging_replaces_the_cap(populated):
     for i in range(55):
         _alert(populated, f"alert number {i}")
     _, html = _get(populated, "/alerts")
     assert html.count("data-label='Type'") == 50
-    assert ">older →</a>" in html and "?page=2" in html
-    assert "← newer" not in html
+    assert "Showing 1–50 of 55 alerts" in html
+    # page 1: Previous is a dead (non-focusable) span, Next is a live link,
+    # and the current page is marked for both eyes and screen readers
+    assert "<span class='prev' aria-disabled='true'>" in html
+    assert "<a class='next' rel='next' href='/alerts?page=2'" in html
+    assert "<a aria-current='page' href='/alerts'>1</a>" in html
+    assert "<title>Alerts — page 1 of 2 · Last Bell</title>" in html
     _, html = _get(populated, "/alerts?page=2")
     assert html.count("data-label='Type'") == 5
-    assert ">← newer</a>" in html and "older →" not in html
+    assert "Showing 51–55 of 55 alerts" in html
+    assert "<a class='prev' rel='prev' href='/alerts'" in html
+    assert "<span class='next' aria-disabled='true'>" in html
+    assert "<a aria-current='page' href='/alerts?page=2'>2</a>" in html
+
+
+def test_alerts_pager_preserves_filter_and_counts_that_type(populated):
+    for i in range(52):
+        _alert(populated, f"drop {i}", AlertType.GRADE_DROP)
+    _alert(populated, "a change")
+    _, html = _get(populated, "/alerts?type=grade_drop&page=2")
+    assert "Showing 51–52 of 52 grade drop alerts" in html
+    pager = html.split("<nav class='pager'")[1].split("</nav>")[0]
+    assert "href='/alerts?type=grade_drop'" in pager        # page 1 keeps the filter
+    assert "href='/alerts?page=" not in pager               # never drops it
+    assert "<nav class='pager' aria-label='Alert pages'>" in html
+
+
+def test_alerts_single_page_has_range_but_no_pager(populated):
+    _alert(populated, "only one")
+    _, html = _get(populated, "/alerts")
+    assert "Showing all 1 alerts" in html
+    assert "class='pager'" not in html
+    assert "<title>Alerts · Last Bell</title>" in html
+
+
+def test_alerts_past_the_end_redirects_to_last_page(populated):
+    for i in range(55):
+        _alert(populated, f"alert number {i}")
+    assert _get(populated, "/alerts?page=999") == (301, "/alerts?page=2")
+    _alert(populated, "one drop", AlertType.GRADE_DROP)
+    assert _get(populated, "/alerts?type=grade_drop&page=7") == (
+        301, "/alerts?type=grade_drop")
+
+
+def test_alerts_type_cell_is_a_severity_badge(populated):
+    _alert(populated, "slipped", AlertType.GRADE_DROP)
+    _alert(populated, "gone", AlertType.ASSIGNMENT_MISSING)
+    _alert(populated, "late", AlertType.UNGRADED_PAST_DUE)
+    _alert(populated, "soon", AlertType.UPCOMING_DEADLINE)
+    _alert(populated, "moved", AlertType.GRADE_CHANGED)
+    _, html = _get(populated, "/alerts")
+    assert "<span class='badge bad'>grade drop</span>" in html
+    assert "<span class='badge bad'>assignment missing</span>" in html
+    assert "<span class='badge warn'>ungraded past due</span>" in html
+    assert "<span class='badge info'>upcoming deadline</span>" in html
+    assert "<span class='badge muted'>grade changed</span>" in html
+
+
+def test_page_window_elides_long_runs_only():
+    from lastbell.dashboard import _page_window as w
+
+    assert w(1, 1) == [1]
+    assert w(3, 5) == [1, 2, 3, 4, 5]                    # nothing to elide
+    assert w(1, 27) == [1, 2, None, 27]
+    assert w(6, 27) == [1, None, 5, 6, 7, None, 27]
+    assert w(27, 27) == [1, None, 26, 27]
+    assert w(3, 27) == [1, 2, 3, 4, None, 27]             # a 1-page gap is shown, not "…"
 
 
 def test_overview_course_names_deep_link_scoped(populated):
@@ -906,11 +992,37 @@ def test_overview_course_names_deep_link_scoped(populated):
     assert "<a href='/student/1?course=709775'>Math &lt;Adv&gt;</a>" in html
 
 
+def test_favicon_and_brand_mark(populated):
+    """The tab icon is a packaged PNG (installed copies must have it too),
+    and the brand link leads with the bell mark drawn in currentColor so it
+    survives both themes."""
+    from lastbell.dashboard import _FAVICON_PATH
+
+    assert _FAVICON_PATH.is_file() and _FAVICON_PATH.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    _, html = _get(populated, "/")
+    assert "<link rel='icon' type='image/png' href='/static/favicon.png'>" in html
+    brand = html.split("class='brand'")[1].split("</a>")[0]
+    assert "<svg class='mark'" in brand and "stroke='currentColor'" in brand
+    assert brand.index("<svg") < brand.index("Last Bell")       # mark before the text
+    assert "#EEEBE5" not in brand                                # no hard-coded cream
+
+
 def test_theme_toggle_is_icon_only(populated):
+    """All three state icons ship in the button (CSS shows the one matching
+    <html data-theme>, set before first paint — no post-load icon swap),
+    and nothing in it is visible text."""
+    import re
+
     _, html = _get(populated, "/")
     btn = html.split("id='themetoggle'")[1].split("</button>")[0]
-    assert "<svg" in btn and "auto" not in btn        # icon, not text
-    assert "aria-label='Theme'" in btn
+    assert btn.count("<svg") == 3
+    for kind in ("auto", "light", "dark"):
+        assert f"<svg class='ic-{kind}'" in btn
+    assert re.sub(r"<[^>]+>", "", btn.split(">", 1)[1]).strip() == ""   # icons, not text
+    assert "aria-label='Theme: auto'" in btn
+    from lastbell.dashboard import _STYLE_PATH
+    css = _STYLE_PATH.read_text(encoding="utf-8")
+    assert ":root[data-theme='dark'] #themetoggle .ic-dark { display: inline-block; }" in css
 
 
 def test_no_native_title_hovers_anywhere(populated):
