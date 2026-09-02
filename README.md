@@ -222,6 +222,17 @@ keyring (which a boot-time service can't unlock) into the owner-only settings
 file, and the wizard says so before doing it. The installer also warns if the
 box's clock is on UTC: digests and quiet hours follow the local clock.
 
+**Upgrading.** The dashboard footer's **Check for updates** link tells you
+when a newer release exists. Then, on the machine running it:
+
+```bash
+pipx upgrade lastbell
+```
+
+and restart the running copy so it picks up the new code: on Linux
+`systemctl --user restart lastbell` (plus `lastbell-dashboard` if you set that
+up); on macOS run `lastbell install-service` again, which reloads the agent.
+
 <details>
 <summary>Running from a source checkout instead</summary>
 

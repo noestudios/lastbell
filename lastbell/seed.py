@@ -247,11 +247,11 @@ def seed_demo(conn: sqlite3.Connection, *, seed: int = 2026,
     mom = watchermod.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
                                  {"email": {"to": "mom.demo@example.com"}})
     maya = watchermod.add_watcher(conn, "Maya", WatcherKind.STUDENT,
-                                  {"sms": {"to": "3015550123@vtext.com"}})
+                                  {"email": {"to": "maya.demo@example.com"}})
     for agu in (_HS.agu, _ES.agu):
         watchermod.subscribe(conn, mom, agu, send_at="16:00", urgent_now=True)
     watchermod.subscribe(conn, maya, _HS.agu,
-                         ["assignment_missing", "upcoming_deadline"], ["sms"])
+                         ["assignment_missing", "upcoming_deadline"], ["email"])
     conn.commit()
 
     return {
