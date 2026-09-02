@@ -147,14 +147,15 @@ def fetch_strip_rows(conn: sqlite3.Connection, student_id: str,
                      term: str = "") -> list[sqlite3.Row]:
     """Course-strip rows: each course with its open-issue counts and the date
     a grade last landed. ``graded_at`` when the source supplied it (the demo
-    seeder does), else the day a score first appeared in grade_history — the
-    live collector never fills graded_at."""
+    seeder does), else the local day a score first appeared in grade_history
+    (seen_at is UTC; the reader's date words are local, as in _when_html) —
+    the live collector never fills graded_at."""
     sql = ("SELECT c.*, "
            "  SUM(a.status = 'missing') AS missing, "
            "  SUM(a.status = 'ungraded_past_due') AS past_due, "
            "  SUM(a.status = 'due') AS due, "
            "  MAX(CASE WHEN a.status = 'graded' THEN COALESCE(a.graded_at, "
-           "      (SELECT substr(MIN(h.seen_at), 1, 10) FROM grade_history h "
+           "      (SELECT date(MIN(h.seen_at), 'localtime') FROM grade_history h "
            "       WHERE h.assignment_id = a.id AND h.field = 'score')) END) "
            "  AS last_graded "
            "FROM courses c LEFT JOIN assignments a ON a.course_id = c.id "
@@ -173,7 +174,7 @@ def fetch_view_rows(conn: sqlite3.Connection, student_id: str,
     the strip's last_graded)."""
     sql = ("SELECT a.*, c.title AS course_title, c.edupoint_gu AS course_gu, "
            "  c.term AS course_term, "
-           "  COALESCE(a.graded_at, (SELECT substr(MIN(h.seen_at), 1, 10) "
+           "  COALESCE(a.graded_at, (SELECT date(MIN(h.seen_at), 'localtime') "
            "    FROM grade_history h WHERE h.assignment_id = a.id "
            "    AND h.field = 'score')) AS graded_on "
            "FROM assignments a JOIN courses c ON c.id = a.course_id "
