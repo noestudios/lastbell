@@ -58,3 +58,26 @@ def set_password(username: str, password: str) -> None:
 def prompt_password(prompt: str = "ParentVUE password (hidden): ") -> str:
     """Read a password from the terminal without echoing it."""
     return getpass.getpass(prompt)
+
+
+# The SMTP account password gets its own keyring slot so `lastbell setup` can
+# keep it out of the env file too. The env var (Docker/CI injection) wins.
+SMTP_ACCOUNT = "smtp"
+
+
+def get_smtp_password() -> str:
+    value = os.environ.get("LASTBELL_PASSWORD_SMTP")
+    if value:
+        return value
+    try:
+        import keyring
+
+        return keyring.get_password(SERVICE, SMTP_ACCOUNT) or ""
+    except Exception:  # no keyring backend: fall back to "no password"
+        return ""
+
+
+def set_smtp_password(password: str) -> None:
+    import keyring
+
+    keyring.set_password(SERVICE, SMTP_ACCOUNT, password)

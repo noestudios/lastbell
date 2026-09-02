@@ -1,5 +1,16 @@
 # Install plan — from "clone and venv" to "paste one line, answer questions"
 
+> **Status (2026-09-01): both phases implemented.** Phase 1: package audit
+> done (wheel carries all package data; suite passes 3.9→3.14, one f-string
+> fixed for the 3.9 floor; `twine check` passes), metadata + classifiers +
+> absolute README links done, data/env defaults moved to platform user dirs
+> (`lastbell/paths.py`; checkout `.env` still wins), release + CI workflows
+> in `.github/workflows/`. Phase 2: `lastbell setup` wizard shipped with
+> tests. **Remaining, human-only:** create the GitHub repo and push (no
+> remote configured yet), manual first `twine upload` to claim `lastbell` on
+> PyPI, then enable trusted publishing for `release.yml` (env `pypi`).
+> The stretch `install-service` item is still open, deliberately.
+
 Goal: a non-techie MCPS parent gets Last Bell running without editing any
 file by hand. Two phases, each shippable alone. (Decided against for now: a
 signed desktop app — real engineering + notarization overhead; and a hosted

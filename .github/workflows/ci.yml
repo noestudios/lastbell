@@ -1,0 +1,49 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the advertised floor (requires-python) — keep it honest here.
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e .[dev]
+      - run: pytest -q
+
+  package:
+    # The wheel must carry the package data (schema.sql, style.css, app.js,
+    # mcps_schools.json) and work from a clean install, not the checkout.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build
+      - name: install the wheel into a clean venv and smoke-test it
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --quiet dist/*.whl
+          cd /tmp
+          /tmp/smoke/bin/python - <<'EOF'
+          import importlib.resources as res
+          for name in ("schema.sql", "style.css", "app.js", "mcps_schools.json", "favicon.png"):
+              data = (res.files("lastbell") / name).read_bytes()
+              assert data, name
+          print("package data ok")
+          EOF
+          /tmp/smoke/bin/lastbell --version
+          /tmp/smoke/bin/lastbell --help > /dev/null
+          /tmp/smoke/bin/parentvue-preflight --help > /dev/null

@@ -1,9 +1,10 @@
 """Central configuration.
 
-Every value comes from an environment variable, optionally seeded from a
-git-ignored ``.env`` file (via python-dotenv). No personal values are hard-coded
-in the source — copy ``.env.example`` to ``.env`` and fill it in. This is what
-keeps a real username or district out of the public repo.
+Every value comes from an environment variable, optionally seeded from an env
+file (via python-dotenv): a ``.env`` in the working directory (checkout /
+Docker workflow), else the installed default (``lastbell setup`` writes it —
+see :mod:`lastbell.paths`). No personal values are hard-coded in the source —
+this is what keeps a real username or district out of the public repo.
 """
 from __future__ import annotations
 
@@ -12,10 +13,14 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-try:  # .env is optional; the process env alone is enough (e.g. in Docker).
+from . import paths
+
+try:  # the env file is optional; the process env alone is enough (e.g. in Docker).
     from dotenv import load_dotenv
 
-    load_dotenv()
+    _env_file = paths.active_env_file()
+    if _env_file is not None:
+        load_dotenv(_env_file)
 except ImportError:  # pragma: no cover
     pass
 
@@ -87,8 +92,10 @@ def load() -> Config:
         username=username,
         secret_backend=_get("LASTBELL_SECRET_BACKEND", "keyring"),
         poll_minutes=poll_minutes,
-        db_path=Path(_get("LASTBELL_DB_PATH", "data/lastbell.db")),
-        snapshot_dir=Path(_get("LASTBELL_SNAPSHOT_DIR", "data/snapshots")),
+        # Defaults live in the platform user-data dir (an installed copy has
+        # no checkout to hold data/); a checkout's .env pins them explicitly.
+        db_path=Path(_get("LASTBELL_DB_PATH") or paths.data_dir() / "lastbell.db"),
+        snapshot_dir=Path(_get("LASTBELL_SNAPSHOT_DIR") or paths.data_dir() / "snapshots"),
         snapshot_retention_days=int(_get("LASTBELL_SNAPSHOT_RETENTION_DAYS", "90")),
         notify_channel=_get("LASTBELL_NOTIFY_CHANNEL", "console"),
         lookahead_days=int(_get("LASTBELL_LOOKAHEAD_DAYS", "7")),
