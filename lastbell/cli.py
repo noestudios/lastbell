@@ -9,6 +9,12 @@ from . import config as cfg
 from . import secrets as secretstore
 
 
+def _cmd_setup(args: argparse.Namespace) -> int:
+    from . import setup_wizard
+
+    return setup_wizard.main()
+
+
 def _cmd_set_password(args: argparse.Namespace) -> int:
     conf = cfg.load()
     pw = secretstore.prompt_password(f"Password for {conf.username} (hidden): ")
@@ -459,9 +465,9 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
 def _cmd_seed_demo(args: argparse.Namespace) -> int:
     from pathlib import Path
 
-    from . import seed, store
+    from . import paths, seed, store
 
-    target = Path(args.db)
+    target = Path(args.db) if args.db else paths.data_dir() / "demo.db"
     conf = cfg.load()
     if target.resolve() == conf.db_path.resolve():
         print(f"refusing to seed demo data into the configured live database "
@@ -492,6 +498,10 @@ def main() -> None:
     parser.add_argument("--version", action="version", version=f"lastbell {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    sub.add_parser("setup", help="interactive first-run wizard: district, "
+                   "credentials, notifications, first collection"
+                   ).set_defaults(func=_cmd_setup)
+
     sub.add_parser("set-password", help="store a credential's password in the OS keyring").set_defaults(func=_cmd_set_password)
 
     p_pre = sub.add_parser("preflight",
@@ -507,7 +517,7 @@ def main() -> None:
     p_pre.add_argument("--show-values", action="store_true",
                        help="reveal names/grades locally (never exported)")
     p_pre.add_argument("--dump", action="store_true",
-                       help="save raw portal pages to data/debug/ (local only)")
+                       help="save raw portal pages to the data dir's debug/ (local only)")
     p_pre.set_defaults(func=_cmd_preflight)
 
     sub.add_parser("discover", help="list students on the configured credential").set_defaults(func=_cmd_discover)
@@ -593,8 +603,8 @@ def main() -> None:
         "seed-demo",
         help="fabricate a demo database: a fake family at quarter-end volume "
              "(screenshots, docs, design work — no real student data)")
-    p_seed.add_argument("--db", default="data/demo.db",
-                        help="where to write it (default: data/demo.db)")
+    p_seed.add_argument("--db",
+                        help="where to write it (default: demo.db in the data dir)")
     p_seed.add_argument("--seed", type=int, default=2026,
                         help="RNG seed; same seed, same database")
     p_seed.add_argument("--force", action="store_true",

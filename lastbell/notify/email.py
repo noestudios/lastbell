@@ -36,11 +36,13 @@ class SmtpTransport:
 
     @classmethod
     def from_env(cls) -> "SmtpTransport":
+        from .. import secrets as secretstore
+
         return cls(
             host=_need("LASTBELL_SMTP_HOST"),
             port=int(os.environ.get("LASTBELL_SMTP_PORT", "587")),
             user=os.environ.get("LASTBELL_SMTP_USER", ""),
-            password=os.environ.get("LASTBELL_PASSWORD_SMTP", ""),
+            password=secretstore.get_smtp_password(),
             sender=_need("LASTBELL_SMTP_FROM"),
         )
 

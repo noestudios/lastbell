@@ -37,7 +37,7 @@ from typing import Callable, Optional
 
 import requests
 
-from . import __version__
+from . import __version__, paths
 from . import secrets as secretstore
 from .client import LoginError, ParentVueClient, ParentVueError
 
@@ -384,8 +384,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--show-values", action="store_true",
                     help="reveal names/grades locally (never included in --report/--json)")
     ap.add_argument("--dump", action="store_true",
-                    help="save raw portal pages to data/debug/ for parser development "
-                         "(contains your students' data — stays local, git-ignored)")
+                    help="save raw portal pages to debug/ in the data dir for parser "
+                         "development (contains your students' data — stays local)")
     args = ap.parse_args(argv)
 
     district = args.district or os.environ.get("LASTBELL_DISTRICT")
@@ -407,7 +407,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             password = secretstore.get_password(username, backend)
         except secretstore.SecretError:
             password = secretstore.prompt_password()
-        dump_dir = Path("data/debug") if args.dump else None
+        dump_dir = paths.data_dir() / "debug" if args.dump else None
         report = run_full(district, base, username, password, dump_dir=dump_dir)
 
     if args.json:
@@ -419,6 +419,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         if report.mode == "full" and not args.show_values:
             print("(names/grades hidden — --show-values reveals them locally; "
                   "--report prints a shareable Markdown version)")
+        if args.dump and report.mode == "full":
+            print(f"(raw portal pages saved to {paths.data_dir() / 'debug'})")
 
     return 0 if report.verdict in ("go", "anonymous-ok") else 1
 

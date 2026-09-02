@@ -38,21 +38,21 @@ the gradebook a few times a day** — never a crawler.
 
 - **Eight polls a day by default** — one every 3 hours
   (`LASTBELL_POLL_MINUTES=180`), and the interval is **clamped to a 15-minute
-  floor in code** ([`config.py`](lastbell/config.py)), so no misconfiguration
+  floor in code** ([`config.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/config.py)), so no misconfiguration
   can hammer anyone's servers.
 - **A poll is small, sequential, and identical to human use**: one login, one
   home page, then per student the gradebook page, the class list, and one
   fragment per class — the very `LoadControl` calls the portal's own UI issues
   when you click through your classes, with a polite pause between them
-  ([`collector.py`](lastbell/collector.py)). A two-student, seven-class
+  ([`collector.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/collector.py)). A two-student, seven-class
   household is ~21 requests per poll (~170/day) — fewer than a single manual
   portal visit loads in page assets alone.
 - **Zero portal traffic between polls.** Digests, summaries, and the dashboard
   run entirely off the local database.
-- **A failed poll just waits for the next cycle** ([`cli.py`](lastbell/cli.py))
+- **A failed poll just waits for the next cycle** ([`cli.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/cli.py))
   — no retry storms.
 - **It identifies itself honestly**: the User-Agent is `lastbell/<version>`
-  ([`client.py`](lastbell/client.py)), not a spoofed browser.
+  ([`client.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/client.py)), not a spoofed browser.
 
 Portal terms vary by district and vendor and are yours to judge — but the
 list above is the *entire* footprint, so you can judge it accurately.
@@ -62,23 +62,24 @@ list above is the *entire* footprint, so you can judge it accurately.
 **Your password touches exactly two things: your OS keyring and your
 district's servers.** `lastbell set-password` stores it in the macOS
 Keychain / Windows Credential Manager / Linux Secret Service
-([`secrets.py`](lastbell/secrets.py)); it never appears in `.env`, the
+([`secrets.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/secrets.py)); it never appears in `.env`, the
 database, logs, or the source tree. (Docker installs inject it via
 `LASTBELL_PASSWORD` from a secret store instead.) At runtime it is held in
 memory and sent to one destination — your district's own login form, over
-HTTPS enforced in [`config.py`](lastbell/config.py) — the same request your
-browser makes ([`client.py`](lastbell/client.py)).
+HTTPS enforced in [`config.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/config.py) — the same request your
+browser makes ([`client.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/client.py)).
 
 **Student data lives on your machine, full stop.** Snapshots, history, and
-alerts sit in a local SQLite file (`data/` is git-ignored, as is `.env`).
+alerts sit in a local SQLite file in your user data dir (in a checkout,
+`data/` — git-ignored, as is `.env`).
 There is no telemetry, no analytics, no phone-home: the only outbound HTTP in
-the codebase is the portal client ([`client.py`](lastbell/client.py)), the
-district preflight ([`preflight.py`](lastbell/preflight.py)), and the alert
-channels **you** configure ([`notify/`](lastbell/notify)).
+the codebase is the portal client ([`client.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/client.py)), the
+district preflight ([`preflight.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/preflight.py)), and the alert
+channels **you** configure ([`notify/`](https://github.com/noestudios/lastbell/blob/main/lastbell/notify)).
 
 **What leaves is only what you route — and it's low-PII by design.** Alert
 payloads carry initials + course + assignment, never a child's full name
-([`router.py`](lastbell/router.py)) — safe for a lock-screen preview. Know
+([`router.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/router.py)) — safe for a lock-screen preview. Know
 your transports: `email` rides your own SMTP account; `ntfy` posts to the
 public ntfy.sh unless you self-host, and **the topic name is the only
 secret** there — make it long and random; `telegram` and `pushover` go
@@ -86,7 +87,7 @@ through those services' APIs.
 
 **The dashboard shows full names, so it binds to `127.0.0.1` only** unless
 you deliberately widen it — the bind address is the access control
-([`config.py`](lastbell/config.py), [`dashboard.py`](lastbell/dashboard.py)).
+([`config.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/config.py), [`dashboard.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/dashboard.py)).
 
 If the code ever stops backing one of these sentences, that's a bug — file it.
 
@@ -100,6 +101,33 @@ your district allows.
 
 ## Quickstart
 
+Three commands, no files to edit. First get [pipx](https://pipx.pypa.io/stable/installation/)
+(macOS: `brew install pipx`, Windows: `py -m pip install --user pipx`, Debian/Ubuntu:
+`sudo apt install pipx`), then:
+
+```bash
+pipx install lastbell
+```
+
+```bash
+lastbell setup
+```
+
+```bash
+lastbell run --loop
+```
+
+`lastbell setup` is an interactive wizard: it confirms your district's portal
+(MCPS offered as the default) before asking anything personal, puts your
+password straight into the OS keyring, verifies login + data path + parsers
+with the preflight, walks you through one notification channel (ntfy push /
+email / SMS) ending in a live test message, and offers to run the first
+collection. Re-run it any time — it remembers your answers. Settings land in
+your user config dir, data in your user data dir (both printed at the end).
+
+<details>
+<summary>Running from a source checkout instead</summary>
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
@@ -112,6 +140,11 @@ lastbell run                # one pass: snapshot, diff, alert (first run = basel
 lastbell run --loop         # keep polling every LASTBELL_POLL_MINUTES
 lastbell collect            # read-only JSON dump of what a run would persist
 ```
+
+A checkout's `.env` (in the working directory) takes precedence over the
+installed settings file, and typically pins `LASTBELL_DB_PATH=data/lastbell.db`
+to keep state inside the repo tree.
+</details>
 
 Then route alerts to the people who should get them (Phase 3):
 
@@ -128,7 +161,7 @@ lastbell dashboard                            # web UI on 127.0.0.1:8321
 Want to see it populated before pointing it at your own kids? `lastbell
 seed-demo` fabricates a fake family at end-of-quarter volume (two marking
 periods, hundreds of assignments, months of history — no real student data)
-and `lastbell dashboard --db data/demo.db` serves it.
+and `lastbell dashboard --db <path it prints>` serves it.
 
 Students are referenced by AGU or any unique name/initials prefix; watchers by
 the name you gave them. You start with one automatically: the first `run`
@@ -159,9 +192,11 @@ fired.
 
 ## Configuration & secrets
 
-All non-secret settings live in a **git-ignored `.env`** (`.env.example` is the
-template). Passwords never go in `.env`, the database, or the source tree — only
-a *reference* to where the secret lives:
+All non-secret settings live in one env file, written for you by `lastbell
+setup` (in your user config dir; a checkout's git-ignored `.env` takes
+precedence, with `.env.example` as its template). Passwords never go in that
+file, the database, or the source tree — only a *reference* to where the
+secret lives:
 
 | Install        | Secret store                                                        |
 |----------------|---------------------------------------------------------------------|
@@ -224,11 +259,11 @@ Exit codes match (0 go, 1 not yet, 2 couldn't run) so it scripts cleanly.
 
 `--report` prints Markdown that is **redacted by construction** — no student
 names, grades, or usernames can appear in it — ready to paste into a
-[district report issue](.github/ISSUE_TEMPLATE/district-report.md). `--json`
+[district report issue](https://github.com/noestudios/lastbell/blob/main/.github/ISSUE_TEMPLATE/district-report.md). `--json`
 is for scripts; `--show-values` reveals names locally only, and is never
-included in exported output; `--dump` saves raw fragments to `data/debug/`
-(personal data — stays local, git-ignored) for parser development. It also
-installs standalone as `parentvue-preflight`.
+included in exported output; `--dump` saves raw fragments to `debug/` in your
+data dir (personal data — stays local, never committed) for parser
+development. It also installs standalone as `parentvue-preflight`.
 
 ## The Phase 0 gate — PASSED
 
@@ -239,11 +274,11 @@ returns server-rendered fragments; assignments arrive as a DevExpress grid
 `dataSource` JSON array (`Date`, `GBAssignment`, `GBScore`, `GBPoints`, … with
 LinkColumn cells wrapping display text and a ready-made
 `Gradebook_AssignmentDetails` drill-down focus). The parsers in
-[`lastbell/gradebook.py`](lastbell/gradebook.py) are wired against
+[`lastbell/gradebook.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/gradebook.py) are wired against
 real captured fragments from both school types.
 
 ```bash
-lastbell preflight --dump   # go/no-go check; saves fragments to data/debug/
+lastbell preflight --dump   # go/no-go check; saves raw fragments locally
 lastbell collect            # normalized JSON for every student and class
 ```
 
@@ -267,7 +302,7 @@ and duplicate screen/print row variants fetched once).
 ## Credits
 
 The dashboard's visual design (colors, type, card and badge styling in
-[`lastbell/style.css`](lastbell/style.css)) is derived from
+[`lastbell/style.css`](https://github.com/noestudios/lastbell/blob/main/lastbell/style.css)) is derived from
 [Purity UI Dashboard](https://github.com/creativetimofficial/purity-ui-dashboard)
 — Copyright (c) 2021 Creative Tim, released under the MIT license; its
 copyright and permission notice applies to those derived styles.
@@ -282,5 +317,5 @@ documentation of the (now largely deprecated) SOAP API lives at
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Because the connector is original code (not a fork),
+MIT — see [LICENSE](https://github.com/noestudios/lastbell/blob/main/LICENSE). Because the connector is original code (not a fork),
 the license is a free choice; MIT is the permissive default for maximum forkability.

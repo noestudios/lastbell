@@ -57,6 +57,22 @@ def test_poll_floor_enforced(monkeypatch, capsys):
     assert capsys.readouterr().err == ""
 
 
+def test_data_defaults_live_in_platform_dir(monkeypatch, tmp_path):
+    """Installed-from-PyPI has no checkout: with nothing pinned, state defaults
+    to the platform user-data dir (here forced via LASTBELL_HOME)."""
+    monkeypatch.setenv("LASTBELL_DISTRICT", "md-mcps-psv.edupoint.com")
+    monkeypatch.setenv("LASTBELL_USERNAME", "someone")
+    monkeypatch.setenv("LASTBELL_HOME", str(tmp_path))
+    monkeypatch.delenv("LASTBELL_DB_PATH", raising=False)
+    monkeypatch.delenv("LASTBELL_SNAPSHOT_DIR", raising=False)
+    conf = cfg.load()
+    assert conf.db_path == tmp_path / "lastbell.db"
+    assert conf.snapshot_dir == tmp_path / "snapshots"
+
+    monkeypatch.setenv("LASTBELL_DB_PATH", "data/lastbell.db")  # checkout pin
+    assert str(cfg.load().db_path) == "data/lastbell.db"
+
+
 def test_placeholder_username_rejected(monkeypatch):
     monkeypatch.setenv("LASTBELL_DISTRICT", "md-mcps-psv.edupoint.com")
     monkeypatch.setenv("LASTBELL_USERNAME", "your_parentvue_username")
