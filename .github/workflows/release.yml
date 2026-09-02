@@ -17,6 +17,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install build
+      - name: absolute image URLs for the PyPI long description
+        # The README keeps relative paths (what GitHub renders, private or
+        # public); pypi.org can only show images by absolute URL.
+        run: sed -i 's#assets/screenshots/#https://raw.githubusercontent.com/noestudios/lastbell/main/assets/screenshots/#g' README.md
       - run: python -m build
       - uses: actions/upload-artifact@v4
         with:
