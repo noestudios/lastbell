@@ -4,6 +4,14 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.1.6 — 2026-09-02
+
+**Demo family uses email.** `lastbell seed-demo` no longer gives a demo
+watcher a text-message address, so the sample dashboard matches what 0.1.5
+offers. The README's Settings screenshot is re-shot from it and the
+quickstart gains an "Upgrading" block: `pipx upgrade lastbell`, then restart
+the running copy (the command per OS is there).
+
 ## 0.1.5 — 2026-09-02
 
 **Text message is withdrawn; email is the default.** The "text message"
