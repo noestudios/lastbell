@@ -20,14 +20,16 @@ from pathlib import Path
 from typing import Optional
 
 from . import config as cfg
-from . import notify, paths, preflight
+from . import notify, paths, preflight, service
 from . import secrets as secretstore
 
 MCPS_HOST = "md-mcps-psv.edupoint.com"
 
 _FRESH_HEADER = [
     "# Last Bell settings — written by `lastbell setup`; safe to edit by hand.",
-    "# Passwords are never stored in this file (they live in the OS keyring).",
+    "# Passwords live in the OS keyring, not here — unless setup was told this",
+    "# is an always-on box with no usable keyring (LASTBELL_SECRET_BACKEND=env),",
+    "# in which case this file holds them and is mode 0600 (owner-only).",
     "",
 ]
 
@@ -85,8 +87,9 @@ def read_env(path: Path) -> dict:
 
 def write_env(path: Path, updates: dict) -> None:
     """Update KEY=VALUE lines in place, preserving comments and unknown keys;
-    new keys are appended. Also exports the values into this process's
-    environment so later wizard steps (preflight, config.load) see them."""
+    new keys are appended, and a value of ``None`` removes the key. Also
+    mirrors the changes into this process's environment so later wizard
+    steps (preflight, config.load) see them."""
     if path.is_file():
         lines = path.read_text(encoding="utf-8").splitlines()
     else:
@@ -99,18 +102,25 @@ def write_env(path: Path, updates: dict) -> None:
         if stripped and not stripped.startswith("#") and "=" in stripped:
             key = stripped.partition("=")[0].strip()
         if key in remaining:
-            out.append(f"{key}={remaining.pop(key)}")
+            value = remaining.pop(key)
+            if value is not None:
+                out.append(f"{key}={value}")
         else:
             out.append(line)
     for key, value in remaining.items():
-        out.append(f"{key}={value}")
+        if value is not None:
+            out.append(f"{key}={value}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(out) + "\n", encoding="utf-8")
-    try:  # not secret (no passwords), but nobody else's business either
+    try:  # owner-only: usually no secrets, but with the env backend there are
         os.chmod(path, 0o600)
     except OSError:  # pragma: no cover — e.g. Windows
         pass
-    os.environ.update(updates)
+    for key, value in updates.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
 
 
 # ── probes (module-level so tests can stub the network) ───────────────
@@ -160,6 +170,40 @@ def _step_district(env_path: Path, env: dict) -> str:
         default = district
 
 
+def _keyring_available() -> bool:
+    return secretstore.keyring_available()
+
+
+def _is_linux() -> bool:
+    return sys.platform.startswith("linux")
+
+
+def _choose_backend(env: dict) -> str:
+    """'keyring' or 'env'. The keyring is the default everywhere it works —
+    except on a Linux box that will run Last Bell unattended: a service
+    started at boot runs outside the login session and can't unlock the
+    desktop keyring, so there the settings file is the honest choice."""
+    current = env.get("LASTBELL_SECRET_BACKEND", "keyring")
+    if not _keyring_available():
+        _say("  This machine has no usable OS keyring (no Secret Service —")
+        _say("  typical for a headless Pi or server). The alternative is the")
+        _say("  settings file: owner-only (mode 0600), but on disk in plain text.")
+        if _ask_yn("  Keep the password in the settings file instead?", default=True):
+            return "env"
+        return "none"
+    if _is_linux():
+        unattended = _ask_yn("  Will Last Bell run as a background service on "
+                             "this machine (starts at boot, no one logged in)?",
+                             default=(current == "env"))
+        if unattended:
+            _say("  A boot-time service can't unlock the desktop keyring, so the")
+            _say("  password goes in the settings file: owner-only (mode 0600),")
+            _say("  but on disk in plain text — the trade-off for always-on.")
+            if _ask_yn("  Use the settings file?", default=True):
+                return "env"
+    return "keyring"
+
+
 def _step_credentials(env_path: Path, env: dict) -> tuple:
     _say("")
     _say("Step 2 of 5 — your ParentVUE login.")
@@ -168,21 +212,42 @@ def _step_credentials(env_path: Path, env: dict) -> tuple:
         username = _ask("Username", env.get("LASTBELL_USERNAME", ""))
     write_env(env_path, {"LASTBELL_USERNAME": username})
 
+    backend = _choose_backend(env)
+    if backend == "none":
+        _say("  okay — nowhere to keep the password, so stopping here. Re-run")
+        _say("  `lastbell setup` after setting up a keyring, or answer yes to")
+        _say("  the settings-file option.")
+        return username, ""
+
     stored: Optional[str] = None
     try:
-        stored = secretstore.get_password(username)
+        stored = secretstore.get_password(username, backend)
     except secretstore.SecretError:
         stored = None
-    prompt = ("Password (hidden — goes straight into your OS keyring, "
-              "never onto disk)")
+    if backend == "env":
+        prompt = ("Password (hidden — saved to the owner-only settings file, "
+                  "sent only to your district)")
+    else:
+        prompt = ("Password (hidden — goes straight into your OS keyring, "
+                  "never onto disk)")
     if stored:
         prompt += " — press Enter to keep the stored one"
     password = _getpass(prompt + ": ")
     if password:
-        secretstore.set_password(username, password)
-        _say(f"  ✓ stored in the OS keyring for {username!r}")
+        if backend == "env":
+            write_env(env_path, {"LASTBELL_SECRET_BACKEND": "env",
+                                 "LASTBELL_PASSWORD": password})
+            _say(f"  ✓ saved in {env_path} (owner-only) for {username!r}")
+        else:
+            secretstore.set_password(username, password)
+            # A switch from a previous env-backend run must not leave the old
+            # password behind in the file.
+            write_env(env_path, {"LASTBELL_SECRET_BACKEND": "keyring",
+                                 "LASTBELL_PASSWORD": None})
+            _say(f"  ✓ stored in the OS keyring for {username!r}")
     elif stored:
         password = stored
+        write_env(env_path, {"LASTBELL_SECRET_BACKEND": backend})
         _say("  keeping the already-stored password")
     else:
         _say("  no password given — re-run `lastbell setup` when you have it.")
@@ -280,11 +345,18 @@ def _setup_email(env_path: Path, env: dict) -> Optional[tuple]:
         except ValueError as e:
             _say(f"  ✗ {e}")
     values["LASTBELL_SMTP_TO"] = recipient
-    smtp_password = _getpass("  SMTP password (hidden — stored in the OS "
-                             "keyring, not the settings file); Enter keeps "
-                             "any stored one: ")
-    if smtp_password:
-        secretstore.set_smtp_password(smtp_password)
+    if env.get("LASTBELL_SECRET_BACKEND") == "env":
+        smtp_password = _getpass("  SMTP password (hidden — saved to the "
+                                 "owner-only settings file, like the portal "
+                                 "password); Enter keeps any stored one: ")
+        if smtp_password:
+            values["LASTBELL_PASSWORD_SMTP"] = smtp_password
+    else:
+        smtp_password = _getpass("  SMTP password (hidden — stored in the OS "
+                                 "keyring, not the settings file); Enter keeps "
+                                 "any stored one: ")
+        if smtp_password:
+            secretstore.set_smtp_password(smtp_password)
     write_env(env_path, values)
     while True:
         if not _ask_yn("  Send a test email now?", default=True):
@@ -336,6 +408,28 @@ def _attach_channel(username: str, chosen: tuple) -> bool:
         conn.close()
 
 
+def _offer_service(unattended: bool) -> bool:
+    """Offer `lastbell install-service` from the wizard; True when installed."""
+    if service.platform_name() not in ("linux", "darwin"):
+        if service.platform_name() == "windows":
+            _say("  To keep it running on Windows, `lastbell install-service`")
+            _say("  prints a Task Scheduler command you can paste.")
+        return False
+    _say("")
+    _say("  Last Bell only alerts while `lastbell run --loop` is running. A")
+    _say("  background service starts it at boot and restarts it if it stops.")
+    if not _ask_yn("  Install it as a background service now?", default=unattended):
+        _say("  skipped — `lastbell install-service` does it later (`--print`"
+             " shows what it would write).")
+        return False
+    try:
+        return service.install(say=_say) == 0
+    except Exception as e:
+        _say(f"  ✗ couldn't install the service ({e.__class__.__name__}: {e})")
+        _say("  `lastbell install-service` retries it; nothing else is affected.")
+        return False
+
+
 def _step_first_run(username: str, chosen: Optional[tuple]) -> None:
     _say("")
     _say("Step 5 of 5 — the first collection.")
@@ -381,11 +475,17 @@ def main(argv: Optional[list] = None) -> int:
         return 1
     chosen = _step_notifications(env_path, read_env(env_path))
     _step_first_run(username, chosen)
+    unattended = read_env(env_path).get("LASTBELL_SECRET_BACKEND") == "env"
+    installed = _offer_service(unattended)
 
     conf = cfg.load()
     _say("")
-    _say("Done. The two commands that matter:")
-    _say("    lastbell run --loop     # keep watching and alerting")
+    if installed:
+        _say("Done. Last Bell is running as a background service; the command")
+        _say("that matters:")
+    else:
+        _say("Done. The two commands that matter:")
+        _say("    lastbell run --loop     # keep watching and alerting")
     _say("    lastbell dashboard      # browse everything at http://127.0.0.1:8321")
     _say(f"Your data lives in {conf.db_path.parent}; settings in {env_path}.")
     if chosen is not None and chosen[0] == "ntfy":
