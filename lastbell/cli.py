@@ -17,10 +17,23 @@ def _cmd_setup(args: argparse.Namespace) -> int:
 
 def _cmd_set_password(args: argparse.Namespace) -> int:
     conf = cfg.load()
+    if conf.secret_backend == "env":
+        raise secretstore.SecretError(
+            "LASTBELL_SECRET_BACKEND=env: the password lives in the settings "
+            "file, not the keyring. Re-run `lastbell setup` to change it, or "
+            "edit LASTBELL_PASSWORD there.")
     pw = secretstore.prompt_password(f"Password for {conf.username} (hidden): ")
     secretstore.set_password(conf.username, pw)
     print(f"Stored password for {conf.username} in the OS keyring.")
     return 0
+
+
+def _cmd_install_service(args: argparse.Namespace) -> int:
+    from . import service
+
+    if args.uninstall:
+        return service.uninstall(print_only=args.print)
+    return service.install(print_only=args.print)
 
 
 def _cmd_preflight(args: argparse.Namespace) -> int:
@@ -504,6 +517,16 @@ def main() -> None:
 
     sub.add_parser("set-password", help="store a credential's password in the OS keyring").set_defaults(func=_cmd_set_password)
 
+    p_svc = sub.add_parser("install-service",
+                           help="keep `run --loop` running: a systemd user unit "
+                                "(Linux) or launchd agent (macOS), started at "
+                                "boot; on Windows prints the Task Scheduler command")
+    p_svc.add_argument("--print", action="store_true",
+                       help="show what would be written and run; change nothing")
+    p_svc.add_argument("--uninstall", action="store_true",
+                       help="stop and remove the service")
+    p_svc.set_defaults(func=_cmd_install_service)
+
     p_pre = sub.add_parser("preflight",
                            help="district go/no-go check (redacted, shareable)")
     p_pre.add_argument("--district", "-d", help="portal hostname (default: env)")
@@ -619,10 +642,12 @@ def main() -> None:
 
         from .client import LoginError, ParentVueError
         from .gradebook import ParseError
+        from .service import ServiceError
         from .watchers import WatcherError
 
         raise SystemExit(args.func(args))
-    except (cfg.ConfigError, secretstore.SecretError, WatcherError, LoginError) as e:
+    except (cfg.ConfigError, secretstore.SecretError, WatcherError, LoginError,
+            ServiceError) as e:
         print(f"error: {e}", file=sys.stderr)
         raise SystemExit(2)
     except ParseError as e:

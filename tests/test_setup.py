@@ -2,11 +2,15 @@
 with the network, keyring, and terminal stubbed out."""
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from lastbell import preflight
 from lastbell import secrets as secretstore
 from lastbell import setup_wizard as wiz
+
+_real_get_password = secretstore.get_password
 
 
 # ── env-file bookkeeping ──────────────────────────────────────────────
@@ -93,7 +97,14 @@ def wizard_world(monkeypatch, tmp_path):
                 "LASTBELL_SNAPSHOT_DIR", "LASTBELL_NOTIFY_CHANNEL"):
         monkeypatch.delenv(var, raising=False)
 
-    world = {"keyring": {}, "sends": [], "baseline_runs": 0, "attached": []}
+    world = {"keyring": {}, "sends": [], "baseline_runs": 0, "attached": [],
+             "service_offers": []}
+    # A desktop with a working keyring, not Linux: the keyring path, no
+    # unattended question. Tests for the fallback flip these.
+    monkeypatch.setattr(wiz, "_keyring_available", lambda: True)
+    monkeypatch.setattr(wiz, "_is_linux", lambda: False)
+    monkeypatch.setattr(wiz, "_offer_service",
+                        lambda unattended: world["service_offers"].append(unattended) or False)
     monkeypatch.setattr(wiz, "_anonymous_check",
                         lambda d: (True, "login form found"))
     monkeypatch.setattr(wiz, "_full_check",
@@ -107,6 +118,8 @@ def wizard_world(monkeypatch, tmp_path):
                         lambda user, chosen: world["attached"].append((user, chosen)) or True)
 
     def fake_get(username, backend="keyring"):
+        if backend == "env":                    # the real thing: reads the process env
+            return _real_get_password(username, backend)
         if username not in world["keyring"]:
             raise secretstore.SecretError("none stored")
         return world["keyring"][username]
@@ -143,6 +156,12 @@ def test_happy_path_ntfy(wizard_world, monkeypatch):
     assert wizard_world["baseline_runs"] == 1
     assert wizard_world["attached"] == [("parent1", ("ntfy", addr))]
     assert "lastbell run --loop" in script.output
+
+    # keyring path: the password never lands in the settings file
+    assert saved["LASTBELL_SECRET_BACKEND"] == "keyring"
+    assert "LASTBELL_PASSWORD" not in saved
+    assert "hunter2" not in wiz.paths.default_env_file().read_text()
+    assert wizard_world["service_offers"] == [False]   # offered, not pre-checked
 
 
 def test_rerun_offers_saved_values_as_defaults(wizard_world, monkeypatch):
@@ -204,6 +223,184 @@ def test_email_path_stores_smtp_password_in_keyring(wizard_world, monkeypatch):
     assert "LASTBELL_PASSWORD_SMTP" not in saved
     assert "smtp-secret" not in wiz.paths.default_env_file().read_text()
     assert wizard_world["sends"] == [("email", {"to": "5551234567@vtext.com"})]
+
+
+# ── Phase 3a: no usable keyring / always-on box → env-file store ──────
+
+
+def test_write_env_none_removes_a_key(tmp_path, monkeypatch):
+    f = tmp_path / "env"
+    wiz.write_env(f, {"LASTBELL_PASSWORD": "pw", "LASTBELL_USERNAME": "p"})
+    assert os.environ["LASTBELL_PASSWORD"] == "pw"
+    wiz.write_env(f, {"LASTBELL_PASSWORD": None})
+    assert "LASTBELL_PASSWORD" not in f.read_text()
+    assert "LASTBELL_USERNAME=p" in f.read_text()
+    assert "LASTBELL_PASSWORD" not in os.environ
+
+
+def test_no_keyring_falls_back_to_env_file(wizard_world, monkeypatch):
+    monkeypatch.setattr(wiz, "_keyring_available", lambda: False)
+    script = Script(
+        asks=[None, "parent1", "1"],
+        yns=[True,        # keep the password in the settings file
+             True, True,  # ntfy test push, arrived
+             True],       # baseline
+        passwords=["hunter2"])
+    script.install(monkeypatch)
+
+    assert wiz.main() == 0
+    env_file = wiz.paths.default_env_file()
+    saved = wiz.read_env(env_file)
+    assert saved["LASTBELL_SECRET_BACKEND"] == "env"
+    assert saved["LASTBELL_PASSWORD"] == "hunter2"
+    assert wizard_world["keyring"] == {}                      # keyring untouched
+    assert (env_file.stat().st_mode & 0o777) == 0o600
+    assert "no usable OS keyring" in script.output
+    assert "plain text" in script.output                     # the trade-off, said
+    assert wizard_world["service_offers"] == [True]          # service pre-checked
+
+
+def test_no_keyring_declined_stops_cleanly(wizard_world, monkeypatch):
+    monkeypatch.setattr(wiz, "_keyring_available", lambda: False)
+    script = Script(asks=[None, "parent1"], yns=[False], passwords=[])
+    script.install(monkeypatch)
+    assert wiz.main() == 1
+    saved = wiz.read_env(wiz.paths.default_env_file())
+    assert saved["LASTBELL_USERNAME"] == "parent1"            # progress kept
+    assert "LASTBELL_PASSWORD" not in saved
+
+
+def test_linux_unattended_uses_env_file_even_with_keyring(wizard_world, monkeypatch):
+    monkeypatch.setattr(wiz, "_is_linux", lambda: True)
+    script = Script(
+        asks=[None, "parent1", "3"],
+        yns=[True,   # will run as a background service
+             True,   # use the settings file
+             True],  # baseline
+        passwords=["hunter2"])
+    script.install(monkeypatch)
+
+    assert wiz.main() == 0
+    saved = wiz.read_env(wiz.paths.default_env_file())
+    assert saved["LASTBELL_SECRET_BACKEND"] == "env"
+    assert saved["LASTBELL_PASSWORD"] == "hunter2"
+    assert wizard_world["keyring"] == {}
+    assert "can't unlock the desktop keyring" in script.output
+    assert wizard_world["service_offers"] == [True]
+
+
+def test_linux_attended_keeps_the_keyring(wizard_world, monkeypatch):
+    monkeypatch.setattr(wiz, "_is_linux", lambda: True)
+    script = Script(asks=[None, "parent1", "3"],
+                    yns=[False,  # not a background service
+                         True],  # baseline
+                    passwords=["hunter2"])
+    script.install(monkeypatch)
+    assert wiz.main() == 0
+    saved = wiz.read_env(wiz.paths.default_env_file())
+    assert saved["LASTBELL_SECRET_BACKEND"] == "keyring"
+    assert "LASTBELL_PASSWORD" not in saved
+    assert wizard_world["keyring"]["parent1"] == "hunter2"
+
+
+def test_env_backend_rerun_keeps_stored_password(wizard_world, monkeypatch):
+    monkeypatch.setattr(wiz, "_keyring_available", lambda: False)
+    wiz.write_env(wiz.paths.default_env_file(),
+                  {"LASTBELL_USERNAME": "parent1",
+                   "LASTBELL_SECRET_BACKEND": "env",
+                   "LASTBELL_PASSWORD": "stored-pw"})
+    script = Script(asks=[None, None, "3"], yns=[True, True], passwords=[""])
+    script.install(monkeypatch)
+    prompts = []
+    monkeypatch.setattr(wiz, "_getpass", lambda p: prompts.append(p) or "")
+    assert wiz.main() == 0
+    assert "press Enter to keep the stored one" in prompts[0]
+    assert wiz.read_env(wiz.paths.default_env_file())["LASTBELL_PASSWORD"] == "stored-pw"
+
+
+def test_switching_back_to_keyring_scrubs_the_file(wizard_world, monkeypatch):
+    """A box that used the env store, later given a keyring: the old password
+    must not linger in the settings file."""
+    monkeypatch.setattr(wiz, "_is_linux", lambda: True)
+    wiz.write_env(wiz.paths.default_env_file(),
+                  {"LASTBELL_USERNAME": "parent1",
+                   "LASTBELL_SECRET_BACKEND": "env",
+                   "LASTBELL_PASSWORD": "old-pw"})
+    script = Script(asks=[None, None, "3"],
+                    yns=[False,  # no longer unattended (default was True: env before)
+                         True],
+                    passwords=["new-pw"])
+    script.install(monkeypatch)
+    assert wiz.main() == 0
+    text = wiz.paths.default_env_file().read_text()
+    assert "old-pw" not in text and "new-pw" not in text
+    saved = wiz.read_env(wiz.paths.default_env_file())
+    assert saved["LASTBELL_SECRET_BACKEND"] == "keyring"
+    assert wizard_world["keyring"]["parent1"] == "new-pw"
+    assert "LASTBELL_PASSWORD" not in os.environ
+
+
+def test_email_with_env_backend_writes_smtp_password_to_file(wizard_world, monkeypatch):
+    monkeypatch.setattr(wiz, "_keyring_available", lambda: False)
+    smtp_slot = {}
+    monkeypatch.setattr(wiz.secretstore, "set_smtp_password",
+                        lambda p: smtp_slot.__setitem__("pw", p))
+    script = Script(
+        asks=[None, "parent1", "2",
+              "smtp.example", "587", "me@example.com", None, "you@example.com"],
+        yns=[True,          # settings-file store
+             True, True,    # test email, arrived
+             True],         # baseline
+        passwords=["hunter2", "smtp-secret"])
+    script.install(monkeypatch)
+    assert wiz.main() == 0
+    saved = wiz.read_env(wiz.paths.default_env_file())
+    assert saved["LASTBELL_PASSWORD_SMTP"] == "smtp-secret"
+    assert smtp_slot == {}                                   # keyring never asked
+    assert os.environ["LASTBELL_PASSWORD_SMTP"] == "smtp-secret"  # test send sees it
+
+
+# ── Phase 3b: the wizard offers install-service ───────────────────────
+
+
+def test_offer_service_calls_installer(monkeypatch):
+    from lastbell import service
+    said, calls = [], []
+    monkeypatch.setattr(wiz, "_say", said.append)
+    monkeypatch.setattr(wiz, "_ask_yn", lambda p, default=True: calls.append(default) or True)
+    monkeypatch.setattr(service, "platform_name", lambda: "linux")
+    monkeypatch.setattr(service, "install", lambda say: calls.append("install") or 0)
+    assert wiz._offer_service(unattended=True) is True
+    assert calls == [True, "install"]                        # default followed unattended
+
+    calls.clear()
+    monkeypatch.setattr(wiz, "_ask_yn", lambda p, default=True: False)
+    assert wiz._offer_service(unattended=False) is False
+    assert calls == [] and "install-service" in "\n".join(said)
+
+
+def test_offer_service_windows_prints_hint_only(monkeypatch):
+    from lastbell import service
+    said = []
+    monkeypatch.setattr(wiz, "_say", said.append)
+    monkeypatch.setattr(wiz, "_ask_yn", lambda p, default=True: pytest.fail("no prompt"))
+    monkeypatch.setattr(service, "platform_name", lambda: "windows")
+    assert wiz._offer_service(unattended=False) is False
+    assert "Task Scheduler" in "\n".join(said)
+
+
+def test_offer_service_survives_installer_error(monkeypatch):
+    from lastbell import service
+    said = []
+    monkeypatch.setattr(wiz, "_say", said.append)
+    monkeypatch.setattr(wiz, "_ask_yn", lambda p, default=True: True)
+    monkeypatch.setattr(service, "platform_name", lambda: "darwin")
+
+    def boom(say):
+        raise service.ServiceError("no launcher")
+    monkeypatch.setattr(service, "install", boom)
+    assert wiz._offer_service(unattended=False) is False
+    assert "no launcher" in "\n".join(said)
 
 
 def test_non_interactive_refuses(monkeypatch, capsys):

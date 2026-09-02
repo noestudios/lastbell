@@ -1,6 +1,14 @@
 # Install plan — from "clone and venv" to "paste one line, answer questions"
 
-> **Status (2026-09-01): both phases implemented.** Phase 1: package audit
+> **Status (2026-09-01): Phases 1–3 implemented; 0.1.1 tagged.** Phase 3:
+> `secrets.keyring_available()` probe, wizard env-file fallback (no keyring, or
+> unattended Linux) with the trade-off stated first and the file scrubbed on
+> a switch back to the keyring, SMTP password follows the same backend;
+> `lastbell install-service` (`lastbell/service.py`: systemd user unit +
+> linger, launchd agent, schtasks print-only; `--print`/`--uninstall`; UTC and
+> keyring-under-a-service warnings) offered by the wizard's last step.
+> Tests: `tests/test_service.py`, `tests/test_secrets.py`, `tests/test_setup.py`.
+> Repo is public and 0.1.1 is on PyPI via the tag. Earlier: Phase 1: package audit
 > done (wheel carries all package data; suite passes 3.9→3.14, one f-string
 > fixed for the 3.9 floor; `twine check` passes), metadata + classifiers +
 > absolute README links done, data/env defaults moved to platform user dirs

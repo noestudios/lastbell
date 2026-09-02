@@ -131,7 +131,11 @@ district's servers.** `lastbell set-password` stores it in the macOS
 Keychain / Windows Credential Manager / Linux Secret Service
 ([`secrets.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/secrets.py)); it never appears in `.env`, the
 database, logs, or the source tree. (Docker installs inject it via
-`LASTBELL_PASSWORD` from a secret store instead.) At runtime it is held in
+`LASTBELL_PASSWORD` from a secret store instead. The one exception is an
+always-on box with no usable keyring — a headless Pi, or a boot-time service
+that can't unlock the desktop keyring: there `lastbell setup` offers to keep
+it in the owner-only settings file, tells you that trade-off out loud, and
+does nothing until you say yes.) At runtime it is held in
 memory and sent to one destination — your district's own login form, over
 HTTPS enforced in [`config.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/config.py) — the same request your
 browser makes ([`client.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/client.py)).
@@ -188,9 +192,30 @@ lastbell run --loop
 (MCPS offered as the default) before asking anything personal, puts your
 password straight into the OS keyring, verifies login + data path + parsers
 with the preflight, walks you through one notification channel (ntfy push /
-email / SMS) ending in a live test message, and offers to run the first
-collection. Re-run it any time — it remembers your answers. Settings land in
-your user config dir, data in your user data dir (both printed at the end).
+email / SMS) ending in a live test message, offers to run the first
+collection, and offers to install itself as a background service so the
+third command above becomes optional. Re-run it any time — it remembers your
+answers. Settings land in your user config dir, data in your user data dir
+(both printed at the end).
+
+**Keeping it running.** Alerts only happen while `lastbell run --loop` is
+running, so on the machine that will do the watching (a Raspberry Pi, an old
+laptop, the Mac that never sleeps):
+
+```bash
+lastbell install-service
+```
+
+Linux gets a *user* systemd unit (no sudo) enabled at boot with login
+lingering, so it runs with nobody logged in; macOS gets a launchd agent that
+starts at login and restarts if it stops; Windows is shown the Task Scheduler
+command to paste. `--print` shows exactly what would be written and run
+without touching anything, `--uninstall` reverses it. On a Pi that boots
+without a desktop session, say **yes** when `lastbell setup` asks whether Last
+Bell will run as a background service — that moves the password from the
+keyring (which a boot-time service can't unlock) into the owner-only settings
+file, and the wizard says so before doing it. The installer also warns if the
+box's clock is on UTC: digests and quiet hours follow the local clock.
 
 <details>
 <summary>Running from a source checkout instead</summary>
@@ -268,11 +293,13 @@ secret lives:
 | Install        | Secret store                                                        |
 |----------------|---------------------------------------------------------------------|
 | Bare-metal     | OS keyring — macOS Keychain / Windows Credential Manager / Secret Service (`lastbell set-password`) |
+| Always-on box (headless Pi, Linux boot-time service) | `LASTBELL_SECRET_BACKEND=env` + `LASTBELL_PASSWORD` in the settings file, mode 0600. **Trade-off:** the password is on disk in plain text, readable by your user (and root). `lastbell setup` offers this only when there is no usable keyring or you say the service runs unattended, and states the trade-off first. |
 | Docker / CI    | `LASTBELL_PASSWORD`, injected from Docker secrets or a CI secret store |
 
 Cross-platform by construction: plain Python (Windows/macOS/Linux), no OS-native
 hooks. SQLite by default; ship it as a container to run identically on a Pi, NAS,
-or VPS. It needs an **always-on host** to poll and push.
+or VPS. It needs an **always-on host** to poll and push — `lastbell
+install-service` makes one out of a Pi or a Mac (see Quickstart).
 
 ## How alerts reach people
 
