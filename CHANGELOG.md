@@ -4,6 +4,12 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.2.1 — 2026-09-03
+
+**Says what it is.** The README's opening and disclaimer and the package
+description on PyPI now name both sources — ParentVUE + Canvas — and the
+disclaimer covers Instructure (Canvas) as well as Edupoint. No code changes.
+
 ## 0.2.0 — 2026-09-03
 
 **Canvas is the leading source.** ParentVUE only shows work once it is in

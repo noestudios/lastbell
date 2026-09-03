@@ -1,17 +1,19 @@
 # Last Bell
 
-A self-hosted **ParentVUE grade & assignment monitor**. It watches your own
-students' gradebooks and pushes alerts — missing assignments, new or changed
-grades, long-term work that's still ungraded or coming due — to **any number of
-watchers** (guardians *and* the students themselves), on whatever device they
-already use.
+A self-hosted **ParentVUE + Canvas grade & assignment monitor**. It watches
+your own students' gradebooks in ParentVUE and their coursework in Canvas
+(the LMS where assignments, due dates, and "missing" flags appear first), and
+pushes alerts — missing assignments, new or changed grades, long-term work
+that's still ungraded or coming due — to **any number of watchers** (guardians
+*and* the students themselves), on whatever device they already use.
 
-> Not affiliated with Edupoint. It uses **your** credentials to read **your**
-> students' data, and everything runs on hardware you control. Before anything
-> else, read [what it asks of the portal](#being-a-good-neighbor-to-the-portal)
-> and [where your credentials and your students' data
-> go](#credentials--student-data-the-actual-guarantees) — every sentence there
-> is backed by linked code.
+> Not affiliated with Edupoint (ParentVUE / Synergy) or Instructure (Canvas).
+> It uses **your** credentials to read **your** students' data, and everything
+> runs on hardware you control. Before anything else, read [what it asks of
+> the portal](#being-a-good-neighbor-to-the-portal), [what it reads from
+> Canvas](#canvas-the-leading-source), and [where your credentials and your
+> students' data go](#credentials--student-data-the-actual-guarantees) —
+> every sentence there is backed by linked code.
 
 **Why it's shaped this way.** The people being watched are on the watcher list. Students subscribe to their own missing work and deadlines; grades go to the guardians. That one decision drives the rest: alerts carry initials so a lock screen can show them, the dashboard with full names stays on the machine, and the poller checks the district about as often as a parent would. The rest of this README is the data path and how to run it.
 
