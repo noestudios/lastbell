@@ -16,17 +16,20 @@ import sqlite3
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from . import notify, watchers
+from . import notify, store, watchers
 
 
 def build(conn: sqlite3.Connection, student_id: str, initials: str,
-          *, lookahead_days: int = 7, today: Optional[date] = None) -> str:
+          *, lookahead_days: int = 7, today: Optional[date] = None):
     """The summary body for one student: overall marks, open problems,
-    what's coming, and the week's recent alerts."""
+    what's coming, and the week's recent alerts. A ``render.Message``: plain
+    text for every channel, with the HTML twin email attaches."""
     today = today or date.today()
     lines: list[str] = []
+    html_groups: list[tuple[str, str, list[str]]] = []
 
     from .models import format_percent
+    from .notify import render
 
     # Scope to the current marking period once one is known — a closed
     # quarter's courses and leftover statuses stay out of the daily picture.
@@ -48,12 +51,14 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
 
     overall = "; ".join(one_course(c) for c in courses)
     lines.append(f"Overall: {overall or 'no courses yet'}")
+    overall_rows = [(c["title"], one_course(c)[len(c["title"]) + 1:]) for c in courses]
 
     def open_items(status: str) -> list[sqlite3.Row]:
         return conn.execute(
             "SELECT a.name, a.due_date, c.title FROM assignments a "
             "JOIN courses c ON c.id = a.course_id "
-            "WHERE c.student_id = ? AND a.status = ?" + term_sql +
+            "WHERE c.student_id = ? AND a.status = ? AND " + store.NOT_SUPERSEDED_SQL
+            + term_sql +
             " ORDER BY a.due_date IS NULL, a.due_date",
             (student_id, status) + term_args
         ).fetchall()
@@ -61,31 +66,40 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
     missing = open_items("missing")
     if missing:
         lines.append(f"Missing ({len(missing)}):")
+        details = [f"{r['title']}: “{r['name']}” is marked missing" for r in missing]
         lines.extend(f"  • {r['title']}: “{r['name']}”" for r in missing)
+        html_groups.append((f"Missing ({len(missing)})", "Needs attention", details))
 
     past_due = open_items("ungraded_past_due")
     if past_due:
         lines.append(f"Ungraded past due ({len(past_due)}):")
+        details = [f"{r['title']}: “{r['name']}”"
+                   + (f" (was due {r['due_date']})" if r["due_date"] else "")
+                   + " is still ungraded" for r in past_due]
         lines.extend(
             f"  • {r['title']}: “{r['name']}”"
             + (f" (was due {r['due_date']})" if r["due_date"] else "")
             for r in past_due)
+        html_groups.append((f"Ungraded past due ({len(past_due)})", "Slipping", details))
 
     horizon = (today + timedelta(days=lookahead_days)).isoformat()
     upcoming = conn.execute(
         "SELECT a.name, a.due_date, c.title FROM assignments a "
         "JOIN courses c ON c.id = a.course_id "
         "WHERE c.student_id = ? AND a.status = 'due' "
-        "AND a.due_date IS NOT NULL AND a.due_date >= ? AND a.due_date <= ?"
-        + term_sql + " ORDER BY a.due_date",
+        "AND a.due_date IS NOT NULL AND a.due_date >= ? AND a.due_date <= ? AND "
+        + store.NOT_SUPERSEDED_SQL + term_sql + " ORDER BY a.due_date",
         (student_id, today.isoformat(), horizon) + term_args
     ).fetchall()
     if upcoming:
         lines.append(f"Due in the next {lookahead_days} days ({len(upcoming)}):")
-        lines.extend(f"  • {r['title']}: “{r['name']}” due {r['due_date']}"
-                     for r in upcoming)
+        details = [f"{r['title']}: “{r['name']}” due {r['due_date']}" for r in upcoming]
+        lines.extend(f"  • {d}" for d in details)
+        html_groups.append((f"Due in the next {lookahead_days} days ({len(upcoming)})",
+                            "Coming up", details))
 
-    if not (missing or past_due or upcoming):
+    all_clear = not (missing or past_due or upcoming)
+    if all_clear:
         lines.append("Nothing missing, nothing overdue, nothing due soon. 🎉")
 
     recent = conn.execute(
@@ -94,6 +108,7 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
         "AND created_at >= datetime('now', '-7 days') "
         "ORDER BY created_at DESC LIMIT 10", (student_id,)
     ).fetchall()
+    recent_details: list[str] = []
     if recent:
         lines.append(f"Recent alerts this week ({len(recent)}):")
         for r in recent:
@@ -102,8 +117,12 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
             except Exception:
                 detail = r["body"]
             lines.append(f"  • {detail}")
+            recent_details.append(detail)
 
-    return "\n".join(lines)
+    return render.Message(
+        "\n".join(lines),
+        render.summary_html(initials, today, overall_rows, html_groups,
+                            recent_details, all_clear))
 
 
 def send_due(conn: sqlite3.Connection, *, lookahead_days: int = 7,

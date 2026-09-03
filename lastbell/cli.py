@@ -86,8 +86,12 @@ def _cmd_collect(args: argparse.Namespace) -> int:
     client = ParentVueClient(conf.base_url, conf.username, pw)
 
     out = []
-    for child in client.get_children():
+    children = client.get_children()
+    canvas_layer = _canvas_layer(client, children, conf)
+    for child in children:
         col = collect_student(client, child)
+        snapshot = col.snapshot
+        stats = canvas_layer.apply(snapshot) if canvas_layer is not None else None
         out.append({
             "student": {"agu": child.agu, "name": child.name, "school": child.school},
             "term": col.school_classes.current_term,
@@ -100,6 +104,13 @@ def _cmd_collect(args: argparse.Namespace) -> int:
                 }
                 for c in col.classes
             ],
+            "canvas": {
+                "stats": stats,
+                "courses": [dataclasses.asdict(c) for c in snapshot.courses
+                            if c.source == "canvas"],
+                "assignments": [dataclasses.asdict(a) for a in snapshot.assignments
+                                if a.source == "canvas"],
+            },
             "errors": col.errors,
         })
 
@@ -116,15 +127,25 @@ def _run_once(client, conn, notifier, conf) -> int:
     from .collector import collect_student
 
     total = 0
-    for child in client.get_children():
+    children = client.get_children()
+    canvas_layer = _canvas_layer(client, children, conf)
+    for child in children:
         col = collect_student(client, child)
         for err in col.errors:
             print(f"warning [{col.student.initials}]: {err} — that class was "
                   f"skipped this poll; the others were still checked",
                   file=sys.stderr)
 
+        snapshot = col.snapshot
+        # The Canvas layer folds in before the time rules run, so a Canvas
+        # due date is judged by the same look-ahead/grace as a gradebook one.
+        canvas_note = ""
+        if canvas_layer is not None:
+            stats = canvas_layer.apply(snapshot)
+            if stats is not None:
+                canvas_note = f" (+{stats['assignments']} from Canvas)"
         snapshot = differ.apply_time_rules(
-            col.snapshot,
+            snapshot,
             grace_days=conf.ungraded_grace_days,
             lookahead_days=conf.lookahead_days,
         )
@@ -139,7 +160,7 @@ def _run_once(client, conn, notifier, conf) -> int:
                   f"{len(col.classes)} classes, {n_assign} assignments (no alerts on first run)")
             continue
         print(f"checked {col.student.initials}: {len(col.classes)} classes, "
-              f"{n_assign} assignments, {len(events)} event(s)")
+              f"{n_assign} assignments{canvas_note}, {len(events)} event(s)")
         if events:
             # Phase 3: fan out per subscription; the global channel remains the
             # fallback so a bare install with no watchers still alerts.
@@ -161,12 +182,13 @@ def _run_once(client, conn, notifier, conf) -> int:
                       + (f", queued {queued} item(s) for later" if queued else ""))
             else:
                 notifier.send(router.subject(col.student.initials, events),
-                              "\n".join(f"• {e.detail}" for e in events))
+                              router.body(col.student.initials, events))
             for w in warnings:
                 print(f"warning: {w}", file=sys.stderr)
             for e in events:
                 store.record_alert(conn, child.agu, e)
             total += len(events)
+    store.record_poll(conn)
     # After students are persisted: an install with zero watchers gets one
     # for the credential holder, subscribed to everyone (UX decision 3).
     w = watchers.ensure_default_watcher(
@@ -176,6 +198,113 @@ def _run_once(client, conn, notifier, conf) -> int:
               f"{', '.join(w.channels)}), subscribed to all students — "
               f"adjust with `lastbell watcher` / `subscribe`")
     return total
+
+
+def _canvas_layer(client, children, conf):
+    """Sign in to Canvas for this poll, or None (with a one-line warning) —
+    the Canvas layer is additive and never blocks the gradebook poll."""
+    if conf.canvas == "off":
+        return None
+    import requests
+
+    from . import canvas
+
+    def warn(msg: str) -> None:
+        print(f"warning: {msg}", file=sys.stderr)
+
+    try:
+        cc = canvas.connect(client, host=conf.canvas_host,
+                            token=secretstore.get_canvas_token())
+        layer = canvas.CanvasLayer(cc, children, warn=warn, skip=conf.canvas_skip)
+    except (canvas.CanvasError, requests.RequestException) as e:
+        warn(f"Canvas: {e} — this poll used the gradebook only")
+        return None
+    for child in children:
+        if child.agu not in layer.matched:
+            from .collector import initials_of
+            warn(f"Canvas: no observed student matches {initials_of(child.name)} "
+                 f"— Canvas skipped for them (`lastbell canvas` shows the names)")
+    return layer
+
+
+def _cmd_canvas(args: argparse.Namespace) -> int:
+    """Read-only Canvas check: how we got in, which student is which, and
+    what each course would contribute. Names shown as initials."""
+    from . import canvas
+    from .client import ParentVueClient
+    from .collector import collect_student, initials_of
+    from .models import Snapshot
+
+    conf = cfg.load()
+    if conf.canvas == "off":
+        print("LASTBELL_CANVAS=off — the Canvas layer is disabled.")
+        return 0
+    pw = secretstore.get_password(conf.username, conf.secret_backend)
+    client = ParentVueClient(conf.base_url, conf.username, pw)
+    token = secretstore.get_canvas_token()
+    how = ("personal access token" if token and conf.canvas_host
+           else "the portal's own Canvas link (SAML hand-off)")
+    try:
+        cc = canvas.connect(client, host=conf.canvas_host, token=token)
+    except canvas.CanvasError as e:
+        print(f"Canvas: not connected — {e}")
+        return 1
+    print(f"Canvas: connected to {cc.host} via {how}")
+    children = client.get_children()
+    obs = canvas.observees(cc)
+    matched = canvas.match_students(children, obs)
+    print(f"Observed students on Canvas: {len(obs)}; portal students: {len(children)}")
+    for child in children:
+        o = matched.get(child.agu)
+        tag = (f"→ Canvas {o.id} ({initials_of(o.name)})" if o else "→ NO MATCH")
+        print(f"  {initials_of(child.name)} {tag}")
+    courses_cache = None
+    for child in children:
+        o = matched.get(child.agu)
+        if o is None:
+            continue
+        col = collect_student(client, child)
+        snapshot = col.snapshot
+        pv_courses = list(snapshot.courses)
+        if courses_cache is None:
+            courses_cache = cc.get("/api/v1/courses", per_page=100,
+                                   **{"enrollment_state": "active",
+                                      "include[]": ["observed_users", "term"]})
+        ccol = canvas.collect(cc, o, courses_cache=courses_cache)
+        print(f"\n{initials_of(child.name)} — {len(ccol.courses)} Canvas course(s):")
+        probe = Snapshot(student_agu=child.agu, courses=pv_courses, term=snapshot.term)
+        canvas.merge(probe, ccol, skip=conf.canvas_skip)
+        own = {c.edupoint_gu for c in probe.courses if c.source == "canvas"}
+        for course in ccol.courses:
+            target = canvas.match_course(course.name, pv_courses)
+            counts: dict[str, int] = {}
+            for a in course.assignments:
+                counts[a.status.value] = counts.get(a.status.value, 0) + 1
+            shape = ", ".join(f"{v} {k}" for k, v in sorted(counts.items())) or "nothing to track"
+            if target is not None:
+                where = f"= gradebook “{target.title}”"
+            elif course.gu in own:
+                where = "own row (no gradebook course matches)"
+            elif course.assignments:
+                where = f"skipped ({course.term or 'no term'}; LASTBELL_CANVAS_SKIP or not a class term)"
+            else:
+                where = "skipped"
+            print(f"  {course.title!s:40.40} {where}: {shape}")
+        for err in ccol.errors:
+            print(f"  warning: {err}")
+    print(f"\n{cc.calls} Canvas API calls. Nothing was written anywhere.")
+    return 0
+
+
+def _cmd_set_canvas_token(args: argparse.Namespace) -> int:
+    token = secretstore.prompt_password("Canvas access token (hidden): ").strip()
+    if not token:
+        print("error: empty token; nothing stored", file=sys.stderr)
+        return 2
+    secretstore.set_canvas_token(token)
+    print("Stored the Canvas token in the OS keyring. Set LASTBELL_CANVAS_HOST "
+          "to your Canvas hostname so polls use it.")
+    return 0
 
 
 def _tick(conn, conf) -> None:
@@ -365,7 +494,10 @@ def _cmd_watcher_test(args: argparse.Namespace) -> int:
     for cname, address in targets.items():
         where = next(iter(address.values()), "") if address else ""
         try:
-            notify.send_test(cname, address)
+            if getattr(args, "sample", False):
+                notify.send_sample(cname, address)
+            else:
+                notify.send_test(cname, address)
         except Exception as e:  # missing SMTP settings, network, bad token …
             failed += 1
             print(f"✗ {label.get(cname, cname)} {where}: {e}")
@@ -551,6 +683,9 @@ def main() -> None:
                    ).set_defaults(func=_cmd_setup)
 
     sub.add_parser("set-password", help="store a credential's password in the OS keyring").set_defaults(func=_cmd_set_password)
+    sub.add_parser("set-canvas-token",
+                   help="store a Canvas personal access token in the OS keyring "
+                        "(optional; skips the portal hand-off)").set_defaults(func=_cmd_set_canvas_token)
 
     p_svc = sub.add_parser("install-service",
                            help="keep `run --loop` running: a systemd user unit "
@@ -581,6 +716,9 @@ def main() -> None:
     sub.add_parser("discover", help="list students on the configured credential").set_defaults(func=_cmd_discover)
     sub.add_parser("init-db", help="create the local database").set_defaults(func=_cmd_init_db)
     sub.add_parser("collect", help="pull all gradebook data as JSON (read-only)").set_defaults(func=_cmd_collect)
+    sub.add_parser("canvas", help="check the Canvas layer: sign-in path, which "
+                   "student is which, what each course contributes (read-only)"
+                   ).set_defaults(func=_cmd_canvas)
 
     p_run = sub.add_parser("run", help="collect, diff against the last run, and alert")
     p_run.add_argument("--loop", action="store_true",
@@ -615,6 +753,9 @@ def main() -> None:
                                           "channels, to prove they work")
     p_wt.add_argument("name")
     p_wt.add_argument("--channel", help="just this channel (default: all of them)")
+    p_wt.add_argument("--sample", action="store_true",
+                      help="send a realistic sample alert (made-up courses, no "
+                           "real data) instead of the one-line test")
     p_wt.set_defaults(func=_cmd_watcher_test)
 
     p_wq = w_sub.add_parser("quiet-hours",

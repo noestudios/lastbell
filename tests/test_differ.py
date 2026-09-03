@@ -95,3 +95,23 @@ def test_keyless_assignments_are_ignored():
     prev = _snap(assignments=[_assignment(edupoint_gu="", score=5.0)])
     curr = _snap(assignments=[_assignment(edupoint_gu="", score=9.0)])
     assert diff(prev, curr) == []
+
+
+def test_canvas_lines_say_which_app_and_finals_skip_canvas_only_courses():
+    from lastbell.models import SOURCE_CANVAS
+
+    prev = _snap(courses=[_course(term="MP1"), _course(edupoint_gu="canvas:1", title="Art",
+                                                        term="MP1", source=SOURCE_CANVAS)],
+                 assignments=[_assignment(edupoint_gu="canvas:5", score=None,
+                                          status=AssignmentStatus.DUE, source=SOURCE_CANVAS)])
+    curr = _snap(courses=[_course(term="MP1")],
+                 assignments=[_assignment(edupoint_gu="canvas:5", score=9.0,
+                                          status=AssignmentStatus.GRADED, source=SOURCE_CANVAS)])
+    (graded,) = diff(prev, curr)
+    assert graded.type is AlertType.GRADE_CHANGED
+    assert graded.detail.endswith("graded: 9/10 [Canvas]")
+
+    prev.term, curr.term = "MP1", "MP2"
+    roll = [e for e in diff(prev, curr) if e.type is AlertType.TERM_FINAL]
+    assert len(roll) == 1
+    assert "Art" not in roll[0].detail and "Algebra 2" in roll[0].detail

@@ -26,6 +26,21 @@ def _need(key: str) -> str:
     return val
 
 
+def build_message(sender: str, recipient: str, subject: str, body: str) -> EmailMessage:
+    """Plain text always; when the body is a ``render.Message`` carrying an
+    HTML twin, send both as multipart/alternative so a mail client shows the
+    styled version and everything else falls back to the text."""
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = sender
+    msg["To"] = recipient
+    msg.set_content(str(body))
+    html = getattr(body, "html", "")
+    if html:
+        msg.add_alternative(html, subtype="html")
+    return msg
+
+
 @dataclass
 class SmtpTransport:
     host: str
@@ -47,11 +62,7 @@ class SmtpTransport:
         )
 
     def deliver(self, recipient: str, subject: str, body: str) -> None:
-        msg = EmailMessage()
-        msg["Subject"] = subject
-        msg["From"] = self.sender
-        msg["To"] = recipient
-        msg.set_content(body)
+        msg = build_message(self.sender, recipient, subject, body)
         with smtplib.SMTP(self.host, self.port, timeout=30) as smtp:
             smtp.starttls()
             if self.user:

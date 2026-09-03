@@ -184,6 +184,47 @@ class ParentVueClient:
 
         return FocusArgs(args=args, agu_header=agu_header)
 
+    # ── the home page's Launch Pad (district tiles, e.g. the Canvas link) ─
+    def component_api(self, component: str, cls: str, method: str, **data):
+        """The portal's component RPC (ko.components.js ``callComponentApi``):
+        POST /api/v1/components/pxp/<component>/<class>/<method> with a JSON
+        body; the reply is ``{"data": ...}`` or ``{"error": ...}``."""
+        self.login()
+        r = self.session.post(
+            f"{self.base_url}/api/v1/components/pxp/{component}/{cls}/{method}",
+            json=data, timeout=30)
+        r.raise_for_status()
+        body = r.json()
+        if body.get("error"):
+            raise ParentVueError(f"{method}: {body['error']}")
+        return body.get("data")
+
+    def launch_pad_links(self) -> list[tuple[str, str]]:
+        """Every external link tile on the Launch Pad, as (title, url), nested
+        pads included. The Launch Pad is the portal home: a grid the district
+        edits, where MCPS for one puts its "myMCPS Classroom" (Canvas) entry.
+        Tile types (launch-pad.js ItemTypes): MOD = portal module, LP = a
+        nested pad whose ``module`` is the child pad's GU, URL = external."""
+        self.login()
+        r = self.session.get(f"{self.base_url}/PXP2_LaunchPad.aspx", timeout=30)
+        m = re.search(r'<launch-pad identity="([^"]+)"', r.text)
+        if not m:
+            return []
+        out: list[tuple[str, str]] = []
+
+        def visit(pad_gu: str, depth: int) -> None:
+            definition = self.component_api(
+                "launch-pad", "LaunchPad", "GetLaunchPadDefinition", launchPadGU=pad_gu)
+            for t in (definition or {}).get("links") or []:
+                kind = t.get("type")
+                if kind == "LP" and t.get("module") and depth < 2:
+                    visit(t["module"], depth + 1)
+                elif kind == "URL" and (t.get("url") or t.get("launchUrl")):
+                    out.append((t.get("title") or "", t.get("url") or t.get("launchUrl")))
+
+        visit(m.group(1), 0)
+        return out
+
     # ── the gradebook web-service call ────────────────────────────────
     def load_control(self, control: str, parameters: dict, agu_header: str = "0") -> str:
         """Call the portal's LoadControl web method and return its HTML fragment.

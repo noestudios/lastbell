@@ -602,6 +602,9 @@ form button.ghost:active { transform: translateY(1px); }
   text-underline-offset: 2px;
 }
 .credit a:hover { color: var(--text); }
+/* The home page's freshness line; stale means "older than two polls". */
+.freshness code { font-size: inherit; }
+.freshness.stale { color: var(--warn-ink); font-size: 0.78rem; }
 /* The update check is a form (a click, never a page load) styled as a link. */
 .credit form.inline { display: inline; }
 .credit button.linkish {
@@ -960,6 +963,13 @@ svg.rowicon { width: 13px; height: 13px; vertical-align: -2px;
 tr.st-missing > td { background: color-mix(in srgb, var(--bad) 8%, transparent); }
 tr.st-late    > td { background: color-mix(in srgb, var(--warn) 10%, transparent); }
 tr.st-due     > td { background: color-mix(in srgb, var(--warn) 4%, transparent); }
+
+/* Source mark: an assignment row that came from Canvas, not the gradebook. */
+.src { display: inline-block; margin-left: 0.45rem; padding: 0 0.4rem;
+       border: 1px solid var(--border); border-radius: 999px;
+       font-size: 0.68rem; line-height: 1.45; letter-spacing: 0.02em;
+       color: var(--text-muted); vertical-align: 1px; }
+.src.twin { border-color: var(--warn); color: var(--warn-ink); }
 
 /* A graded score below the global cutoff (LASTBELL_SCORE_CUTOFF). */
 .low { color: var(--bad-ink); font-weight: 700; }

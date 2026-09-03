@@ -157,22 +157,19 @@ def pending(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def _subject_for(group: list[sqlite3.Row]) -> str:
+    from .notify import render
+
     initials = sorted({r["initials"] or r["student_id"] for r in group})
-    n = len(group)
-    if len(initials) == 1:
-        return f"[Last Bell] {n} update{'s' if n != 1 else ''} for {initials[0]}"
-    return f"[Last Bell] digest: {n} updates for {', '.join(initials)}"
+    return render.subject(initials, [r["alert_type"] for r in group])
 
 
-def _body_for(group: list[sqlite3.Row]) -> str:
-    by_student: dict[str, list[sqlite3.Row]] = {}
+def _body_for(group: list[sqlite3.Row]):
+    from .notify import render
+
+    by_student: dict[str, list] = {}
     for r in group:
-        by_student.setdefault(r["initials"] or r["student_id"], []).append(r)
-    if len(by_student) == 1:
-        (rows,) = by_student.values()
-        return "\n".join(f"• {r['detail']}" for r in rows)
-    parts = []
-    for initials, rows in sorted(by_student.items()):
-        parts.append(initials)
-        parts.extend(f"• {r['detail']}" for r in rows)
-    return "\n".join(parts)
+        by_student.setdefault(r["initials"] or r["student_id"], []).append(
+            (r["alert_type"], r["detail"]))
+    sections = sorted(by_student.items())
+    who = ", ".join(k for k, _ in sections)
+    return render.alerts(sections, title=f"Digest for {who}")

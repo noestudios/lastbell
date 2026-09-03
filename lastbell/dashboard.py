@@ -23,7 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
-from . import __version__, schools
+from . import __version__, schools, store
 
 # The public home of the project — the settings-footer credit links here.
 _REPO_URL = "https://github.com/noestudios/lastbell"
@@ -40,6 +40,7 @@ _STATUS_LABELS = {
     "due": ("due", "info"),
     "missing": ("MISSING", "bad"),
     "ungraded_past_due": ("ungraded past due", "warn"),
+    "submitted": ("turned in", "info"),      # Canvas: handed in, not yet graded
 }
 
 # The alerts page's Type cell, on the same severity ladder as the status
@@ -53,6 +54,7 @@ _ALERT_TYPE_BADGE = {
     "grade_changed": ("grade changed", "muted"),
     "daily_summary": ("daily summary", "muted"),
     "term_final": ("term final", "muted"),
+    "source_conflict": ("gradebook vs Canvas", "warn"),
 }
 
 # Phase C row signal: statuses that earn a tint + leading icon, so a mixed
@@ -126,7 +128,7 @@ def fetch_open_counts(conn: sqlite3.Connection, student_id: str,
            "       SUM(a.status = 'ungraded_past_due') AS past_due, "
            "       SUM(a.status = 'due') AS due "
            "FROM assignments a JOIN courses c ON c.id = a.course_id "
-           "WHERE c.student_id = ?")
+           "WHERE c.student_id = ? AND " + store.NOT_SUPERSEDED_SQL)
     params: tuple = (student_id,)
     if term:
         sql += " AND c.term = ?"
@@ -159,6 +161,7 @@ def fetch_strip_rows(conn: sqlite3.Connection, student_id: str,
            "       WHERE h.assignment_id = a.id AND h.field = 'score')) END) "
            "  AS last_graded "
            "FROM courses c LEFT JOIN assignments a ON a.course_id = c.id "
+           "  AND " + store.NOT_SUPERSEDED_SQL + " "
            "WHERE c.student_id = ?")
     params: list = [student_id]
     if term:
@@ -173,12 +176,12 @@ def fetch_view_rows(conn: sqlite3.Connection, student_id: str,
     ``graded_on`` is the display date a grade landed (same fallback rule as
     the strip's last_graded)."""
     sql = ("SELECT a.*, c.title AS course_title, c.edupoint_gu AS course_gu, "
-           "  c.term AS course_term, "
+           "  c.term AS course_term, " + store.CANVAS_TWIN_SQL + ", "
            "  COALESCE(a.graded_at, (SELECT date(MIN(h.seen_at), 'localtime') "
            "    FROM grade_history h WHERE h.assignment_id = a.id "
            "    AND h.field = 'score')) AS graded_on "
            "FROM assignments a JOIN courses c ON c.id = a.course_id "
-           "WHERE c.student_id = ?")
+           "WHERE c.student_id = ? AND " + store.NOT_SUPERSEDED_SQL)
     params: list = [student_id]
     if term:
         sql += " AND c.term = ?"
@@ -665,6 +668,41 @@ def _badge(status: str) -> str:
     return f"<span class='badge {klass}'>{escape(label)}</span>"
 
 
+def _twin(row) -> str:
+    """"Canvas says 9/10" after a gradebook row whose hidden Canvas twin
+    carries a grade the gradebook doesn't: the record stays the record, the
+    disagreement is visible."""
+    try:
+        cscore = row["canvas_score"]
+    except (IndexError, KeyError):
+        return ""
+    if cscore is None:
+        return ""
+    cpoints = row["canvas_points"]
+    shown = f"{cscore:g}/{cpoints:g}" if cpoints else f"{cscore:g}"
+    same = (row["score"] is not None and row["points"] and cpoints
+            and abs(row["score"] / row["points"] - cscore / cpoints) < 0.005)
+    if same or (row["score"] is not None and row["score"] == cscore and not cpoints):
+        return ""
+    return _tip(f"<span class='src twin'>Canvas says {escape(shown)}</span>",
+                "Canvas has a grade the gradebook doesn't show — likely not "
+                "synced yet; worth checking with the teacher")
+
+
+def _src(row) -> str:
+    """A small "Canvas" mark after an assignment name whose row came from
+    Canvas rather than the gradebook — it tells the reader which app to open,
+    and why the course grade doesn't reflect it yet."""
+    try:
+        source = row["source"]
+    except (IndexError, KeyError):
+        return ""
+    if source != "canvas":
+        return ""
+    return _tip("<span class='src'>Canvas</span>",
+                "From Canvas — not in the gradebook yet")
+
+
 def _tip(inner_html: str, tip: str, extra_class: str = "") -> str:
     """Wrap already-escaped html in a design-system tooltip (CSS-only: the
     bubble is a ::after reading data-tip — never the browser's native
@@ -760,7 +798,46 @@ def _low_class(pct: float | None) -> str:
     return "low" if pct is not None and cutoff and pct < cutoff else ""
 
 
-def render_overview(students, courses_by_student, counts_by_student) -> str:
+def _freshness_html(last_poll_utc: str | None, now: datetime | None = None) -> str:
+    """The home page's last line: when the watcher last finished a poll, in
+    the reader's local time. Past twice the poll interval it turns into a
+    notice — the data on the page is what a stopped watcher last saw."""
+    if not last_poll_utc:
+        return ("<footer class='credit freshness'>Not checked yet — run "
+                "<code>lastbell run</code> to take the first look.</footer>")
+    try:
+        dt = (datetime.fromisoformat(last_poll_utc).replace(tzinfo=timezone.utc)
+              .astimezone())
+    except ValueError:
+        return f"<footer class='credit freshness'>Last checked {escape(last_poll_utc)}</footer>"
+    now = now or datetime.now(timezone.utc).astimezone()
+    d, today = dt.date(), now.date()
+    if d == today:
+        day = "today"
+    elif d == today - timedelta(days=1):
+        day = "yesterday"
+    else:
+        day = dt.strftime("%a %b ") + str(d.day) + ("" if d.year == today.year else f", {d.year}")
+    clock = dt.strftime("%I:%M %p").lstrip("0")
+    try:
+        poll_minutes = int(os.environ.get("LASTBELL_POLL_MINUTES", "180"))
+    except ValueError:
+        poll_minutes = 180
+    age = now - dt
+    stale = age > timedelta(minutes=max(poll_minutes, 15) * 2)
+    text = f"Last checked {escape(day)} at {escape(clock)}"
+    if stale:
+        hours = int(age.total_seconds() // 3600)
+        ago = (f"{hours} hours" if hours < 48 else f"{hours // 24} days")
+        return (f"<footer class='credit freshness stale' role='status'>{text} — "
+                f"{ago} ago. The watcher looks like it isn't running; "
+                "<code>lastbell run --loop</code> (or the installed service) "
+                "keeps this page current.</footer>")
+    return f"<footer class='credit freshness'>{text}</footer>"
+
+
+def render_overview(students, courses_by_student, counts_by_student,
+                    last_poll_utc: str | None = None) -> str:
     if not students:
         return _page("Students",
                      "<h1>No students yet</h1><p>Run <code>lastbell run</code> "
@@ -802,7 +879,8 @@ def render_overview(students, courses_by_student, counts_by_student) -> str:
             f"<div>{' '.join(flags) or '<span class=small>all clear</span>'}</div>"
             f"<table class='courses'><tr class='head'><th scope='col'>Course</th><th scope='col'>Teacher</th>"
             f"<th scope='col'>%</th><th scope='col'>Mark</th></tr>{rows}</table></div>")
-    return _page("Students", "<h1>Students</h1><div class='cards'>" + "".join(cards) + "</div>", path="/",
+    return _page("Students", "<h1>Students</h1><div class='cards'>" + "".join(cards)
+                 + "</div>" + _freshness_html(last_poll_utc), path="/",
                  nav_students=students)
 
 
@@ -1107,7 +1185,7 @@ def _assignment_table(rows, ctx) -> str:
         attrs, lead = _row_mark(r["status"], ctx["hl"], first_hit=not hit_seen)
         hit_seen = hit_seen or "id='hit'" in attrs
         body.append(
-            f"<tr{attrs}><td>{lead}{escape(r['name'])}</td>"
+            f"<tr{attrs}><td>{lead}{escape(r['name'])}{_src(r)}{_twin(r)}</td>"
             + (f"<td class='small' data-label='Course'>"
                f"{escape(r['course_title'])}</td>" if with_course else "")
             + f"<td class='small' data-label='Due'>{escape(r['due_date'] or '—')}</td>"
@@ -1178,7 +1256,7 @@ def _view_recent(student, ctx) -> str:
             pct = f"{r['score']:g}" if r["score"] is not None else "—"
             raw = "—"
         out.append(
-            f"<tr><td>{escape(r['name'])}</td>"
+            f"<tr><td>{escape(r['name'])}{_src(r)}{_twin(r)}</td>"
             + (f"<td class='small' data-label='Course'>"
                f"{escape(r['course_title'])}</td>" if with_course else "")
             + f"<td class='num{' ' + low if low else ''}' data-label='Score'>"
@@ -1220,7 +1298,7 @@ def _course_card(course, rows, ctx) -> str:
     if not rows:
         return (f"<div class='card tablecard'>{header}"
                 "<p class='small'>No assignments recorded.</p></div>")
-    upcoming = sorted((r for r in rows if r["status"] in ("due", "not_due")),
+    upcoming = sorted((r for r in rows if r["status"] in ("due", "not_due", "submitted")),
                       key=lambda r: (r["due_date"] or "9999", r["name"]))
     missing = sorted((r for r in rows if r["status"] == "missing"),
                      key=lambda r: r["due_date"] or "", reverse=True)
@@ -1232,7 +1310,7 @@ def _course_card(course, rows, ctx) -> str:
 
     def tr(a) -> str:
         attrs, lead = _row_mark(a["status"])
-        return (f"<tr{attrs}><td>{lead}{escape(a['name'])}</td>"
+        return (f"<tr{attrs}><td>{lead}{escape(a['name'])}{_src(a)}{_twin(a)}</td>"
                 f"<td data-label='Type'>{escape(a['kind'] or '—')}</td>"
                 f"<td data-label='Due'>{escape(a['due_date'] or '—')}</td>"
                 f"<td class='num' data-label='Score'>{_score(a)}</td>"
@@ -1807,7 +1885,7 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
                    for s in students}
         counts = {s["id"]: fetch_open_counts(conn, s["id"], term=s["current_term"])
                   for s in students}
-        return 200, render_overview(students, courses, counts)
+        return 200, render_overview(students, courses, counts, store.last_poll(conn))
     if path.startswith("/student/"):
         agu = path[len("/student/"):]
         student = fetch_student(conn, agu)

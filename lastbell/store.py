@@ -57,7 +57,34 @@ _MIGRATIONS = [
     ("subscriptions", "last_sent_on", "TEXT"),
     ("students", "current_term", "TEXT NOT NULL DEFAULT ''"),
     ("subscriptions", "urgent_now", "INTEGER NOT NULL DEFAULT 0"),
+    ("courses", "source", "TEXT NOT NULL DEFAULT 'parentvue'"),
+    ("assignments", "source", "TEXT NOT NULL DEFAULT 'parentvue'"),
+    ("assignments", "superseded_by", "TEXT NOT NULL DEFAULT ''"),
 ]
+
+# A Canvas assignment is the leading copy of work that later reaches the
+# gradebook under the same name. Once the ParentVUE row exists it is the
+# record, so readers hide the Canvas twin: the count, the list, and the
+# daily summary all say each piece of work once. (The row itself is kept —
+# it is history and it keeps being updated — the merge step marks it
+# ``superseded_by`` the twin's GUID, and the differ speaks for it only when
+# the two disagree.) The name rule is kept alongside the mark so rows hidden
+# by older versions stay hidden. Use as `... AND <NOT_SUPERSEDED_SQL>` with
+# the assignments table aliased `a`.
+NOT_SUPERSEDED_SQL = (
+    "NOT (a.source = 'canvas' AND (a.superseded_by != '' OR EXISTS ("
+    "  SELECT 1 FROM assignments b WHERE b.course_id = a.course_id "
+    "  AND b.source = 'parentvue' AND lower(trim(b.name)) = lower(trim(a.name)))))")
+
+# The hidden twin's grade, for a "Canvas says …" hint on the gradebook row.
+# Select alongside `a.*`; NULL when there is no twin or it has no score.
+CANVAS_TWIN_SQL = (
+    "(SELECT b.score FROM assignments b WHERE b.course_id = a.course_id "
+    "  AND b.source = 'canvas' AND b.superseded_by = a.edupoint_gu "
+    "  AND b.score IS NOT NULL LIMIT 1) AS canvas_score, "
+    "(SELECT b.points FROM assignments b WHERE b.course_id = a.course_id "
+    "  AND b.source = 'canvas' AND b.superseded_by = a.edupoint_gu "
+    "  AND b.score IS NOT NULL LIMIT 1) AS canvas_points")
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -102,6 +129,7 @@ def load_snapshot(conn: sqlite3.Connection, student_agu: str) -> Optional[Snapsh
         courses.append(Course(
             edupoint_gu=r["edupoint_gu"], title=r["title"], teacher=r["teacher"],
             term=r["term"], mark=r["mark"], percent=r["percent"],
+            source=r["source"],
         ))
 
     assignments = []
@@ -120,6 +148,8 @@ def load_snapshot(conn: sqlite3.Connection, student_agu: str) -> Optional[Snapsh
             score=r["score"],
             points=r["points"],
             status=AssignmentStatus(r["status"]),
+            source=r["source"],
+            superseded_by=r["superseded_by"],
         ))
 
     return Snapshot(student_agu=student_agu, courses=courses,
@@ -175,11 +205,12 @@ def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot)
                         (cid, field_name, old_course[field_name], new_value),
                     )
         conn.execute(
-            "INSERT INTO courses (id, edupoint_gu, student_id, title, teacher, term, mark, percent) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "INSERT INTO courses (id, edupoint_gu, student_id, title, teacher, term, "
+            "mark, percent, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET title=excluded.title, teacher=excluded.teacher, "
-            "mark=excluded.mark, percent=excluded.percent",
-            (cid, c.edupoint_gu, student_id, c.title, c.teacher, c.term, c.mark, c.percent),
+            "mark=excluded.mark, percent=excluded.percent, source=excluded.source",
+            (cid, c.edupoint_gu, student_id, c.title, c.teacher, c.term, c.mark,
+             c.percent, c.source),
         )
 
     for a in snap.assignments:
@@ -205,14 +236,16 @@ def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot)
                     )
         conn.execute(
             "INSERT INTO assignments (id, edupoint_gu, course_id, name, kind, assigned, "
-            "due_date, graded_at, score, points, status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "due_date, graded_at, score, points, status, source, superseded_by) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET name=excluded.name, kind=excluded.kind, "
             "assigned=excluded.assigned, due_date=excluded.due_date, "
             "graded_at=excluded.graded_at, score=excluded.score, "
-            "points=excluded.points, status=excluded.status",
+            "points=excluded.points, status=excluded.status, source=excluded.source, "
+            "superseded_by=excluded.superseded_by",
             (aid, a.edupoint_gu, cid, a.name, a.kind, _to_iso(a.assigned),
-             new["due_date"], new["graded_at"], a.score, a.points, new["status"]),
+             new["due_date"], new["graded_at"], a.score, a.points, new["status"],
+             a.source, a.superseded_by),
         )
 
     conn.commit()
@@ -234,3 +267,31 @@ def list_alerts(conn: sqlite3.Connection, *, limit: int = 50) -> list[sqlite3.Ro
         "FROM alerts al JOIN students st ON st.id = al.student_id "
         "ORDER BY al.created_at DESC, al.rowid DESC LIMIT ?", (limit,)
     ).fetchall()
+
+
+# ── install facts ─────────────────────────────────────────────────────
+
+LAST_POLL_KEY = "last_poll_at"
+
+
+def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) "
+                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
+    conn.commit()
+
+
+def get_meta(conn: sqlite3.Connection, key: str) -> Optional[str]:
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def record_poll(conn: sqlite3.Connection, when: Optional[str] = None) -> None:
+    """Note that a poll finished (UTC, the same clock as every other stored
+    timestamp). Called after every student is persisted — a quiet poll with
+    no changes leaves no other trace, and "last checked" must count it."""
+    set_meta(conn, LAST_POLL_KEY, when or
+             conn.execute("SELECT datetime('now')").fetchone()[0])
+
+
+def last_poll(conn: sqlite3.Connection) -> Optional[str]:
+    return get_meta(conn, LAST_POLL_KEY)

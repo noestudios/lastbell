@@ -18,6 +18,14 @@ class AssignmentStatus(str, Enum):
     DUE = "due"
     MISSING = "missing"
     UNGRADED_PAST_DUE = "ungraded_past_due"
+    SUBMITTED = "submitted"         # turned in, no grade yet (Canvas only)
+
+
+# Where a course/assignment row came from. ParentVUE (Synergy) is the record;
+# Canvas is the leading indicator — assignments and missing flags appear there
+# first and reach the gradebook days later, if at all.
+SOURCE_PARENTVUE = "parentvue"
+SOURCE_CANVAS = "canvas"
 
 
 class WatcherKind(str, Enum):
@@ -33,6 +41,7 @@ class AlertType(str, Enum):
     GRADE_DROP = "grade_drop"
     DAILY_SUMMARY = "daily_summary"
     TERM_FINAL = "term_final"       # marking period closed: final grades summary
+    SOURCE_CONFLICT = "source_conflict"  # gradebook and Canvas disagree on a grade
 
 
 # The alert types a parent may want NOW rather than in the daily digest —
@@ -78,6 +87,7 @@ class Course:
     term: str = ""
     mark: str = ""         # overall letter/mark
     percent: str = ""
+    source: str = SOURCE_PARENTVUE
 
 
 @dataclass
@@ -92,6 +102,11 @@ class Assignment:
     score: Optional[float] = None
     points: Optional[float] = None
     status: AssignmentStatus = AssignmentStatus.DUE
+    source: str = SOURCE_PARENTVUE
+    # A Canvas row whose gradebook twin exists names it here (the twin's
+    # GUID). The twin is the record; this row is kept, updated, and hidden —
+    # its only voice is a "Canvas says …" hint when the two disagree.
+    superseded_by: str = ""
     # The portal's row verbatim, so no field is ever lost to normalization.
     raw: dict = field(default_factory=dict)
 
