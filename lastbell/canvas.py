@@ -30,15 +30,16 @@ is DUE and the time rules take it from there.
 
 **How it merges.** A Canvas course is matched to the ParentVUE course of the
 same title (period prefixes and the ``-Teacher-S1-2027`` suffix stripped),
-and its assignments attach to that course row keyed ``canvas:<id>``, so they
+or else to the one class the student has with that teacher, and its assignments attach to that course row keyed ``canvas:<id>``, so they
 never collide with gradebook GUIDs. A Canvas assignment whose name matches
 a ParentVUE assignment in the same course is *superseded*: the gradebook
 copy is the record, so the Canvas row is hidden from counts and lists and
 the differ stops alerting on it — but it is kept and updated, and when the
 two disagree on a grade the dashboard shows "Canvas says …" on the
-gradebook row and one alert asks you to check with the teacher. Unmatched
-Canvas courses with real work become their own rows (source ``canvas``)
-with no course grade.
+gradebook row and one alert asks you to check with the teacher. An
+unmatched Canvas course becomes its own row (source ``canvas``, no course
+grade) only when it has real work and is named like a class; school-wide
+and district shells ("Olney ES", "Student Password Reset") never do.
 """
 from __future__ import annotations
 
@@ -273,12 +274,29 @@ def norm_title(title: str) -> str:
 
 
 def match_course(canvas_name: str, courses: Iterable[Course]) -> Optional[Course]:
-    """The ParentVUE course this Canvas course is, by normalized title."""
-    want = norm_title(split_course_name(canvas_name)[0])
+    """The ParentVUE course this Canvas course is: by normalized title, or
+    failing that by the teacher's surname when the student has exactly one
+    class with that teacher. Teachers who share one Canvas shell across
+    sections name it for one of them ("Theatre HS 2A" holding the 1A work),
+    and the schedule — not the shell's name — says which class this is."""
+    courses = list(courses)
+    title, surname = split_course_name(canvas_name)
+    want = norm_title(title)
     if not want:
         return None
     hits = [c for c in courses if norm_title(c.title) == want]
-    return hits[0] if len(hits) == 1 else None
+    if len(hits) == 1:
+        return hits[0]
+    if hits or not surname:
+        return None
+    by_teacher = [c for c in courses if _surname(c.teacher) == surname.lower()]
+    return by_teacher[0] if len(by_teacher) == 1 else None
+
+
+def _surname(teacher: str) -> str:
+    """Last word of a ParentVUE teacher name ("Julian Lazarus" → "lazarus")."""
+    words = teacher.replace(",", " ").split()
+    return words[-1].lower() if words else ""
 
 
 # ── assignments ───────────────────────────────────────────────────────
@@ -404,8 +422,10 @@ def collect(client: CanvasClient, observee: Observee, *,
 
 # Canvas's own catch-all term — every instance has one, by this name. District
 # shells (password reset, expectations training, "Class of 2030") live there;
-# real classes get a real term. Never worth a course row of its own.
+# real classes get a real term. Never worth a course row of its own. MCPS
+# parks each school's all-students course ("Olney ES") in a second one.
 DEFAULT_TERM = "default term"
+NON_CLASS_TERMS = {DEFAULT_TERM, "schoolwide courses"}
 
 
 def merge(snapshot: Snapshot, collection: CanvasCollection, *,
@@ -415,9 +435,11 @@ def merge(snapshot: Snapshot, collection: CanvasCollection, *,
 
     A Canvas course that matches a gradebook course always contributes. One
     that matches nothing gets its own row only when it looks like a class:
-    it has kept work, it isn't in Canvas's Default Term, it's in the same
-    term as the classes that *did* match (when any did), and its name isn't
-    on the ``skip`` list (``LASTBELL_CANVAS_SKIP`` fragments, case-blind).
+    it has kept work, its name carries the district's class suffix
+    (``-Teacher-S1-2027``), it isn't in Canvas's Default Term or the
+    schoolwide-courses term, it's in the same term as the classes that *did*
+    match (when any did), and its name isn't on the ``skip`` list
+    (``LASTBELL_CANVAS_SKIP`` fragments, case-blind).
     """
     stats = {"matched": 0, "own": 0, "assignments": 0, "superseded": 0, "skipped": 0}
     pv_courses = [c for c in snapshot.courses if c.source != SOURCE_CANVAS]
@@ -436,7 +458,8 @@ def merge(snapshot: Snapshot, collection: CanvasCollection, *,
             course_gu = target.edupoint_gu
         elif not cc.assignments:
             continue
-        elif (cc.term.lower() == DEFAULT_TERM
+        elif (not cc.teacher
+              or cc.term.lower() in NON_CLASS_TERMS
               or (class_terms and cc.term.lower() not in class_terms)
               or any(f in cc.name.lower() for f in skip)):
             stats["skipped"] += 1

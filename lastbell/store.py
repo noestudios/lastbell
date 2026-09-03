@@ -167,12 +167,17 @@ def _to_iso(value: Optional[date]) -> Optional[str]:
 # ── writing the new state ─────────────────────────────────────────────
 
 
-def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot) -> None:
+def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot,
+                     *, prune_canvas: bool = False) -> None:
     """Upsert the student's courses + assignments and log field-level changes.
 
     Assignments that vanished from the portal are kept (they're history, and
     teachers do temporarily hide items); the differ only looks at what the
-    current snapshot asserts.
+    current snapshot asserts. Canvas-only course rows are the exception:
+    with ``prune_canvas`` (the Canvas layer ran this poll) any the snapshot
+    no longer asserts are dropped, work and all — they are rebuilt from
+    Canvas every poll, so a row that stopped qualifying would otherwise
+    linger on the dashboard forever.
     """
     student_id = student.agu  # AGU is already the portal's stable student key
     conn.execute(
@@ -246,6 +251,14 @@ def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot)
             (aid, a.edupoint_gu, cid, a.name, a.kind, _to_iso(a.assigned),
              new["due_date"], new["graded_at"], a.score, a.points, new["status"],
              a.source, a.superseded_by),
+        )
+
+    if prune_canvas:
+        keep = list(course_ids.values())
+        conn.execute(
+            "DELETE FROM courses WHERE student_id = ? AND source = 'canvas' "
+            f"AND id NOT IN ({','.join('?' * len(keep)) or 'NULL'})",
+            (student_id, *keep),
         )
 
     conn.commit()

@@ -4,6 +4,22 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.2.3 — 2026-09-03
+
+**Canvas no longer invents classes.** Two kinds of Canvas course were
+showing up on the Students page as if they were classes. A school's
+all-students course ("Olney ES", "Sherwood HS") got a row of its own
+whenever a school-wide notice had points attached — elementary students,
+whose gradebook has one homeroom "class" for Canvas to match against, saw
+it every time. And a teacher who runs one Canvas page for two sections
+names it for one of them ("Theatre HS 2A" holding the 1A work), so it
+showed up as a second Theatre class with no grade. Now a Canvas course
+only stands on its own when it is named like a class (the district's
+`Subject-Teacher-S1-2027` shape) and lives in a real term, and a course
+that matches no class by name is folded into the one class the student
+has with that teacher — the same rule a parent would use. Rows the old
+versions created are removed on the next check; nothing else is touched.
+
 ## 0.2.2 — 2026-09-03
 
 **A poll can no longer hang on Canvas.** On an install that keeps its
