@@ -4,6 +4,47 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.2.0 — 2026-09-03
+
+**Canvas is the leading source.** ParentVUE only shows work once it is in
+the gradebook, days after the fact; Canvas (myMCPS Classroom) is where
+assignments, due dates, submissions, and the "missing" flag appear first.
+`lastbell run` now folds Canvas into every poll: it follows the Canvas tile
+on the portal's own home page — a SAML hand-off for which Synergy is the
+identity provider, so the ParentVUE session is the only credential — and
+reads the observer-scoped REST API (students, courses, assignments with
+your student's submission). Canvas work attaches to the matching gradebook
+course, keyed `canvas:<id>`; once the same item reaches the gradebook under
+the same name the gradebook row is the record and the Canvas twin leaves
+the counts, lists, and alerts — but stays updated, and when the two
+disagree (Canvas has a score where the gradebook shows a 0, a different
+score, or a missing flag) the row shows *Canvas says 9/10* and a new
+`source_conflict` alert asks you to check with the teacher; plain sync lag
+(gradebook still ungraded) is hinted, never alerted. A new **turned in** status covers work
+handed in and not yet graded. Alert lines from Canvas end in `[Canvas]`;
+dashboard rows wear a small *Canvas* mark. New commands: `lastbell canvas`
+(read-only check of the sign-in path and what each course contributes) and
+`lastbell set-canvas-token` (optional personal access token, with
+`LASTBELL_CANVAS_HOST`, to skip the hop). `LASTBELL_CANVAS=off` disables the
+layer; when Canvas is unreachable the poll warns once and proceeds with the
+gradebook alone. Existing databases gain a `source` column on upgrade.
+
+**Email looks like a message, not a log line.** Every email now carries an
+HTML version alongside the plain text: a card with the updates grouped by
+what they mean — Needs attention, Slipping, Coming up, Grades posted — each
+line showing the course, the assignment in bold, and what happened, with a
+small *Canvas* pill where that applies; the daily summary gets an Overall
+table and the same groups. Subjects count by kind ("J.P.H.: 1 missing, 2
+due soon") instead of "2 updates". Plain-text channels (ntfy, Telegram,
+Pushover, console) get the same grouping in text. `lastbell watcher test
+NAME --sample` sends a realistic sample with made-up courses so you can see
+the new look in your own inbox.
+
+**The home page says when it last checked.** A "Last checked today at
+4:12 PM" line closes the Students page; past twice the poll interval it
+becomes a notice that the watcher looks like it isn't running. A quiet poll
+with no changes counts — every finished poll is recorded.
+
 ## 0.1.6 — 2026-09-02
 
 **Demo family uses email.** `lastbell seed-demo` no longer gives a demo

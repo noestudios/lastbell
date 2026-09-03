@@ -31,7 +31,10 @@ services (mention, not license), and anything a fresh sweep of the code
 turns up. Licenses verified, wording consistent with the existing Credits
 section.
 
-## Data-freshness indicator (catch-up already works)
+## Data-freshness indicator (catch-up already works) — shipped 2026-09-03
+The "Last checked …" line and the stale notice are in 0.2.0; what's left of
+this item is the "catching up after downtime" line in the loop log.
+
 Verified 2026-09-01: the poll loop's wall-clock deadline means a machine
 that was off/asleep polls once within a minute of waking — no hammering,
 and queued digests flush late rather than drop. What's missing is the

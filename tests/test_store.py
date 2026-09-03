@@ -121,3 +121,43 @@ def test_new_term_course_starts_fresh_history(conn):
     mp2.courses[0].term = "MP2"          # new (gu, term) key -> new course row
     store.persist_snapshot(conn, STUDENT, mp2)
     assert conn.execute("SELECT COUNT(*) FROM course_history").fetchone()[0] == 0
+
+
+def test_source_round_trips_and_old_databases_are_migrated(conn):
+    from lastbell.models import SOURCE_CANVAS
+
+    snap = _snapshot()
+    snap.courses.append(Course(edupoint_gu="canvas:9", title="Theatre HS 2A",
+                               term="MP1", source=SOURCE_CANVAS))
+    snap.assignments.append(Assignment(
+        edupoint_gu="canvas:1", course_gu="709775", name="Osmosis Quiz",
+        status=AssignmentStatus.SUBMITTED, source=SOURCE_CANVAS))
+    store.persist_snapshot(conn, STUDENT, snap)
+    loaded = store.load_snapshot(conn, "1")
+    by_gu = {a.edupoint_gu: a for a in loaded.assignments}
+    assert by_gu["canvas:1"].source == SOURCE_CANVAS
+    assert by_gu["canvas:1"].status is AssignmentStatus.SUBMITTED
+    assert by_gu["11110001"].source == "parentvue"
+    assert {c.edupoint_gu: c.source for c in loaded.courses}["canvas:9"] == SOURCE_CANVAS
+
+    # A database from before the column existed gains it on ensure_schema.
+    conn.execute("CREATE TABLE legacy AS SELECT id, edupoint_gu, course_id, name FROM assignments")
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(assignments)")}
+    assert "source" in have
+
+
+def test_superseded_canvas_rows_are_hidden_from_readers(conn):
+    from lastbell.models import SOURCE_CANVAS
+
+    snap = _snapshot()
+    snap.assignments.append(Assignment(
+        edupoint_gu="canvas:1", course_gu="709775", name="  fractions quiz ",
+        status=AssignmentStatus.DUE, source=SOURCE_CANVAS))
+    snap.assignments.append(Assignment(
+        edupoint_gu="canvas:2", course_gu="709775", name="Decimals Quiz",
+        status=AssignmentStatus.DUE, source=SOURCE_CANVAS))
+    store.persist_snapshot(conn, STUDENT, snap)
+    rows = conn.execute(
+        "SELECT a.name FROM assignments a WHERE " + store.NOT_SUPERSEDED_SQL
+        + " ORDER BY a.name").fetchall()
+    assert [r["name"] for r in rows] == ["Decimals Quiz", "Fractions Quiz"]

@@ -122,7 +122,7 @@ def test_flush_groups_into_one_message_and_marks_sent(conn):
     assert sent == 1 and warnings == []
     ((to, subject, body),) = ch.calls
     assert to == {"topic": "t"}
-    assert "2 updates for J.P.H." in subject
+    assert subject.startswith("[Last Bell] J.P.H.: ") and subject.count("1 ") == 2
     assert "quiz graded" in body and "Collage" in body
     assert outbox.pending(conn) == []
     # a second flush is a no-op

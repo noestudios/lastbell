@@ -29,7 +29,10 @@ per-watcher: **subscriptions** filtered by alert type over **channels**
 (email/SMS-gateway, ntfy, Telegram, Pushover), each optionally batched into a
 **daily digest**, held during **quiet hours**, or replaced by a generated
 **daily summary** — plus a web **dashboard** to look things up on demand. Data
-path verified live against MCPS (`md-mcps-psv.edupoint.com`, 2026-08-31).
+path verified live against MCPS (`md-mcps-psv.edupoint.com`, 2026-08-31), and
+since 0.2.0 a **Canvas layer** feeds the day-to-day cards from the LMS where
+assignments and missing flags appear first — see
+[Canvas: the leading source](#canvas-the-leading-source).
 
 ---
 
@@ -165,6 +168,71 @@ you deliberately widen it — the bind address is the access control
 ([`config.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/config.py), [`dashboard.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/dashboard.py)).
 
 If the code ever stops backing one of these sentences, that's a bug — file it.
+
+## Canvas: the leading source
+
+ParentVUE is the gradebook of record, but it is the *trailing* one. Teachers
+post assignments, collect work, and set the "missing" flag in Canvas (myMCPS
+Classroom at MCPS); the Synergy gradebook sees any of it only when the
+teacher syncs — days later, and never before an item is graded. So the two
+cards a parent acts on, **Needs attention** and **Due soon**, are fed from
+Canvas first, and ParentVUE keeps the course grades and the finals.
+
+**How it gets in.** With nothing configured (`LASTBELL_CANVAS=auto`), the
+poll follows the Canvas tile on the portal's own home page. That link is a
+SAML entry, and Synergy is the identity provider: the ParentVUE session you
+already hold is the only credential — there is no second password anywhere
+([`canvas.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/canvas.py),
+[`client.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/client.py)).
+If your district lets observers mint a personal access token (Canvas →
+Account → Settings → New Access Token), `lastbell set-canvas-token` plus
+`LASTBELL_CANVAS_HOST` skips the hop. `lastbell canvas` shows which path
+connected, which Canvas student is which portal student, and what each course
+would contribute — read-only, initials only. `LASTBELL_CANVAS=off` never
+touches Canvas.
+
+**What it reads — the Canvas REST API, not pages.** Per poll: the observer's
+linked students, the course list, and per course the assignments with your
+student's submission plus the category names — the documented,
+observer-scoped endpoints the official Canvas Parent app uses, with the same
+polite pause between calls as the gradebook sweep. A two-student household
+adds roughly two calls per course per poll. Instructure's [Acceptable Use
+Policy](https://www.instructure.com/policies/acceptable-use) permits its
+"publicly supported interfaces" and forbids sharing credentials or tokens
+with third parties; both hold here — a token is yours, held in your keyring,
+sent only to your district's Canvas. Its [API
+Policy](https://www.instructure.com/policies/api-policy) throttles per token
+and revokes chronic over-users; eight polls a day is nowhere near that.
+
+**How it merges.** A Canvas course is matched to the ParentVUE course with
+the same title (period prefixes and the `-Teacher-S1-2027` suffix stripped)
+and its work attaches to that course, keyed `canvas:<id>`; a Canvas course
+that matches nothing gets its own row, with no course grade, only when it
+looks like a class — it carries real work, it isn't in Canvas's built-in
+*Default Term* (where the password-reset and training shells live), and it
+sits in the same Canvas term as the classes that did match. Name fragments
+in `LASTBELL_CANVAS_SKIP` silence anything else. Only published work with a due date or points is kept — the undated
+"read this page" items a course shell accumulates aren't actionable. Canvas's
+own words are trusted: `missing` is **MISSING**, a posted score is
+**graded**, a submission is **turned in** (a status only Canvas can supply),
+and everything else is **due** for the time rules to judge. Once the same
+piece of work reaches the gradebook under the same name, the gradebook row
+is the record: the Canvas twin leaves the counts, lists, and alerts but is
+kept and updated, and when the two disagree — Canvas has 9/10 where the
+gradebook shows a 0, a different score, or a missing flag — the gradebook
+row shows *Canvas says 9/10* and one alert asks you to check with the
+teacher. A gradebook row that is merely ungraded while Canvas has a score
+is ordinary sync lag: hinted, not alerted
+([`store.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/store.py),
+[`differ.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/differ.py)).
+Alert lines from Canvas end in `[Canvas]`, so a lock-screen preview says
+which app to open. Canvas rows wear a small *Canvas* mark on the dashboard.
+
+**What it can't do.** Teachers use Canvas unevenly; a course whose teacher
+posts nothing contributes nothing, and that's visible — its Canvas twin
+shows no work. Canvas course grades are deliberately ignored (ParentVUE is
+the record), and the Canvas layer is additive: if Canvas is unreachable, the
+poll logs one warning and checks the gradebook as before.
 
 ## Why scraping (and not the SOAP API)
 
@@ -334,6 +402,15 @@ A *watcher* is just a name plus addresses; *subscriptions* say which student's
 events reach them, over which channels, filtered by alert type. One poll, one
 message per watcher-channel — a watcher subscribed to three alert types gets a
 single message listing everything.
+
+Email carries an HTML version next to the plain text — updates grouped by
+what they mean (Needs attention, Slipping, Coming up, Grades posted), the
+course above the assignment, a *Canvas* pill where the work came from
+Canvas — and the daily summary gets an Overall table
+([`notify/render.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/notify/render.py)).
+Subjects count by kind: `[Last Bell] J.P.H.: 1 missing, 2 due soon`. Push
+channels get the same grouping as text. `lastbell watcher test NAME --sample`
+sends a realistic sample with made-up courses.
 
 | Channel    | Where it goes                                   | Setup                                        |
 |------------|-------------------------------------------------|----------------------------------------------|

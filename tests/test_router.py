@@ -92,12 +92,12 @@ def test_dispatch_sends_and_isolates_failures(conn):
     assert len(warnings) == 1 and "Jasper" in warnings[0]
     ((to, subject, body),) = channels["email"].calls
     assert to == {"to": "mom@example.com"}
-    assert subject == "[Last Bell] 1 update for J.P.H."
+    assert subject.startswith("[Last Bell] J.P.H.: 1 ")
     assert "quiz graded" in body
 
 
 def test_subject_pluralizes():
-    assert router.subject("J.P.H.", [GRADE, MISSING]).startswith("[Last Bell] 2 updates")
+    assert router.subject("J.P.H.", [GRADE, MISSING]) == "[Last Bell] J.P.H.: 1 missing, 1 grade change"
 
 
 def test_urgent_now_beats_the_digest_hour(conn):

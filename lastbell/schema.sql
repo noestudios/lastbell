@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS courses (
     term        TEXT NOT NULL DEFAULT '',
     mark        TEXT NOT NULL DEFAULT '',
     percent     TEXT NOT NULL DEFAULT '',
+    source      TEXT NOT NULL DEFAULT 'parentvue',  -- 'parentvue' | 'canvas'
     UNIQUE (student_id, edupoint_gu, term)
 );
 
@@ -64,6 +65,8 @@ CREATE TABLE IF NOT EXISTS assignments (
     score       REAL,
     points      REAL,
     status      TEXT NOT NULL DEFAULT 'due',
+    source      TEXT NOT NULL DEFAULT 'parentvue',  -- 'parentvue' | 'canvas'
+    superseded_by TEXT NOT NULL DEFAULT '',        -- gradebook twin's GUID (Canvas rows)
     UNIQUE (course_id, edupoint_gu)
 );
 
@@ -122,4 +125,11 @@ CREATE TABLE IF NOT EXISTS outbox (
     queued_at  TEXT NOT NULL DEFAULT (datetime('now')),
     send_after TEXT NOT NULL,             -- local ISO timestamp when eligible
     sent_at    TEXT
+);
+
+-- Small facts about the install itself (not student data). Today: when the
+-- last poll finished, so the dashboard can say how fresh it is.
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );

@@ -34,6 +34,18 @@
         "data/demo.db"
       ],
       "port": 8329
+    },
+    {
+      "name": "dashboard-canvas",
+      "runtimeExecutable": ".venv/bin/lastbell",
+      "runtimeArgs": [
+        "dashboard",
+        "--port",
+        "8330",
+        "--db",
+        "data/canvas-preview.db"
+      ],
+      "port": 8330
     }
   ]
 }

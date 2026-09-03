@@ -117,8 +117,7 @@ def dispatch(deliveries: list[Delivery], student_initials: str,
             ch = transports.get(d.channel)
             if ch is None:
                 ch = transports[d.channel] = channel_factory(d.channel)
-            ch.send(d.to, subject(student_initials, d.events),
-                    "\n".join(f"• {e.detail}" for e in d.events))
+            ch.send(d.to, subject(student_initials, d.events), body(student_initials, d.events))
             sent += 1
         except Exception as e:
             warnings.append(
@@ -129,5 +128,13 @@ def dispatch(deliveries: list[Delivery], student_initials: str,
 
 
 def subject(student_initials: str, events: list[Event]) -> str:
-    n = len(events)
-    return f"[Last Bell] {n} update{'s' if n != 1 else ''} for {student_initials}"
+    from .notify import render
+
+    return render.subject([student_initials], [e.type.value for e in events])
+
+
+def body(student_initials: str, events: list[Event]) -> "render.Message":
+    from .notify import render
+
+    return render.alerts([(student_initials, [(e.type.value, e.detail) for e in events])],
+                         title=f"Updates for {student_initials}")

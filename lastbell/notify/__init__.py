@@ -96,6 +96,15 @@ def send_test(channel_name: str, address: dict) -> None:
     channel(channel_name).send(address, TEST_SUBJECT, TEST_BODY)
 
 
+def send_sample(channel_name: str, address: dict) -> None:
+    """A realistic alert message with made-up courses — shows what the real
+    thing will look like on this channel (HTML on email), with no one's data."""
+    from . import render
+
+    subject, body = render.sample()
+    channel(channel_name).send(address, subject, body)
+
+
 def channel(name: str) -> Channel:
     """Build a per-watcher channel from environment config. Raises ValueError
     with a setup hint when the transport's secrets are missing."""

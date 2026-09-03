@@ -18,6 +18,7 @@ from datetime import date, timedelta
 from typing import Optional
 
 from .models import (
+    SOURCE_CANVAS,
     AlertType,
     Assignment,
     AssignmentStatus,
@@ -113,24 +114,42 @@ def diff(
 
     titles = {c.edupoint_gu: c.title for c in current.courses}
     prev_assignments = _by_gu(previous.assignments)
-    for a in _by_gu(current.assignments).values():
+    current_by_gu = _by_gu(current.assignments)
+    for a in current_by_gu.values():
         p = prev_assignments.get(a.edupoint_gu)
         course = titles.get(a.course_gu) or a.course_gu
+        if a.superseded_by:
+            # A hidden Canvas twin speaks only through disagreement with its
+            # gradebook row — once, when the disagreement first appears.
+            twin = current_by_gu.get(a.superseded_by)
+            if twin is not None and conflicts(twin, a) and not (
+                    p is not None and conflicts(
+                        prev_assignments.get(a.superseded_by) or twin, p)):
+                events.append(Event(
+                    type=AlertType.SOURCE_CONFLICT, student_agu=agu, course_title=course,
+                    detail=(f"{course}: “{twin.name}” gradebook shows {_score(twin)} "
+                            f"but Canvas shows {_score(a)} — likely not synced yet; "
+                            f"worth checking with the teacher"),
+                ))
+            continue
+        # Which app to open: a Canvas-sourced line says so, since the same
+        # work won't be in the gradebook yet.
+        via = " [Canvas]" if a.source == SOURCE_CANVAS else ""
         if p is None:
             if (a.status is AssignmentStatus.DUE and a.due_date
                     and a.due_date >= today):
                 events.append(Event(
                     type=AlertType.UPCOMING_DEADLINE, student_agu=agu,
                     course_title=course,
-                    detail=f"{course}: “{a.name}” due {_day(a.due_date)}",
+                    detail=f"{course}: “{a.name}” due {_day(a.due_date)}{via}",
                 ))
             continue
         if (a.score, a.points) != (p.score, p.points):
             if p.score is None and a.score is not None:
-                detail = f"{course}: “{a.name}” graded: {_score(a)}"
+                detail = f"{course}: “{a.name}” graded: {_score(a)}{via}"
             else:
                 detail = (f"{course}: “{a.name}” score changed "
-                          f"{_score(p)} → {_score(a)}")
+                          f"{_score(p)} → {_score(a)}{via}")
             events.append(Event(
                 type=AlertType.GRADE_CHANGED, student_agu=agu,
                 course_title=course, detail=detail,
@@ -138,22 +157,50 @@ def diff(
         if a.status is AssignmentStatus.MISSING and p.status is not AssignmentStatus.MISSING:
             events.append(Event(
                 type=AlertType.ASSIGNMENT_MISSING, student_agu=agu, course_title=course,
-                detail=f"{course}: “{a.name}” is marked missing",
+                detail=f"{course}: “{a.name}” is marked missing{via}",
             ))
         if (a.status is AssignmentStatus.UNGRADED_PAST_DUE
                 and p.status is not AssignmentStatus.UNGRADED_PAST_DUE):
             due = f" (was due {_day(a.due_date)})" if a.due_date else ""
+            what = "still ungraded"
+            if a.source == SOURCE_CANVAS:
+                from .canvas import submits_online  # lazy: canvas imports models only
+                if submits_online(a):
+                    what = "still not turned in"
             events.append(Event(
                 type=AlertType.UNGRADED_PAST_DUE, student_agu=agu, course_title=course,
-                detail=f"{course}: “{a.name}”{due} is still ungraded",
+                detail=f"{course}: “{a.name}”{due} is {what}{via}",
             ))
         if (a.status is AssignmentStatus.DUE
                 and p.status is AssignmentStatus.NOT_DUE and a.due_date):
             events.append(Event(
                 type=AlertType.UPCOMING_DEADLINE, student_agu=agu, course_title=course,
-                detail=f"{course}: “{a.name}” due {_day(a.due_date)}",
+                detail=f"{course}: “{a.name}” due {_day(a.due_date)}{via}",
             ))
     return events
+
+
+def conflicts(record: Assignment, twin: Assignment) -> bool:
+    """Does Canvas (``twin``) disagree with the gradebook (``record``) in a
+    way worth a word? Canvas has a score, and the gradebook has a different
+    one, a zero, or a missing flag. A gradebook row that is merely ungraded
+    while Canvas has a score is ordinary sync lag — the dashboard hints at
+    it, nobody is alerted."""
+    if twin.score is None:
+        return False
+    if record.status is AssignmentStatus.MISSING:
+        return True
+    if record.score is None:
+        return False
+    if record.score == 0 and twin.score > 0:
+        return True
+    return abs(_pct(record) - _pct(twin)) > 0.5
+
+
+def _pct(a: Assignment) -> float:
+    if a.points:
+        return (a.score or 0.0) / a.points * 100
+    return float(a.score or 0.0)
 
 
 def term_rollover(previous: Optional[Snapshot], current: Snapshot) -> Optional[Event]:
@@ -169,7 +216,9 @@ def term_rollover(previous: Optional[Snapshot], current: Snapshot) -> Optional[E
         return None
     if previous.term == current.term:
         return None
-    finals = sorted((c for c in previous.courses if c.term == previous.term),
+    # Canvas-only courses carry no course grade (the gradebook is the record).
+    finals = sorted((c for c in previous.courses
+                     if c.term == previous.term and c.source != SOURCE_CANVAS),
                     key=lambda c: c.title)
     listing = "; ".join(f"{c.title} {_overall(c)}" for c in finals) \
         or "no courses recorded"

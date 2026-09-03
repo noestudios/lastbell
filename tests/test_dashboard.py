@@ -1197,3 +1197,43 @@ def test_settings_check_updates_reports_and_never_runs_on_get(populated, monkeyp
     status, target = _post(populated, "check-updates")
     assert status == 303 and "Update check failed" in unquote(target)
     assert "ConnectionError" in unquote(target)
+
+
+def test_canvas_rows_are_marked_and_twins_hidden(populated):
+    from lastbell.models import SOURCE_CANVAS
+
+    snap = Snapshot(
+        student_agu="1", term="MP1",
+        courses=[Course(edupoint_gu="709775", title="Math <Adv>", teacher="Pat Example",
+                        term="MP1", mark="B+", percent="87.20%")],
+        assignments=[
+            Assignment(edupoint_gu="canvas:1", course_gu="709775", name="Collage",
+                       status=AssignmentStatus.MISSING, source=SOURCE_CANVAS),
+            Assignment(edupoint_gu="canvas:2", course_gu="709775", name="Osmosis Quiz",
+                       due_date=datetime.date(2026, 9, 20),
+                       status=AssignmentStatus.DUE, source=SOURCE_CANVAS),
+            Assignment(edupoint_gu="canvas:3", course_gu="709775", name="Essay",
+                       status=AssignmentStatus.SUBMITTED, source=SOURCE_CANVAS),
+        ],
+    )
+    store.persist_snapshot(
+        populated, Student(agu="1", name="Jasper P. Hays", school="Example ES",
+                           initials="J.P.H."), snap)
+    status, html = _get(populated, "/")
+    assert "1 missing" in html                       # the Canvas twin isn't double-counted
+    status, html = _get(populated, "/student/1?view=due")
+    assert "Osmosis Quiz" in html and "class='src'>Canvas<" in html
+    status, html = _get(populated, "/student/1?view=everything")
+    assert "Essay" in html and "turned in" in html
+    assert html.count("Collage") == 1               # the gradebook row only
+
+
+def test_home_page_says_when_it_last_checked(populated):
+    status, html = _get(populated, "/")
+    assert "Not checked yet" in html
+    store.record_poll(populated)
+    status, html = _get(populated, "/")
+    assert "Last checked today at" in html and "stale" not in html
+    store.record_poll(populated, "2026-01-01 12:00:00")
+    status, html = _get(populated, "/")
+    assert "freshness stale" in html and "isn't running" in html

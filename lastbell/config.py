@@ -64,6 +64,11 @@ class Config:
     # Phase 4: a course-percent drop of at least this many points upgrades the
     # change to a GRADE_DROP alert (separately subscribable, louder wording).
     grade_drop_points: float
+    # Canvas layer: "auto" follows the portal's own Canvas link (or uses a
+    # stored token when LASTBELL_CANVAS_HOST is set); "off" never touches it.
+    canvas: str = "auto"
+    canvas_host: str = ""
+    canvas_skip: tuple = ()     # course-name fragments never given their own row
 
     @property
     def base_url(self) -> str:
@@ -103,4 +108,9 @@ def load() -> Config:
         dashboard_host=_get("LASTBELL_DASHBOARD_HOST", "127.0.0.1"),
         dashboard_port=int(_get("LASTBELL_DASHBOARD_PORT", "8321")),
         grade_drop_points=float(_get("LASTBELL_GRADE_DROP_POINTS", "5")),
+        canvas=(_get("LASTBELL_CANVAS", "auto") or "auto").strip().lower(),
+        canvas_host=(_get("LASTBELL_CANVAS_HOST", "") or "").strip()
+        .replace("https://", "").replace("http://", "").strip("/"),
+        canvas_skip=tuple(f.strip() for f in (_get("LASTBELL_CANVAS_SKIP", "") or "").split(",")
+                          if f.strip()),
     )

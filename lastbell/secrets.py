@@ -128,3 +128,33 @@ def set_smtp_password(password: str) -> None:
     import keyring
 
     keyring.set_password(SERVICE, SMTP_ACCOUNT, password)
+
+
+# A Canvas personal access token is optional: the poll can ride the portal's
+# own Canvas link instead. When the district offers tokens (Canvas → Account
+# → Settings → New Access Token), storing one here skips that hand-off.
+CANVAS_ACCOUNT = "canvas"
+
+
+def get_canvas_token() -> str:
+    value = os.environ.get("LASTBELL_CANVAS_TOKEN")
+    if value:
+        return value
+    try:
+        import keyring
+
+        return keyring.get_password(SERVICE, CANVAS_ACCOUNT) or ""
+    except Exception:  # no keyring backend: fall back to "no token"
+        return ""
+
+
+def set_canvas_token(token: str) -> None:
+    import keyring
+
+    try:
+        keyring.set_password(SERVICE, CANVAS_ACCOUNT, token)
+    except Exception as exc:
+        raise SecretError(
+            f"Couldn't store the Canvas token in the OS keyring "
+            f"({exc.__class__.__name__}: {exc}). Set LASTBELL_CANVAS_TOKEN in "
+            f"the environment instead.") from exc
