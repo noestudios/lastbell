@@ -140,6 +140,7 @@ def _run_once(client, conn, notifier, conf) -> int:
         # The Canvas layer folds in before the time rules run, so a Canvas
         # due date is judged by the same look-ahead/grace as a gradebook one.
         canvas_note = ""
+        stats = None
         if canvas_layer is not None:
             from . import canvas as _canvas
             try:
@@ -160,7 +161,8 @@ def _run_once(client, conn, notifier, conf) -> int:
         previous = store.load_snapshot(conn, child.agu)
         events = differ.diff(previous, snapshot,
                              grade_drop_points=conf.grade_drop_points)
-        store.persist_snapshot(conn, col.student, snapshot)
+        store.persist_snapshot(conn, col.student, snapshot,
+                               prune_canvas=stats is not None)
 
         n_assign = len(snapshot.assignments)
         if previous is None:
@@ -302,7 +304,8 @@ def _cmd_canvas(args: argparse.Namespace) -> int:
             elif course.gu in own:
                 where = "own row (no gradebook course matches)"
             elif course.assignments:
-                where = f"skipped ({course.term or 'no term'}; LASTBELL_CANVAS_SKIP or not a class term)"
+                where = (f"skipped ({course.term or 'no term'}; not named like a class, "
+                         f"not a class term, or LASTBELL_CANVAS_SKIP)")
             else:
                 where = "skipped"
             print(f"  {course.title!s:40.40} {where}: {shape}")

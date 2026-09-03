@@ -161,3 +161,25 @@ def test_superseded_canvas_rows_are_hidden_from_readers(conn):
         "SELECT a.name FROM assignments a WHERE " + store.NOT_SUPERSEDED_SQL
         + " ORDER BY a.name").fetchall()
     assert [r["name"] for r in rows] == ["Decimals Quiz", "Fractions Quiz"]
+
+
+def test_stale_canvas_course_rows_are_pruned_only_when_canvas_ran(conn):
+    snap = _snapshot()
+    snap.courses.append(Course(edupoint_gu="canvas:145401", title="Olney ES",
+                               term="MP1", source="canvas"))
+    snap.assignments.append(Assignment(
+        edupoint_gu="canvas:77", course_gu="canvas:145401", name="FY27 Test Security",
+        points=100.0, status=AssignmentStatus.DUE, source="canvas"))
+    store.persist_snapshot(conn, STUDENT, snap, prune_canvas=True)
+    assert len(store.load_snapshot(conn, "1").courses) == 2
+
+    # Canvas didn't run this poll (the snapshot is gradebook-only): keep the row.
+    store.persist_snapshot(conn, STUDENT, _snapshot())
+    assert len(store.load_snapshot(conn, "1").courses) == 2
+
+    # Canvas ran and no longer asserts the row: it goes, work and all.
+    store.persist_snapshot(conn, STUDENT, _snapshot(), prune_canvas=True)
+    after = store.load_snapshot(conn, "1")
+    assert [c.edupoint_gu for c in after.courses] == ["709775"]
+    assert [a.edupoint_gu for a in after.assignments] == ["11110001"]
+    assert conn.execute("SELECT count(*) FROM assignments").fetchone()[0] == 1

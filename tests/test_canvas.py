@@ -292,19 +292,56 @@ def test_layer_apply_collects_and_merges(monkeypatch):
     assert layer.apply(Snapshot(student_agu="nope")) is None
 
 
-def test_skip_list_and_no_matched_classes_fallback():
+def test_school_shells_never_get_a_row_even_when_nothing_matched():
+    # An elementary student: the gradebook has one homeroom "class", Canvas
+    # only the school-wide course and a district shell — no class terms to
+    # anchor on, and still neither may stand as a course.
     snap = Snapshot(student_agu="1", term="MP1",
                     courses=[Course(edupoint_gu="e0", title="Ms. Okafor's class", term="MP1")])
-    es = _cc(5, "Olney ES", "Reading log")
+    es = _cc(5, "Olney ES", "FY27 Test Security")
     es.term = "Schoolwide Courses"
     shell = _cc(6, "Student Password Reset : Section 9", "Reset it")
     shell.term = "Default Term"
-    # Nothing matched, so any real-term course may stand on its own …
-    assert canvas.merge(snap, _collection(es, shell))["own"] == 1
-    # … unless the user names it.
-    snap2 = Snapshot(student_agu="1", term="MP1")
-    stats = canvas.merge(snap2, _collection(es), skip=("olney",))
+    stats = canvas.merge(snap, _collection(es, shell))
+    assert stats["own"] == 0 and stats["skipped"] == 2
+    assert [c.edupoint_gu for c in snap.courses] == ["e0"]
+    assert snap.assignments == []
+    # A class-named course in a real term does stand on its own when the
+    # schedule has nothing for it — unless the user names it.
+    art = _cc(7, "Art K-Rivera-S1-2027", "Self portrait")
+    assert canvas.merge(Snapshot(student_agu="1", term="MP1"), _collection(art))["own"] == 1
+    stats = canvas.merge(Snapshot(student_agu="1", term="MP1"), _collection(art), skip=("art k",))
     assert stats["own"] == 0 and stats["skipped"] == 1
+
+
+def test_unmatched_title_falls_back_to_the_one_class_with_that_teacher():
+    pv = [Course(edupoint_gu="736651", title="3: Theatre HS 1A", teacher="Julian Lazarus", term="MP1"),
+          Course(edupoint_gu="736790", title="7: Hon Biology A", teacher="Connie Yeh", term="MP1")]
+    # The teacher's shared shell is named for another section.
+    assert canvas.match_course("Theatre HS 2A-Lazarus-S1-2027", pv).edupoint_gu == "736651"
+    # A title match still wins over the surname.
+    assert canvas.match_course("Hon Biology A-Yeh-S1-2027", pv).edupoint_gu == "736790"
+    # Two classes with one teacher: the surname decides nothing.
+    two = pv + [Course(edupoint_gu="736652", title="4: Stagecraft", teacher="J. Lazarus", term="MP1")]
+    assert canvas.match_course("Theatre HS 2A-Lazarus-S1-2027", two) is None
+    # No suffix, no surname to fall back on.
+    assert canvas.match_course("Olney ES", pv) is None
+
+
+def test_merge_folds_the_teachers_shell_into_the_scheduled_class():
+    snap = Snapshot(
+        student_agu="1", term="MP1",
+        courses=[Course(edupoint_gu="736651", title="3: Theatre HS 1A",
+                        teacher="Julian Lazarus", term="MP1")],
+        assignments=[Assignment(edupoint_gu="9001", course_gu="736651", name="Syllabus Signed",
+                                score=0.0, points=5.0, status=AssignmentStatus.GRADED)])
+    stats = canvas.merge(snap, _collection(
+        _cc(1043107, "Theatre HS 2A-Lazarus-S1-2027", "Syllabus Signed", "Playbill Assignment")))
+    assert stats == {"matched": 1, "own": 0, "assignments": 1, "superseded": 1, "skipped": 0}
+    assert [c.edupoint_gu for c in snap.courses] == ["736651"]
+    assert {a.course_gu for a in snap.assignments} == {"736651"}
+    (twin,) = [a for a in snap.assignments if a.source == SOURCE_CANVAS and a.superseded_by]
+    assert twin.name == "Syllabus Signed" and twin.superseded_by == "9001"
 
 
 def test_online_vs_paper_wording_for_past_due():
