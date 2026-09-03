@@ -4,6 +4,23 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.2.2 — 2026-09-03
+
+**A poll can no longer hang on Canvas.** On an install that keeps its
+secrets in the settings file (`LASTBELL_SECRET_BACKEND=env` — a headless
+Pi), 0.2.0 and 0.2.1 still asked the OS keyring for the optional Canvas
+token before each poll, and on a headless Linux box that call can block
+forever waiting for a desktop prompt that never comes: no error, no CPU,
+no timeout. The gradebook half never ran. Now nothing touches a keyring the
+install has opted out of (the SMTP password lookup had the same latent
+hole), `lastbell set-canvas-token` writes to the settings file on that
+backend, and the whole Canvas step runs under a wall-clock cap — two
+minutes to sign in, five per student — past which the poll warns and
+carries on with the gradebook alone. The Linux service now writes its own
+log file (`~/.local/share/lastbell/logs/lastbell.log`, same as macOS)
+because journald on an appliance image often keeps nothing; re-run
+`lastbell install-service` to pick that up.
+
 ## 0.2.1 — 2026-09-03
 
 **Says what it is.** The README's opening and disclaimer and the package

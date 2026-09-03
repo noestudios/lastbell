@@ -325,3 +325,13 @@ def test_online_vs_paper_wording_for_past_due():
                         assignments=[canvas_assignment(types, AssignmentStatus.UNGRADED_PAST_DUE)])
         (ev,) = diff(prev, curr, today=datetime.date(2026, 9, 1))
         assert phrase in ev.detail and ev.detail.endswith("[Canvas]"), ev.detail
+
+
+def test_with_deadline_returns_raises_or_abandons():
+    import time
+
+    assert canvas.with_deadline(lambda: 42, 1, "quick") == 42
+    with pytest.raises(ValueError):
+        canvas.with_deadline(lambda: (_ for _ in ()).throw(ValueError("x")), 1, "bad")
+    with pytest.raises(canvas.CanvasError, match="took longer"):
+        canvas.with_deadline(lambda: time.sleep(5), 0.05, "slow")

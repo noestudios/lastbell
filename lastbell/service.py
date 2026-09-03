@@ -120,10 +120,12 @@ def plist_path() -> Path:
     return _home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 
 
-def systemd_unit(exe: str, workdir: Optional[Path] = None) -> str:
+def systemd_unit(exe: str, workdir: Optional[Path] = None,
+                 log: Optional[Path] = None) -> str:
+    log = log or log_path()
     lines = [
         "[Unit]",
-        "Description=Last Bell — ParentVUE grade & assignment monitor",
+        "Description=Last Bell — ParentVUE + Canvas grade & assignment monitor",
         "After=network-online.target",
         "Wants=network-online.target",
         "",
@@ -133,6 +135,10 @@ def systemd_unit(exe: str, workdir: Optional[Path] = None) -> str:
     if workdir is not None:
         lines.append(f"WorkingDirectory={workdir}")
     lines += [
+        # journald on an appliance image is often volatile or absent for user
+        # units ("No journal files were found"); the log file always exists.
+        f"StandardOutput=append:{log}",
+        f"StandardError=append:{log}",
         "Environment=PYTHONUNBUFFERED=1",
         "Restart=on-failure",
         "RestartSec=60",
@@ -237,8 +243,7 @@ def install(print_only: bool = False, say: Say = print) -> int:
 
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
-    if plat == "darwin":
-        log_path().parent.mkdir(parents=True, exist_ok=True)
+    log_path().parent.mkdir(parents=True, exist_ok=True)
     say(f"  wrote {target}")
 
     if plat == "linux":
@@ -254,7 +259,7 @@ def install(print_only: bool = False, say: Say = print) -> int:
                 f"{getpass.getuser()}")
         else:
             say("  ✓ lingering enabled — it starts at boot, no login needed")
-        say("  logs: journalctl --user -u lastbell -f")
+        say(f"  logs: tail -f {log_path()}  (also journalctl --user -u lastbell)")
     else:
         bootout, bootstrap = commands
         _run(bootout)  # a previous copy, if any; failure just means none was loaded

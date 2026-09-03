@@ -80,3 +80,37 @@ def test_smtp_password_env_var_wins_and_no_keyring_means_empty(monkeypatch):
         raise RuntimeError("no backend")
     monkeypatch.setattr(keyring, "get_password", boom)
     assert secretstore.get_smtp_password() == ""
+
+
+def test_env_backend_never_touches_the_keyring(monkeypatch):
+    """On the env backend the optional lookups return '' without importing
+    keyring at all — a headless box's keyring can block forever."""
+    import sys
+
+    from lastbell import secrets
+
+    monkeypatch.setenv("LASTBELL_SECRET_BACKEND", "env")
+    monkeypatch.delenv("LASTBELL_CANVAS_TOKEN", raising=False)
+    monkeypatch.delenv("LASTBELL_PASSWORD_SMTP", raising=False)
+
+    class Boom:
+        def __getattr__(self, name):
+            raise AssertionError("keyring must not be touched on the env backend")
+
+    monkeypatch.setitem(sys.modules, "keyring", Boom())
+    assert secrets.get_canvas_token() == ""
+    assert secrets.get_smtp_password() == ""
+    monkeypatch.setenv("LASTBELL_CANVAS_TOKEN", "t0k")
+    assert secrets.get_canvas_token() == "t0k"
+
+
+def test_env_backend_stores_the_canvas_token_in_the_settings_file(monkeypatch, tmp_path):
+    from lastbell import paths, secrets
+
+    monkeypatch.setenv("LASTBELL_SECRET_BACKEND", "env")
+    env_file = tmp_path / ".env"
+    env_file.write_text("LASTBELL_DISTRICT=x\n")
+    monkeypatch.setattr(paths, "active_env_file", lambda: env_file)
+    where = secrets.set_canvas_token("abc")
+    assert str(env_file) in where
+    assert "LASTBELL_CANVAS_TOKEN=abc" in env_file.read_text()
