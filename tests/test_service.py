@@ -7,6 +7,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -56,8 +57,10 @@ def darwin(monkeypatch):
 
 
 def test_systemd_unit_content():
-    text = service.systemd_unit(EXE)
+    text = service.systemd_unit(EXE, log=Path("/home/pi/lastbell.log"))
     assert f"ExecStart={EXE} run --loop" in text
+    assert "StandardOutput=append:/home/pi/lastbell.log" in text
+    assert "StandardError=append:/home/pi/lastbell.log" in text
     assert "Restart=on-failure" in text
     assert "RestartSec=60" in text
     assert "After=network-online.target" in text

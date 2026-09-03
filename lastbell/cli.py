@@ -141,7 +141,15 @@ def _run_once(client, conn, notifier, conf) -> int:
         # due date is judged by the same look-ahead/grace as a gradebook one.
         canvas_note = ""
         if canvas_layer is not None:
-            stats = canvas_layer.apply(snapshot)
+            from . import canvas as _canvas
+            try:
+                stats = _canvas.with_deadline(
+                    lambda: canvas_layer.apply(snapshot), CANVAS_STUDENT_SECONDS,
+                    f"reading Canvas for {col.student.initials}")
+            except _canvas.CanvasError as e:
+                print(f"warning: Canvas: {e} — the gradebook alone was used for "
+                      f"{col.student.initials}", file=sys.stderr)
+                stats = None
             if stats is not None:
                 canvas_note = f" (+{stats['assignments']} from Canvas)"
         snapshot = differ.apply_time_rules(
@@ -200,6 +208,11 @@ def _run_once(client, conn, notifier, conf) -> int:
     return total
 
 
+# Wall-clock caps on the optional Canvas step: a poll must never hang on it.
+CANVAS_CONNECT_SECONDS = 120
+CANVAS_STUDENT_SECONDS = 300
+
+
 def _canvas_layer(client, children, conf):
     """Sign in to Canvas for this poll, or None (with a one-line warning) —
     the Canvas layer is additive and never blocks the gradebook poll."""
@@ -213,9 +226,12 @@ def _canvas_layer(client, children, conf):
         print(f"warning: {msg}", file=sys.stderr)
 
     try:
-        cc = canvas.connect(client, host=conf.canvas_host,
-                            token=secretstore.get_canvas_token())
-        layer = canvas.CanvasLayer(cc, children, warn=warn, skip=conf.canvas_skip)
+        layer = canvas.with_deadline(
+            lambda: canvas.CanvasLayer(
+                canvas.connect(client, host=conf.canvas_host,
+                               token=secretstore.get_canvas_token()),
+                children, warn=warn, skip=conf.canvas_skip),
+            CANVAS_CONNECT_SECONDS, "signing in to Canvas")
     except (canvas.CanvasError, requests.RequestException) as e:
         warn(f"Canvas: {e} — this poll used the gradebook only")
         return None
@@ -301,8 +317,8 @@ def _cmd_set_canvas_token(args: argparse.Namespace) -> int:
     if not token:
         print("error: empty token; nothing stored", file=sys.stderr)
         return 2
-    secretstore.set_canvas_token(token)
-    print("Stored the Canvas token in the OS keyring. Set LASTBELL_CANVAS_HOST "
+    where = secretstore.set_canvas_token(token)
+    print(f"Stored the Canvas token in {where}. Set LASTBELL_CANVAS_HOST "
           "to your Canvas hostname so polls use it.")
     return 0
 

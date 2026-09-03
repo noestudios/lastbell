@@ -74,6 +74,32 @@ class CanvasError(RuntimeError):
     poll: the ParentVUE snapshot proceeds without the Canvas layer."""
 
 
+def with_deadline(fn: Callable[[], object], seconds: float, what: str):
+    """Run ``fn`` with a wall-clock cap. Per-request timeouts don't cover
+    everything (name resolution, a library waiting on a prompt), and the
+    Canvas layer is optional: past the deadline the poll gets a CanvasError
+    and carries on with the gradebook. The stuck worker is a daemon thread,
+    so it can't keep the process alive either."""
+    import threading
+
+    result: dict = {}
+
+    def run() -> None:
+        try:
+            result["value"] = fn()
+        except BaseException as e:  # noqa: BLE001 — re-raised on the caller's thread
+            result["error"] = e
+
+    t = threading.Thread(target=run, name=f"canvas:{what}", daemon=True)
+    t.start()
+    t.join(seconds)
+    if t.is_alive():
+        raise CanvasError(f"{what} took longer than {seconds:g}s and was abandoned")
+    if "error" in result:
+        raise result["error"]
+    return result.get("value")
+
+
 # ── the API client ────────────────────────────────────────────────────
 
 

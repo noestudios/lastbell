@@ -107,6 +107,26 @@ def prompt_password(prompt: str = "ParentVUE password (hidden): ") -> str:
     return getpass.getpass(prompt)
 
 
+def backend() -> str:
+    """The install's secret backend (``LASTBELL_SECRET_BACKEND``). An install
+    on the ``env`` backend has said "this box has no usable keyring": nothing
+    may touch one, not even optionally — on a headless Linux box the keyring
+    library can block forever waiting for a desktop prompt, with no error and
+    no timeout (this hung every poll on a Pi in 0.2.0/0.2.1)."""
+    return (os.environ.get("LASTBELL_SECRET_BACKEND") or "keyring").strip().lower()
+
+
+def _optional_from_keyring(account: str) -> str:
+    if backend() == "env":
+        return ""
+    try:
+        import keyring
+
+        return keyring.get_password(SERVICE, account) or ""
+    except Exception:  # no keyring backend: fall back to "nothing stored"
+        return ""
+
+
 # The SMTP account password gets its own keyring slot so `lastbell setup` can
 # keep it out of the env file too. The env var (Docker/CI injection) wins.
 SMTP_ACCOUNT = "smtp"
@@ -116,12 +136,7 @@ def get_smtp_password() -> str:
     value = os.environ.get("LASTBELL_PASSWORD_SMTP")
     if value:
         return value
-    try:
-        import keyring
-
-        return keyring.get_password(SERVICE, SMTP_ACCOUNT) or ""
-    except Exception:  # no keyring backend: fall back to "no password"
-        return ""
+    return _optional_from_keyring(SMTP_ACCOUNT)
 
 
 def set_smtp_password(password: str) -> None:
@@ -140,15 +155,20 @@ def get_canvas_token() -> str:
     value = os.environ.get("LASTBELL_CANVAS_TOKEN")
     if value:
         return value
-    try:
-        import keyring
-
-        return keyring.get_password(SERVICE, CANVAS_ACCOUNT) or ""
-    except Exception:  # no keyring backend: fall back to "no token"
-        return ""
+    return _optional_from_keyring(CANVAS_ACCOUNT)
 
 
-def set_canvas_token(token: str) -> None:
+def set_canvas_token(token: str) -> str:
+    """Store the token where this install keeps secrets: the OS keyring, or —
+    on the ``env`` backend — the owner-only settings file, like the portal
+    password. Returns a one-line description of where it went."""
+    if backend() == "env":
+        from . import paths
+        from .setup_wizard import write_env
+
+        env_path = paths.active_env_file() or paths.default_env_file()
+        write_env(env_path, {"LASTBELL_CANVAS_TOKEN": token})
+        return f"the settings file ({env_path})"
     import keyring
 
     try:
@@ -158,3 +178,4 @@ def set_canvas_token(token: str) -> None:
             f"Couldn't store the Canvas token in the OS keyring "
             f"({exc.__class__.__name__}: {exc}). Set LASTBELL_CANVAS_TOKEN in "
             f"the environment instead.") from exc
+    return "the OS keyring"
