@@ -848,6 +848,43 @@ def _cmd_forget(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── 0.2.8: confidence — status, upgrade, backup/restore ───────────────
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    from . import status
+
+    print("\n".join(status.report()))
+    return 0
+
+
+def _cmd_upgrade(args: argparse.Namespace) -> int:
+    from . import upgrade
+
+    if args.restart_only:
+        print("Restarting the running copies:")
+        upgrade.restart()
+        return 0
+    return upgrade.run(no_restart=args.no_restart)
+
+
+def _cmd_backup(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from . import backup
+
+    backup.backup(Path(args.path) if args.path else None)
+    return 0
+
+
+def _cmd_restore(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from . import backup
+
+    return backup.restore(Path(args.archive), force=args.force)
+
+
 def _cmd_seed_demo(args: argparse.Namespace) -> int:
     from pathlib import Path
 
@@ -1021,6 +1058,36 @@ def main() -> None:
                           help="don't ask; for scripts")
     p_forget.set_defaults(func=_cmd_forget)
 
+    p_status = sub.add_parser(
+        "status",
+        help="one screen: version, service, last check, watchers — safe to "
+             "paste into an issue")
+    p_status.set_defaults(func=_cmd_status)
+
+    p_up = sub.add_parser("upgrade",
+                          help="pipx upgrade lastbell, then restart the poller "
+                               "and the dashboard")
+    p_up.add_argument("--no-restart", action="store_true",
+                      help="upgrade the files only; restart later yourself")
+    p_up.add_argument("--restart-only", action="store_true",
+                      help="skip pipx; just restart the installed service(s)")
+    p_up.set_defaults(func=_cmd_upgrade)
+
+    p_bk = sub.add_parser("backup",
+                          help="save the database and settings (secrets left "
+                               "out) as one zip file")
+    p_bk.add_argument("path", nargs="?",
+                      help="file or directory to write (default: "
+                           "lastbell-backup-<date>.zip here)")
+    p_bk.set_defaults(func=_cmd_backup)
+
+    p_rs = sub.add_parser("restore", help="bring a backup zip back into place")
+    p_rs.add_argument("archive")
+    p_rs.add_argument("--force", action="store_true",
+                      help="replace an existing database (it is kept beside "
+                           "the restored one as .before-restore)")
+    p_rs.set_defaults(func=_cmd_restore)
+
     p_seed = sub.add_parser(
         "seed-demo",
         help="fabricate a demo database: a fake family at quarter-end volume "
@@ -1041,12 +1108,13 @@ def main() -> None:
 
         from .client import LoginError, ParentVueError
         from .gradebook import ParseError
+        from .backup import BackupError
         from .service import ServiceError
         from .watchers import WatcherError
 
         raise SystemExit(args.func(args))
     except (cfg.ConfigError, secretstore.SecretError, WatcherError, LoginError,
-            ServiceError) as e:
+            ServiceError, BackupError) as e:
         print(f"error: {e}", file=sys.stderr)
         raise SystemExit(2) from None
     except ParseError as e:
