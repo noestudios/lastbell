@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from html import escape
 
-from .. import __version__
+from .. import __version__, updates
 
 from .render import (
     _REPO_URL,
@@ -50,7 +50,7 @@ def _options(pairs, selected="") -> str:
 
 
 def render_settings(watcher_list, subscriptions, students=(),
-                    error="", notice="") -> str:
+                    error="", notice="", installed: str | None = None) -> str:
     """The Settings page: full watcher/subscription CRUD as plain HTML forms.
     These are the dashboard's only write paths; they carry no auth of their
     own — the bind address is the access control. Env-owned config (poll
@@ -247,10 +247,16 @@ def render_settings(watcher_list, subscriptions, students=(),
     # otherwise answer. Check for updates is a POST so it only ever runs on
     # a click — the README promises no phone-home, and this keeps it true.
     ext = "target='_blank' rel='noopener noreferrer'"
+    # Upgraded on disk but not restarted: the footer is the one place that
+    # can say so, since it is the un-restarted process itself talking.
+    pending = ""
+    if updates.restart_pending(installed):
+        pending = (f" <span class='badge warn'>{escape(installed)} installed — "
+                   f"restart to use it</span>")
     credit = (
         "<footer class='credit'>"
         f"<a href='{_REPO_URL}/releases/tag/v{__version__}' {ext}>"
-        f"Last Bell {__version__}</a> · "
+        f"Last Bell {__version__}</a>{pending} · "
         f"© 2026 <a href='{_REPO_URL}' {ext}>Chris Hays</a> · "
         f"<a href='{_REPO_URL}/blob/main/LICENSE' {ext}>MIT license</a> · "
         f"<a href='{_REPO_URL}/releases' {ext}>What's new</a> · "

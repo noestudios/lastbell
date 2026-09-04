@@ -4,6 +4,20 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.2.5 — 2026-09-04
+
+**The dashboard now knows the difference between "not upgraded" and
+"not restarted".** After `pipx upgrade`, the poller and the dashboard
+keep running the old code until each is restarted — and the dashboard
+kept reporting its own old version and telling you to upgrade again, as
+if the upgrade hadn't taken. Now Check for updates reads the version
+installed on disk as well as the one running: when the disk copy is
+newer it says "0.2.5 is installed, but this dashboard is still running
+0.2.4" and gives the restart command for your platform. The Settings
+footer shows the same flag next to the version. The upgrade hint itself
+now names both processes (on Linux: `systemctl --user restart lastbell`,
+plus `lastbell-dashboard` if you set that up) instead of "restart it".
+
 ## 0.2.4 — 2026-09-04
 
 Fixes from a code review of the whole package. Nothing changes in what
