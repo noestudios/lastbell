@@ -13,7 +13,8 @@ ENV LASTBELL_DB_PATH=/data/lastbell.db \
     LASTBELL_SNAPSHOT_DIR=/data/snapshots \
     LASTBELL_SECRET_BACKEND=env
 
-# In Docker the password comes from a secret store into LASTBELL_PASSWORD;
-# never bake credentials into the image or compose file.
+# In Docker the password arrives as a secret file named by
+# LASTBELL_PASSWORD_FILE (see docker-compose.yml) or, from a CI secret store,
+# as LASTBELL_PASSWORD; never bake credentials into the image or compose file.
 ENTRYPOINT ["lastbell"]
 CMD ["preflight"]

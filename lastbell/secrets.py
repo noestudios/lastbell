@@ -6,8 +6,10 @@ Passwords never live in config files, the database, or the source tree — only 
   keyring  the OS keyring (macOS Keychain, Windows Credential Manager,
            Linux Secret Service) via the ``keyring`` library. Recommended for
            bare-metal installs.
-  env      read from ``LASTBELL_PASSWORD``, where the value is injected by a
-           secret store (Docker secrets, CI) — or, for an always-on box with
+  env      read from ``LASTBELL_PASSWORD`` — or from the file named by
+           ``LASTBELL_PASSWORD_FILE`` (a Docker/Podman secret mounted under
+           /run/secrets) — where the value is injected by a secret store
+           (Docker secrets, CI) — or, for an always-on box with
            no usable keyring (a headless Pi, a boot-time service that can't
            unlock the desktop keyring), written by ``lastbell setup`` into the
            mode-0600 settings file. That trade-off is stated to the user at
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 import getpass
 import os
+from pathlib import Path
 
 SERVICE = "lastbell"
 
@@ -25,14 +28,35 @@ class SecretError(RuntimeError):
     """Raised when a password can't be resolved."""
 
 
+def _from_env(key: str) -> str:
+    """``key`` from the environment; else the contents of the file named by
+    ``<key>_FILE`` — the Docker/Podman secrets convention, where compose
+    mounts each secret at /run/secrets/<name> and nothing puts it in the
+    environment. A trailing newline (every editor adds one) is dropped.
+    Empty when neither is set."""
+    value = os.environ.get(key)
+    if value:
+        return value
+    path = os.environ.get(key + "_FILE")
+    if not path:
+        return ""
+    try:
+        return Path(path).read_text(encoding="utf-8").rstrip("\r\n")
+    except OSError as exc:
+        raise SecretError(
+            f"{key}_FILE={path} couldn't be read "
+            f"({exc.__class__.__name__}: {exc})") from exc
+
+
 def get_password(username: str, backend: str = "keyring") -> str:
     if backend == "env":
-        value = os.environ.get("LASTBELL_PASSWORD")
+        value = _from_env("LASTBELL_PASSWORD")
         if not value:
             raise SecretError(
                 "LASTBELL_SECRET_BACKEND=env but LASTBELL_PASSWORD is unset. "
-                "Run `lastbell setup` (it writes it to the settings file) or "
-                "export LASTBELL_PASSWORD."
+                "Run `lastbell setup` (it writes it to the settings file), "
+                "export LASTBELL_PASSWORD, or point LASTBELL_PASSWORD_FILE at a "
+                "secret file (Docker: /run/secrets/<name>)."
             )
         return value
 
@@ -133,10 +157,7 @@ SMTP_ACCOUNT = "smtp"
 
 
 def get_smtp_password() -> str:
-    value = os.environ.get("LASTBELL_PASSWORD_SMTP")
-    if value:
-        return value
-    return _optional_from_keyring(SMTP_ACCOUNT)
+    return _from_env("LASTBELL_PASSWORD_SMTP") or _optional_from_keyring(SMTP_ACCOUNT)
 
 
 def set_smtp_password(password: str) -> str:
@@ -175,10 +196,7 @@ CANVAS_ACCOUNT = "canvas"
 
 
 def get_canvas_token() -> str:
-    value = os.environ.get("LASTBELL_CANVAS_TOKEN")
-    if value:
-        return value
-    return _optional_from_keyring(CANVAS_ACCOUNT)
+    return _from_env("LASTBELL_CANVAS_TOKEN") or _optional_from_keyring(CANVAS_ACCOUNT)
 
 
 def set_canvas_token(token: str) -> str:

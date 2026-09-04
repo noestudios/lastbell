@@ -4,6 +4,44 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.2.6 — unreleased
+
+**A hardening pass over the parts a careful reader checks first.** Six
+fixes, none of which changes what Last Bell does; each closes a gap
+between what the README promised and what the code guaranteed.
+
+- **Email: the mail server's certificate is now verified.** `starttls()`
+  with no context uses Python's *unverified* default, so anyone between
+  the box and the mail server could have presented any certificate and
+  read the SMTP password. Both STARTTLS and, new, implicit TLS on port
+  465 now verify against the OS trust store.
+- **Dashboard: DNS rebinding is refused.** Binding to 127.0.0.1 kept the
+  network out but not the reader's own browser: a web page could point a
+  hostname it controls at 127.0.0.1 and read the dashboard, and the
+  Origin check couldn't tell because Origin and Host then agree. The
+  dashboard now answers only to loopback, IP literals, `.local` names,
+  the bound address, and `LASTBELL_DASHBOARD_HOSTNAMES`; anything else
+  gets a 421 page saying why and how to allow a name of your own.
+- **Settings file: passwords with `#`, `$`, quotes, or edge spaces now
+  survive the round trip.** The wizard wrote values bare; python-dotenv
+  reads `abc #def` as `abc` and expands `${VAR}`. The wizard's own check
+  used the in-memory value, so it said "go" and the boot-time service
+  then failed to sign in. Values that need it are now quoted, the loader
+  no longer interpolates, and the wizard reads the password back through
+  dotenv before calling it saved.
+- **Settings file: owner-only from the first byte.** It was written under
+  the umask and chmod-ed to 0600 afterwards. It is now written to a
+  0600 temp file and moved into place, so a crash mid-write can't leave
+  a truncated settings file either.
+- **Docker: the compose file works.** It mounted a secret that nothing
+  read. `LASTBELL_PASSWORD_FILE` (and `_SMTP_FILE`, `LASTBELL_CANVAS_TOKEN_FILE`)
+  now name a secret file, and the compose file runs the poller plus a
+  loopback-only dashboard.
+- **Preflight: the legacy SOAP probe no longer carries your password.**
+  The deprecation code districts return (UPD5304-00 and friends) comes
+  back before any login, so a placeholder learns the same thing. The
+  README's "sent to one destination" is now literally true.
+
 ## 0.2.5 — 2026-09-04
 
 **The dashboard now knows the difference between "not upgraded" and

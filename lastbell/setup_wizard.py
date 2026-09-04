@@ -14,6 +14,7 @@ Plain ``input()``/``getpass()`` — no new dependencies.
 from __future__ import annotations
 
 import os
+import re
 import secrets as pysecrets
 import sys
 from pathlib import Path
@@ -68,7 +69,11 @@ def _getpass(prompt: str) -> str:
 
 
 def read_env(path: Path) -> dict:
-    """KEY=VALUE lines from an env file; comments and blanks skipped."""
+    """KEY=VALUE lines from an env file, read the way python-dotenv reads
+    them (``config.load`` uses dotenv with interpolation off): a
+    double-quoted value honours ``\\"`` and ``\\\\`` escapes, a
+    single-quoted one is literal, and an unquoted one loses surrounding
+    whitespace and any `` # comment`` tail. Comments and blanks skipped."""
     values: dict = {}
     if not path.is_file():
         return values
@@ -77,11 +82,48 @@ def read_env(path: Path) -> dict:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        values[key.strip()] = value
+        values[key.strip()] = _unquote(value.strip())
     return values
+
+
+def _unquote(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        return re.sub(r"\\(.)", r"\1", value[1:-1])
+    if len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1]
+    return re.split(r"\s+#", value, maxsplit=1)[0].strip()
+
+
+# Characters dotenv would treat as syntax in an unquoted value: a comment
+# start, quotes, interpolation, escapes. Such values are written quoted.
+_NEEDS_QUOTING = set(" \t#\"'$\\`")
+
+
+def _quote(value: str) -> str:
+    """The form of ``value`` that reads back verbatim. Plain values stay
+    plain, so the file remains hand-editable; anything dotenv would trim,
+    treat as a comment, or expand is double-quoted with backslash escapes.
+    (Before 0.2.6 a password like ``abc #def`` was written bare, passed the
+    wizard's own check — which used the in-memory value — and then read back
+    as ``abc`` by the boot-time service.)"""
+    if "\n" in value or "\r" in value:
+        raise ValueError("a settings value can't contain a line break")
+    if value and not (set(value) & _NEEDS_QUOTING):
+        return value
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def reread(path: Path, key: str) -> str | None:
+    """What a *fresh* process would see for ``key`` — through python-dotenv
+    itself when it's installed (the reader ``config.load`` uses), else this
+    module's parser. The wizard checks a just-written password this way, so
+    "saved" means "will load"."""
+    try:
+        from dotenv import dotenv_values
+
+        return dotenv_values(path, interpolate=False).get(key)
+    except ImportError:  # pragma: no cover
+        return read_env(path).get(key)
 
 
 def write_env(path: Path, updates: dict) -> None:
@@ -103,23 +145,43 @@ def write_env(path: Path, updates: dict) -> None:
         if key in remaining:
             value = remaining.pop(key)
             if value is not None:
-                out.append(f"{key}={value}")
+                out.append(f"{key}={_quote(value)}")
         else:
             out.append(line)
     for key, value in remaining.items():
         if value is not None:
-            out.append(f"{key}={value}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(out) + "\n", encoding="utf-8")
-    try:  # owner-only: usually no secrets, but with the env backend there are
-        os.chmod(path, 0o600)
-    except OSError:  # pragma: no cover — e.g. Windows
-        pass
+            out.append(f"{key}={_quote(value)}")
+    _write_private(path, "\n".join(out) + "\n")
     for key, value in updates.items():
         if value is None:
             os.environ.pop(key, None)
         else:
             os.environ[key] = value
+
+
+def _write_private(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` owner-only from the first byte: the content
+    goes to a sibling temp file created with mode 0600, then replaces the
+    target atomically. (Writing in place and chmod-ing afterwards leaves a
+    window where a fresh file wears the umask's default, usually 0644 — and
+    a crash mid-write would have left a truncated settings file.)"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    try:  # an existing file keeps whatever mode it had; make sure it's ours-only
+        os.chmod(path, 0o600)
+    except OSError:  # pragma: no cover — e.g. Windows
+        pass
 
 
 # ── probes (module-level so tests can stub the network) ───────────────
@@ -233,6 +295,13 @@ def _step_credentials(env_path: Path, env: dict) -> tuple:
         if backend == "env":
             write_env(env_path, {"LASTBELL_SECRET_BACKEND": "env",
                                  "LASTBELL_PASSWORD": password})
+            if reread(env_path, "LASTBELL_PASSWORD") != password:
+                # Never let "saved" mean something other than "will load".
+                write_env(env_path, {"LASTBELL_PASSWORD": None})
+                _say("  ✗ the settings file didn't read that password back "
+                     "exactly — not saved. This is a Last Bell bug; please "
+                     "report which characters the password contains.")
+                return username, ""
             _say(f"  ✓ saved in {env_path} (owner-only) for {username!r}")
         else:
             secretstore.set_password(username, password)

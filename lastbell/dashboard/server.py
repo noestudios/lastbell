@@ -1,6 +1,7 @@
 """HTTP plumbing: routing, the settings POST handlers, and ``serve``."""
 from __future__ import annotations
 
+import ipaddress
 import sqlite3
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -297,6 +298,54 @@ def _handle_settings_post(conn: sqlite3.Connection, action: str,
         return 303, "/settings?err=" + quote(str(e))
 
 
+_LOOPBACK_NAMES = {"localhost", "127.0.0.1", "::1"}
+_ANY_ADDRESS = {"", "0.0.0.0", "::"}
+
+
+def _host_name(host_header: str) -> str:
+    """The name part of a Host header, lower-cased: port and IPv6 brackets
+    stripped (``pi.local:8321`` → ``pi.local``, ``[::1]:8321`` → ``::1``)."""
+    h = (host_header or "").strip().lower()
+    if h.startswith("["):
+        return h[1:h.index("]")] if "]" in h else h[1:]
+    if h.count(":") == 1:          # name:port (more colons = a bare IPv6 literal)
+        return h.rsplit(":", 1)[0]
+    return h
+
+
+def host_allowed(host_header: str | None, bind_host: str, extra: tuple = ()) -> bool:
+    """Is this request addressed to a name the dashboard answers to?
+
+    Binding to 127.0.0.1 keeps the network out, but not the reader's own
+    browser: a page on any site can point a hostname it controls at
+    127.0.0.1 (DNS rebinding) and then read this dashboard — full names and
+    grades — as if it were its own origin, and the Origin check in
+    ``same_origin`` can't tell, because Origin and Host then agree. What a
+    rebound request can't fake is the Host header, which names the
+    attacker's domain. So the dashboard answers only to: loopback names, the
+    address it was bound to, any IP literal (an address can't be rebound),
+    ``.local`` mDNS names (resolved by multicast, not public DNS, on every
+    mainstream desktop and phone OS — the browser is where this attack
+    runs), and hostnames the
+    owner lists in ``LASTBELL_DASHBOARD_HOSTNAMES``. A request with no Host
+    header at all (an HTTP/1.0 client, never a browser) is let through."""
+    if not host_header:
+        return True
+    name = _host_name(host_header)
+    if name in _LOOPBACK_NAMES:
+        return True
+    if bind_host and bind_host.lower() not in _ANY_ADDRESS and name == bind_host.lower():
+        return True
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        pass
+    if name.endswith(".local"):
+        return True
+    return name in {e.strip().lower() for e in extra if e and e.strip()}
+
+
 def same_origin(headers) -> bool:
     """Is this POST from the dashboard's own pages? Binding to localhost
     doesn't stop the reader's *browser* from being pointed here by any site
@@ -313,7 +362,7 @@ def same_origin(headers) -> bool:
     return urlparse(origin).netloc.lower() == (headers.get("Host") or "").lower()
 
 
-def serve(db_path: Path, host: str, port: int) -> None:
+def serve(db_path: Path, host: str, port: int, hostnames: tuple = ()) -> None:
     from .. import store
 
     # Apply any pending schema migrations up front — the per-request
@@ -331,7 +380,29 @@ def serve(db_path: Path, host: str, port: int) -> None:
             "/favicon.ico": (_FAVICON_PATH, "image/png"),
         }
 
+        def _refuse_host(self) -> None:
+            name = escape(_host_name(self.headers.get("Host") or ""))
+            body = _page(
+                "Refused",
+                "<h1>Not answering to that name</h1>"
+                f"<p>This request was addressed to <code>{name}</code>. The "
+                "dashboard answers only to localhost, IP addresses, "
+                "<code>.local</code> names, and the hostnames listed in "
+                "<code>LASTBELL_DASHBOARD_HOSTNAMES</code> — that is what keeps "
+                "a web page you happen to visit from reaching it through your "
+                "own browser (DNS rebinding). If this is your own name for "
+                "this machine, add it to that setting and restart the "
+                "dashboard.</p>").encode("utf-8")
+            self.send_response(421)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self) -> None:  # noqa: N802 (stdlib name)
+            if not host_allowed(self.headers.get("Host"), host, hostnames):
+                self._refuse_host()
+                return
             static = self._STATIC.get(urlparse(self.path).path)
             if static:
                 payload = static[0].read_bytes()
@@ -370,6 +441,9 @@ def serve(db_path: Path, host: str, port: int) -> None:
             self.wfile.write(payload)
 
         def do_POST(self) -> None:  # noqa: N802 (stdlib name)
+            if not host_allowed(self.headers.get("Host"), host, hostnames):
+                self._refuse_host()
+                return
             path = urlparse(self.path).path
             if not path.startswith("/settings/"):
                 self.send_error(404)
