@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import smtplib
+import ssl
 from dataclasses import dataclass
 from email.message import EmailMessage
 
@@ -63,8 +64,19 @@ class SmtpTransport:
 
     def deliver(self, recipient: str, subject: str, body: str) -> None:
         msg = build_message(self.sender, recipient, subject, body)
-        with smtplib.SMTP(self.host, self.port, timeout=30) as smtp:
-            smtp.starttls()
+        # A verifying context, explicitly: smtplib's default for STARTTLS is
+        # the *unverified* stdlib context, which would let anyone between
+        # this box and the mail server present any certificate and read the
+        # SMTP password. Port 465 is implicit TLS (SMTPS); everything else
+        # upgrades with STARTTLS. Both verify the server against the OS roots.
+        context = ssl.create_default_context()
+        if self.port == 465:
+            smtp = smtplib.SMTP_SSL(self.host, self.port, timeout=30, context=context)
+        else:
+            smtp = smtplib.SMTP(self.host, self.port, timeout=30)
+        with smtp:
+            if self.port != 465:
+                smtp.starttls(context=context)
             if self.user:
                 smtp.login(self.user, self.password)
             smtp.send_message(msg)

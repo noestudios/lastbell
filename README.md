@@ -224,8 +224,9 @@ lastbell collect            # read-only JSON dump of what a run would persist
 A checkout's `.env` (in the working directory) takes precedence over the
 installed settings file, and typically pins `LASTBELL_DB_PATH=data/lastbell.db`
 to keep state inside the repo tree. A `Dockerfile` and `docker-compose.yml`
-are included for container installs; the password is injected as a Docker
-secret, never written to `.env`.
+are included for container installs: the password is a Docker secret named
+by `LASTBELL_PASSWORD_FILE`, never written to `.env`, and the compose file
+runs the poller and a loopback-only dashboard.
 </details>
 
 ## The dashboard
@@ -239,6 +240,17 @@ same one-line message the wizard did, so "does this actually reach Grandma's
 phone?" is one click. The footer shows the version you're running and a
 **Check for updates** link that asks PyPI, on that click only, whether a
 newer release exists.
+
+It listens on `127.0.0.1` only. `--host` (or `LASTBELL_DASHBOARD_HOST`)
+widens that, and before you do, know two things. There is no login: anyone
+who can reach the port can read every page and edit the watcher list, so a
+widened dashboard belongs behind something that authenticates, such as
+Tailscale or a reverse proxy with a password. And it answers only to names
+it recognizes: localhost, IP addresses, `.local` names, the address it was
+bound to, and anything you list in `LASTBELL_DASHBOARD_HOSTNAMES`. A
+request addressed to any other hostname gets a refusal page explaining
+why, which is what stops a web page you happen to visit from reaching the
+dashboard through your own browser (DNS rebinding).
 
 You start with one watcher automatically: the first run creates a guardian
 named after the credential holder, subscribed to every student, on the
@@ -313,7 +325,9 @@ events reach them, over which channels, filtered by alert type. One poll means
 one message per watcher-channel, so a watcher subscribed to three alert types
 gets a single message listing everything.
 
-Email carries an HTML version next to the plain text: updates grouped by
+Email goes out over STARTTLS (or implicit TLS on port 465) with the mail
+server's certificate verified against the OS trust store. It carries an
+HTML version next to the plain text: updates grouped by
 what they mean (Needs attention, Slipping, Coming up, Grades posted), the
 course above the assignment, and a *Canvas* pill where the work came from
 Canvas. The daily summary gets an Overall table
@@ -409,8 +423,9 @@ That list is the *entire* footprint.
 district's servers.** `lastbell set-password` stores it in the macOS
 Keychain / Windows Credential Manager / Linux Secret Service
 ([`secrets.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/secrets.py)); it never appears in `.env`, the
-database, logs, or the source tree. (Docker installs inject it via
-`LASTBELL_PASSWORD` from a secret store instead. The one exception is an
+database, logs, or the source tree. (Docker installs read it from the secret
+file named by `LASTBELL_PASSWORD_FILE`, or from `LASTBELL_PASSWORD` in CI,
+instead. The one exception is an
 always-on box with no usable keyring, such as a headless Pi or a boot-time
 service that can't unlock the desktop keyring: there `lastbell setup` offers to keep
 it in the owner-only settings file, tells you that trade-off out loud, and
@@ -418,6 +433,8 @@ does nothing until you say yes.) At runtime it is held in
 memory and sent to one destination, your district's own login form, over
 HTTPS enforced in [`config.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/config.py). That is the same request your
 browser makes ([`client.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/client.py)).
+The preflight's probe of the legacy SOAP API sends a placeholder credential,
+not yours ([`preflight.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/preflight.py)).
 
 **Student data lives on your machine, full stop.** Snapshots, history, and
 alerts sit in a local SQLite file in your user data dir (in a checkout,
@@ -435,7 +452,13 @@ payloads carry initials + course + assignment, never a child's full name
 
 **The dashboard shows full names, so it binds to `127.0.0.1` only** unless
 you deliberately widen it. The bind address is the access control
-([`config.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/config.py), [`dashboard/`](https://github.com/noestudios/lastbell/blob/main/lastbell/dashboard)).
+([`config.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/config.py), [`dashboard/`](https://github.com/noestudios/lastbell/blob/main/lastbell/dashboard)),
+and two checks back it up against the reader's own browser: a request whose
+`Host` header names anything other than loopback, an IP address, a `.local`
+name, the bound address, or a hostname in `LASTBELL_DASHBOARD_HOSTNAMES` is
+refused (DNS rebinding), and a settings change posted from another site is
+refused by origin (cross-site request forgery)
+([`server.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/dashboard/server.py)).
 The dashboard is stdlib-only, and every page is a read; the only writes are
 the watcher/subscription forms on /settings, household bookkeeping rather
 than grade data.
@@ -452,8 +475,9 @@ exception, and the wizard states the trade-off before taking it:
 | Install        | Secret store                                                        |
 |----------------|---------------------------------------------------------------------|
 | Bare-metal     | OS keyring: macOS Keychain / Windows Credential Manager / Secret Service (`lastbell set-password`) |
-| Always-on box (headless Pi, Linux boot-time service) | `LASTBELL_SECRET_BACKEND=env` + `LASTBELL_PASSWORD` in the settings file, mode 0600. **Trade-off:** the password is on disk in plain text, readable by your user (and root). `lastbell setup` offers this only when there is no usable keyring or you say the service runs unattended, and states the trade-off first. |
-| Docker / CI    | `LASTBELL_PASSWORD`, injected from Docker secrets or a CI secret store |
+| Always-on box (headless Pi, Linux boot-time service) | `LASTBELL_SECRET_BACKEND=env` + `LASTBELL_PASSWORD` in the settings file, created mode 0600. **Trade-off:** the password is on disk in plain text, readable by your user (and root). `lastbell setup` offers this only when there is no usable keyring or you say the service runs unattended, states the trade-off first, and reads the value back through the same parser the service uses before calling it saved. |
+| Docker         | `LASTBELL_PASSWORD_FILE` naming a Docker secret (`/run/secrets/…`); likewise `LASTBELL_PASSWORD_SMTP_FILE` and `LASTBELL_CANVAS_TOKEN_FILE` |
+| CI             | `LASTBELL_PASSWORD` from the CI secret store |
 
 The tunables that shape alerts: `LASTBELL_POLL_MINUTES` (180),
 `LASTBELL_LOOKAHEAD_DAYS` (7), `LASTBELL_UNGRADED_GRACE_DAYS` (3),

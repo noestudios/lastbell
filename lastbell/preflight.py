@@ -31,7 +31,6 @@ import os
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
-from html import escape
 from pathlib import Path
 from typing import Callable
 
@@ -104,14 +103,18 @@ VERDICT_TEXT = {
 # ── probes ────────────────────────────────────────────────────────────
 
 
-def _soap_probe(base_url: str, username: str, password: str,
-                post: Callable = requests.post) -> tuple[str, str]:
-    """(status, detail) for the legacy SOAP API."""
+def _soap_probe(base_url: str, post: Callable = requests.post) -> tuple[str, str]:
+    """(status, detail) for the legacy SOAP API — probed **without** the real
+    credential. A district that has retired the API answers with its
+    deprecation code (UPD5304-00, D5517 …) before it looks at the login, so
+    a placeholder learns everything this check needs, and the parent's
+    password goes to exactly one place: the web login form."""
+    placeholder = "lastbell-preflight"
     envelope = (
         '<?xml version="1.0" encoding="utf-8"?>'
         '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">'
         f'<soap:Body><ProcessWebServiceRequest xmlns="{EDUPOINT_NS}">'
-        f"<userID>{escape(username)}</userID><password>{escape(password)}</password>"
+        f"<userID>{placeholder}</userID><password>{placeholder}</password>"
         "<skipLoginLog>true</skipLoginLog><parent>true</parent>"
         "<webServiceHandleName>PXPWebServices</webServiceHandleName>"
         "<methodName>Gradebook</methodName>"
@@ -127,13 +130,19 @@ def _soap_probe(base_url: str, username: str, password: str,
     except requests.RequestException as e:
         return INFO, f"unreachable ({type(e).__name__})"
     text = r.text
-    if "RT_ERROR" in text or "UPD" in text or "update app" in text.lower():
-        import re
+    lower = text.lower()
+    import re
 
-        m = re.search(r'ERROR_MESSAGE="([^"]+)"', text) or re.search(r"<ERROR_MESSAGE>([^<]+)<", text)
-        # The district's own deprecation code (UPD5304 / D5517 …) is the most
-        # useful cross-district datum this tool collects — keep it verbatim.
-        return INFO, f"rejected — {m.group(1)[:120]}" if m else "rejected (deprecated)"
+    m = re.search(r'ERROR_MESSAGE="([^"]+)"', text) or re.search(r"<ERROR_MESSAGE>([^<]+)<", text)
+    message = m.group(1)[:120] if m else ""
+    if "UPD" in text or "update app" in lower or "client version" in lower:
+        # The district's own deprecation code is the most useful
+        # cross-district datum this tool collects — keep it verbatim.
+        return INFO, f"rejected — {message}" if message else "rejected (deprecated)"
+    if "RT_ERROR" in text:
+        # A login error for a placeholder credential: the API is answering.
+        return INFO, ("rejected the credential-free probe as a bad login — SOAP "
+                      "may still be enabled (the web path is still preferred)")
     if "<html" in text[:200].lower():
         return WARN, "returned HTML (not the SOAP service)"
     return INFO, "responded (SOAP may still be enabled — the web path is still preferred)"
@@ -205,7 +214,7 @@ def run_full(district: str, base_url: str, username: str, password: str,
     status, detail = _login_page_probe(base_url, get)
     report.add("login_page", "PXP2 web portal", status, detail)
 
-    status, detail = _soap_probe(base_url, username, password, post)
+    status, detail = _soap_probe(base_url, post)
     report.add("soap", "Legacy SOAP API", status, detail)
 
     def skip_rest(reason: str) -> Report:

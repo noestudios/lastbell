@@ -20,7 +20,11 @@ try:  # the env file is optional; the process env alone is enough (e.g. in Docke
 
     _env_file = paths.active_env_file()
     if _env_file is not None:
-        load_dotenv(_env_file)
+        # interpolate=False: a password is never a template. Without it,
+        # dotenv expands ${VAR} inside values and a password containing that
+        # sequence would silently change between `lastbell setup` and the
+        # service that reads the file back.
+        load_dotenv(_env_file, interpolate=False)
 except ImportError:  # pragma: no cover
     pass
 
@@ -71,6 +75,9 @@ class Config:
     # Phase 3 dashboard: localhost-only unless deliberately opened up.
     dashboard_host: str
     dashboard_port: int
+    # Extra hostnames the dashboard answers to (pi.example.net, a Tailscale
+    # name). Loopback, IP literals, and .local names are always allowed; any
+    # other Host header is refused — see dashboard.server.host_allowed.
     # Phase 4: a course-percent drop of at least this many points upgrades the
     # change to a GRADE_DROP alert (separately subscribable, louder wording).
     grade_drop_points: float
@@ -79,6 +86,7 @@ class Config:
     canvas: str = "auto"
     canvas_host: str = ""
     canvas_skip: tuple = ()     # course-name fragments never given their own row
+    dashboard_hostnames: tuple = ()
 
     @property
     def base_url(self) -> str:
@@ -123,4 +131,7 @@ def load() -> Config:
         .replace("https://", "").replace("http://", "").strip("/"),
         canvas_skip=tuple(f.strip() for f in (_get("LASTBELL_CANVAS_SKIP", "") or "").split(",")
                           if f.strip()),
+        dashboard_hostnames=tuple(
+            h.strip() for h in (_get("LASTBELL_DASHBOARD_HOSTNAMES", "") or "").split(",")
+            if h.strip()),
     )

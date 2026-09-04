@@ -700,7 +700,8 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
     conf = cfg.load()
     dashboard.serve(Path(args.db) if args.db else conf.db_path,
                     args.host or conf.dashboard_host,
-                    args.port or conf.dashboard_port)
+                    args.port or conf.dashboard_port,
+                    hostnames=conf.dashboard_hostnames)
     return 0
 
 

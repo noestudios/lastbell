@@ -1,31 +1,39 @@
 services:
   lastbell:
     build: .
-    # Non-secret settings come from your git-ignored .env.
+    # Non-secret settings (district, username, SMTP host …) come from your
+    # git-ignored .env — copy .env.example and fill it in.
     env_file: .env
     environment:
       LASTBELL_SECRET_BACKEND: env
-    # The ParentVUE password is a secret — inject it, don't put it in .env or here.
+      # Secrets arrive as files, never in .env or here. Each *_FILE setting
+      # names a Docker secret mounted under /run/secrets.
+      LASTBELL_PASSWORD_FILE: /run/secrets/parentvue_password
+      # LASTBELL_PASSWORD_SMTP_FILE: /run/secrets/smtp_password
     secrets:
       - parentvue_password
+      # - smtp_password
+    volumes:
+      - ./data:/data
+    command: ["run", "--loop"]
+    restart: unless-stopped
+
+  # The dashboard shows full names. It is published on this host's loopback
+  # only; widen that deliberately, and read the README's dashboard section
+  # (Host-name allow-list, no built-in login) before you do.
+  dashboard:
+    build: .
+    env_file: .env
+    command: ["dashboard", "--host", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:8321:8321"
     volumes:
       - ./data:/data
     restart: unless-stopped
-    # command: run          # (Phase 1+) the always-on collector loop
-
-  # Optional (Phase 3): the read-only dashboard as its own service, sharing the
-  # same data volume. Published on localhost only; widen deliberately.
-  # dashboard:
-  #   build: .
-  #   env_file: .env
-  #   command: ["dashboard", "--host", "0.0.0.0"]
-  #   ports:
-  #     - "127.0.0.1:8321:8321"
-  #   volumes:
-  #     - ./data:/data
-  #   restart: unless-stopped
 
 secrets:
   parentvue_password:
-    # Provide via: `docker secret` (swarm) or a file kept out of git.
+    # One line, the password. Keep the secrets/ directory out of git.
     file: ./secrets/parentvue_password.txt
+  # smtp_password:
+  #   file: ./secrets/smtp_password.txt
