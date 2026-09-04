@@ -638,22 +638,9 @@ def serve(db_path: Path, host: str, port: int, hostnames: tuple = (),
         print("  (lastbell dashboard --show-key prints it again.) No TLS: the key")
         print("  crosses the network in the clear — fine on a home LAN or Tailscale,")
         print("  not the public internet; put a TLS proxy in front there.")
-    # A newer version on disk (pipx upgrade) stops the loop from the watch
-    # thread; the re-exec happens here on the main thread, after the last
-    # response has gone out and the socket is closed.
-    from .. import updates
-
-    newer: dict = {}
-
-    def stop_for_upgrade(version: str) -> None:
-        newer["version"] = version
-        server.shutdown()
-    updates.watch_for_upgrade(stop_for_upgrade)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nbye")
     finally:
         server.server_close()
-    if newer:
-        updates.reexec("dashboard", newer["version"])

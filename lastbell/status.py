@@ -297,9 +297,7 @@ def report(now: datetime | None = None) -> list[str]:
     installed = updates.installed_version()
     head = f"Last Bell {__version__}"
     if updates.restart_pending(installed):
-        head += f" running; {installed} installed — " + (
-            "the service restarts itself within a minute"
-            if updates.self_restart_enabled() else "restart to use it")
+        head += f" running; {installed} installed — restart to use it"
     lines = [head,
              f"Python {platform.python_version()} on {platform.system()} "
              f"{platform.release()}"]

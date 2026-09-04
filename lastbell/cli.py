@@ -445,7 +445,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     """
     import time
 
-    from . import notify, store, updates
+    from . import notify, store
     from .client import ParentVueClient
 
     conf = cfg.load()
@@ -486,12 +486,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
             _tick(conn, conf)
             if not args.loop:
                 return 0
-            # pipx upgrade replaced the files under us: carry on as the new
-            # version, between polls, never mid-poll. Doesn't return.
-            newer = updates.pending_upgrade()
-            if newer:
-                conn.close()
-                updates.reexec("poller", newer, say=log.info)
             time.sleep(_TICK_SECONDS)
     finally:
         conn.close()
