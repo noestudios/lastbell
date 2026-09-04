@@ -126,7 +126,7 @@ are on the watcher list.
 
 - A computer that stays on: Raspberry Pi, NAS, Mac, Linux box, or Windows
   machine. It becomes a background service with one command.
-- Python 3.9 or newer and [pipx](https://pipx.pypa.io/stable/how-to/install-pipx/).
+- Python 3.9 or newer and [pipx](https://pipx.pypa.io/stable/how-to/install-pipx.html).
 - An email account it can send from (any SMTP account you own). The wizard
   asks for it and sends a test.
 
@@ -147,7 +147,7 @@ unreachable, the gradebook still gets checked.
 ## Quickstart
 
 Three commands, no files to edit. First get
-[pipx](https://pipx.pypa.io/stable/how-to/install-pipx/) (macOS: `brew install pipx`,
+[pipx](https://pipx.pypa.io/stable/how-to/install-pipx.html) (macOS: `brew install pipx`,
 Windows: `py -m pip install --user pipx`, Debian/Ubuntu: `sudo apt install pipx`),
 then:
 
