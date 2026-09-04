@@ -36,6 +36,12 @@ def connect(db_path: Path) -> sqlite3.Connection:
     # persists, instead of hitting "database is locked" mid-commit. Sticky
     # per file, so the first connection to set it does it for all.
     conn.execute("PRAGMA journal_mode = WAL")
+    # WAL's standard durability setting: a commit is an append, not an fsync
+    # of the whole file. A poll makes many small commits; on an SD card each
+    # FULL-sync commit is tens of milliseconds the dashboard waits behind.
+    # The exposure is a power cut losing the last commit or two, which the
+    # next poll re-derives from the portal.
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 
@@ -92,10 +98,19 @@ CANVAS_TWIN_SQL = (
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns that shipped after a table did. The poller and the
+    dashboard both run this at startup, and after an upgrade they are
+    restarted together: if both see the column missing, the second ALTER
+    fails with "duplicate column name" — the other process already did the
+    work, which is the outcome we wanted."""
     for table, column, decl in _MIGRATIONS:
         have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
         if column not in have:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e).lower():
+                    raise
 
 
 # ── deterministic ids ─────────────────────────────────────────────────

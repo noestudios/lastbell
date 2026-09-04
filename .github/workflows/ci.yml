@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 11 * * 1"   # Mondays: re-run the dependency audit against fresh advisories
 
 jobs:
   lint:
@@ -30,6 +32,19 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e .[dev]
       - run: pytest -q
+
+  audit:
+    # Known vulnerabilities in what an install actually pulls in. Advisory
+    # data changes without a commit, so this also runs on a weekly schedule
+    # (see the `on:` block) rather than only when we push.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install . pip-audit
+      - run: pip-audit
 
   package:
     # The wheel must carry the package data (schema.sql, style.css, app.js,

@@ -107,7 +107,8 @@ def fetch_view_rows(conn: sqlite3.Connection, student_id: str,
 def _fetch_change_rows(conn, table: str, key: str, join: str, student_id: str,
                        term: str, field: str) -> dict[str, list]:
     """id -> ascending [(day, old, new), …] from one of the history tables."""
-    sql = (f"SELECT h.{key} AS k, substr(h.seen_at, 1, 10) AS d, "
+    # seen_at is UTC; the sample days it is compared with are local dates.
+    sql = (f"SELECT h.{key} AS k, date(h.seen_at, 'localtime') AS d, "
            f"  h.old_value, h.new_value FROM {table} h {join} "
            f"WHERE c.student_id = ? AND h.field = ?")
     params: list = [student_id, field]

@@ -1237,3 +1237,20 @@ def test_home_page_says_when_it_last_checked(populated):
     store.record_poll(populated, "2026-01-01 12:00:00")
     status, html = _get(populated, "/")
     assert "freshness stale" in html and "isn't running" in html
+
+
+def test_alerts_type_filter_is_never_reflected_as_html(conn):
+    """?type= is echoed into the 'Showing … alerts' line; an unknown value
+    is dropped and a known one is escaped."""
+    from lastbell.models import AlertType, Snapshot, Student
+
+    student = Student(agu="7", name="Jasper P. Hays", school="Example ES", initials="J.P.H.")
+    store.persist_snapshot(conn, student, Snapshot(student_agu="7"))
+    store.record_alert(conn, "7", Event(AlertType.ASSIGNMENT_MISSING, "7", "Algebra",
+                                        "Essay is marked missing", item="Essay",
+                                        what="is marked missing"))
+    payload = "<img src=x onerror=alert(1)>"
+    status, html = _get(conn, "/alerts?type=" + payload.replace(" ", "%20"))
+    assert status == 200 and payload not in html and "&lt;img" not in html
+    status, html = _get(conn, "/alerts?type=assignment_missing")
+    assert status == 200 and "assignment missing alerts" in html

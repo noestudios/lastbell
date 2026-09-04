@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 
 from lastbell import preflight
 from lastbell.client import LoginError, ParentVueError
@@ -204,3 +206,94 @@ def test_main_anonymous_exit_codes(monkeypatch, capsys):
     assert preflight.main(["--district", "x.edupoint.com", "--anonymous"]) == 0
     out = capsys.readouterr().out
     assert "anonymous-ok" in out
+
+
+# ── 0.2.7: redaction is by construction, including the failure paths ──
+
+
+def test_portal_error_text_never_reaches_the_report():
+    """The portal's own LoadControl error message is post-login text that
+    could name anyone; the shareable detail is a fixed sentence and the
+    text stays in `private`."""
+    from lastbell.client import ParentVueError
+
+    class Client:
+        def login(self):
+            pass
+
+        def get_children(self):
+            return [FakeChild("123456", "Jane Doe")]
+
+        def get_focus_args(self, agu):
+            return FakeFocus()
+
+        def load_control(self, control, params, agu_header="0"):
+            raise ParentVueError("LoadControl(Gradebook_SchoolClasses) server error: "
+                                 "No gradebook for student JANE DOE (AGU 123456)",
+                                 response_text="<x/>")
+
+    report = preflight.run_full("x.example", "https://x.example", "u", "p",
+                                client=Client(), get=fake_get, post=fake_post)
+    md, js = preflight.render_markdown(report), preflight.render_json(report)
+    for leak in ("JANE", "123456", "Doe"):
+        assert leak not in md and leak not in js
+    gate = next(c for c in report.checks if c.id == "gate_fetch")
+    assert gate.status == preflight.FAIL and "error object" in gate.detail
+    assert "JANE DOE" in gate.private
+
+
+def test_request_failures_after_login_are_a_type_name_not_a_url():
+    """requests.HTTPError text carries the URL, and the gradebook URL
+    carries the student's id — only the exception's name may be reported."""
+    import requests
+
+    class Client:
+        def login(self):
+            pass
+
+        def get_children(self):
+            return [FakeChild("987654", "Kid")]
+
+        def get_focus_args(self, agu):
+            raise requests.HTTPError(
+                f"500 Server Error for url: https://x.example/PXP2_Gradebook.aspx?AGU={agu}")
+
+    report = preflight.run_full("x.example", "https://x.example", "u", "p",
+                                client=Client(), get=fake_get, post=fake_post)
+    md = preflight.render_markdown(report)
+    assert "987654" not in md and "HTTPError" in md
+    assert report.verdict == "no-go"
+
+
+@pytest.mark.parametrize("typed, host", [
+    ("md-mcps-psv.edupoint.com", "md-mcps-psv.edupoint.com"),
+    ("https://md-mcps-psv.edupoint.com/", "md-mcps-psv.edupoint.com"),
+    ("https://md-mcps-psv.edupoint.com/PXP2_Gradebook.aspx?AGU=123456", "md-mcps-psv.edupoint.com"),
+    ("https://parent:hunter2@host.example/x", "host.example"),
+    ("HOST.Example:443", "host.example"),
+    (" host.example ", "host.example"),
+])
+def test_host_of_keeps_only_the_hostname(typed, host):
+    assert preflight.host_of(typed) == host
+    report = preflight.run_anonymous(typed, preflight._base_url(typed), get=fake_get)
+    assert report.district == host
+    assert "AGU" not in preflight.render_markdown(report)
+    assert "hunter2" not in preflight.render_json(report)
+
+
+def test_markdown_cells_cannot_break_the_table():
+    r = preflight.Report(district="x.example", mode="anonymous", generated="2026-09-04")
+    r.add("login_page", "PXP2 web portal", preflight.INFO, "a | b\nc")
+    line = next(ln for ln in preflight.render_markdown(r).splitlines() if "PXP2 web portal" in ln)
+    import re
+    cells = re.split(r"(?<!\\)\|", line)
+    assert len(cells) == 5 and "\\|" in line and "\n" not in line
+
+
+def test_main_never_prints_a_traceback(monkeypatch, capsys):
+    def boom(*a, **k):
+        raise RuntimeError("secret detail https://x/PXP2_Gradebook.aspx?AGU=42")
+    monkeypatch.setattr(preflight, "run_anonymous", boom)
+    rc = preflight.main(["--district", "x.example", "--anonymous", "--report"])
+    out, err = capsys.readouterr()
+    assert rc == 2 and "RuntimeError" in err and "AGU=42" not in err and out == ""

@@ -137,10 +137,26 @@ free; Telegram and Pushover are optional.
 
 ### What happens when it breaks?
 
-A failed poll logs once and waits for the next cycle. If the portal changes
-shape, `lastbell preflight` tells you which parser stopped understanding
-what, in a redacted report you can file as an issue. If Canvas is
-unreachable, the gradebook still gets checked.
+You hear about it. One failed poll just waits for the next cycle. When the
+failure lasts (two polls for a rejected sign-in, a day for an unreachable
+portal), every guardian gets one message on their own channels saying
+what is wrong and what to do, and one more when checking resumes. The
+home page footer names the failure meanwhile. While the portal is
+rejecting the sign-in, the poller slows to once a day so a stale password
+can't lock the account. If the portal changes shape, `lastbell preflight`
+tells you which parser stopped understanding what, in a redacted report
+you can file as an issue. If Canvas is unreachable, the gradebook still
+gets checked.
+
+### How do I remove it?
+
+```bash
+lastbell forget
+```
+
+It lists what it will remove (the background service, the database with
+every snapshot and alert, the settings file, the keyring entries), asks,
+and does it. Then `pipx uninstall lastbell` removes the program.
 
 ---
 
@@ -399,7 +415,8 @@ list is ever empty again.
 
 Everything below is the detail behind the answers above. The claims are
 backed by linked code; if the code ever stops backing one of them, that's a
-bug. File it.
+bug. File it, unless it is a way a credential or a student's data could
+leak: those go through the private path in [SECURITY.md](SECURITY.md).
 
 ### Being a good neighbor to the portal
 

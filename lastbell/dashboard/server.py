@@ -64,7 +64,10 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
                    for s in students}
         counts = {s["id"]: fetch_open_counts(conn, s["id"], term=s["current_term"])
                   for s in students}
-        return 200, render_overview(students, courses, counts, store.last_poll(conn))
+        from .. import health
+
+        return 200, render_overview(students, courses, counts, store.last_poll(conn),
+                                    failure_note=health.dashboard_note(health.current(conn)))
     if path.startswith("/student/"):
         agu = path[len("/student/"):]
         student = fetch_student(conn, agu)
@@ -89,6 +92,10 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
             page = 1
         alert_type = (query.get("type") or [""])[0]
         counts = fetch_alert_counts(conn)
+        # A filter is one of the types actually present, or nothing: the
+        # value is reflected into the page, so it is never free text.
+        if alert_type and alert_type not in {c["type"] for c in counts}:
+            alert_type = ""
         total = alerts_total(counts, alert_type)
         last = alerts_last_page(total)
         if page > last:
@@ -547,8 +554,9 @@ def serve(db_path: Path, host: str, port: int, hostnames: tuple = (),
                 return
             # A connection per request: cheap for SQLite, and thread-safe by
             # construction under ThreadingHTTPServer.
-            conn = store.connect(db_path)
+            conn = None
             try:
+                conn = store.connect(db_path)
                 status, html = _handle(conn, self.path)
             except sqlite3.OperationalError as e:
                 status, html = 500, _page(
@@ -560,7 +568,8 @@ def serve(db_path: Path, host: str, port: int, hostnames: tuple = (),
                     "the database file exists and is writable.</p>"
                     f"<p class='small'>Detail: {escape(str(e))}</p>")
             finally:
-                conn.close()
+                if conn is not None:
+                    conn.close()
             if status == 301:   # html is the redirect target, not a body
                 self.send_response(301)
                 self.send_header("Location", html)
@@ -588,12 +597,21 @@ def serve(db_path: Path, host: str, port: int, hostnames: tuple = (),
                 return
             length = int(self.headers.get("Content-Length") or 0)
             form = parse_qs(self.rfile.read(length).decode("utf-8"))
-            conn = store.connect(db_path)
+            conn = None
             try:
+                conn = store.connect(db_path)
                 status, result = _handle_settings_post(
                     conn, path[len("/settings/"):], form)
+            except sqlite3.OperationalError:
+                # The poller is mid-commit and held the file past the busy
+                # timeout. An answer, not a dropped socket: the page's fetch
+                # fallback would otherwise re-submit the same form natively.
+                status, result = 303, ("/settings?err=" + quote(
+                    "The database was busy (a poll was writing). Nothing was "
+                    "changed — try again in a moment."))
             finally:
-                conn.close()
+                if conn is not None:
+                    conn.close()
             if status == 303:
                 self.send_response(303)
                 self.send_header("Location", result)
