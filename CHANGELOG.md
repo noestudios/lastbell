@@ -4,11 +4,22 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
-## 0.2.6 — unreleased
+## 0.2.6 — 2026-09-04
 
-**A hardening pass over the parts a careful reader checks first.** Six
-fixes, none of which changes what Last Bell does; each closes a gap
-between what the README promised and what the code guaranteed.
+**A hardening pass over the parts a careful reader checks first.** Seven
+changes; none alters what Last Bell watches or sends, and each closes a
+gap between what the README promised and what the code guaranteed.
+
+- **Dashboard: beyond loopback, other devices need a key.** `--host
+  0.0.0.0` used to put full names and the watcher list on the network
+  with no login at all. Now requests from the machine itself still need
+  nothing, and every other device needs the dashboard key once: a long
+  random string generated on first widened start, kept in the settings
+  file, printed as a link (`http://raspberrypi.local:8321/?key=…`) that
+  sets a cookie. `lastbell dashboard --show-key` prints it again. Binding
+  to a public address is refused (the key would cross the internet in the
+  clear) unless `LASTBELL_DASHBOARD_PUBLIC=1`; the right shape there is
+  loopback behind a TLS proxy with its own login.
 
 - **Email: the mail server's certificate is now verified.** `starttls()`
   with no context uses Python's *unverified* default, so anyone between

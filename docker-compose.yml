@@ -20,10 +20,14 @@ services:
 
   # The dashboard shows full names. It is published on this host's loopback
   # only; widen that deliberately, and read the README's dashboard section
-  # (Host-name allow-list, no built-in login) before you do.
+  # first. Inside the container every request arrives from the Docker
+  # bridge, not loopback, so the browser needs the dashboard key once; pin
+  # it with LASTBELL_DASHBOARD_KEY (or _FILE) so it survives restarts.
   dashboard:
     build: .
     env_file: .env
+    environment:
+      LASTBELL_DASHBOARD_KEY: change-me-to-a-long-random-string
     command: ["dashboard", "--host", "0.0.0.0"]
     ports:
       - "127.0.0.1:8321:8321"
