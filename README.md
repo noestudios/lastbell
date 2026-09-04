@@ -51,53 +51,39 @@ into a terminal. That's the whole bar; the setup wizard does the rest.
 
 ### Where does my password go?
 
-Into your operating system's keyring (macOS Keychain, Windows Credential
-Manager, Linux Secret Service) and, at poll time, to your district's own
-login form over HTTPS, the same request your browser makes. It is never
-written to a settings file, the database, a log, or anywhere on the
-internet. The one exception is an always-on box with no usable keyring, like
-a headless Pi: there the wizard offers to keep it in an owner-only file,
-says out loud that this is a trade-off, and does nothing until you say yes.
-[Details and code links.](#credentials--student-data-the-actual-guarantees)
+Into your operating system's keyring and, at poll time, to your district's
+own login form over HTTPS. It isn't written to a settings file, the database,
+a log, or anywhere on the internet. The one exception is an always-on box
+with no usable keyring, such as a headless Pi, where the wizard explains the
+trade-off and does nothing until you say yes.
+[Exactly where it goes, with code links.](#credentials--student-data-the-actual-guarantees)
 
 ### Where does my kids' data go?
 
 Nowhere. Snapshots, history, and alerts live in a SQLite file on the machine
-running Last Bell. There is no telemetry, no analytics, no phone-home. The
-only outbound traffic in the codebase is to your district's portal and
-Canvas, to the alert channels you configure, and to one public PyPI page
-only when you click **Check for updates**.
-
-What leaves is what you route, and it's deliberately low-PII: alert
-messages carry initials, course, and assignment, never a child's full name.
-The dashboard shows full names, so it listens on `127.0.0.1` only unless you
-deliberately widen it.
+running Last Bell. The only outbound traffic is to your district's portal
+and Canvas, to the alert channels you configure, and to PyPI when you click
+**Check for updates**. What leaves is what you route, and alert messages
+carry a child's initials rather than a full name.
+[The full list, with code links.](#credentials--student-data-the-actual-guarantees)
 
 ### Will the school notice? Is this allowed?
 
 Last Bell's traffic looks like what it is: one parent checking the gradebook
-a few times a day. Eight polls a day by default, clamped in code to never
-more than one every 15 minutes. Each poll makes the same requests the
-portal's own web page makes when you click through your classes, with a
-polite pause between them. It identifies itself honestly as `lastbell`, not
-a spoofed browser. A failed poll simply waits for the next cycle.
-
-Portal terms vary by district and vendor and are yours to judge; [the full
-footprint is documented](#being-a-good-neighbor-to-the-portal) so you can
-judge it accurately. For Canvas, Last Bell uses the same documented,
-observer-scoped API the official Canvas Parent app uses, within
-Instructure's acceptable use policy.
+a few times a day. Eight polls a day by default, with a 15-minute floor
+enforced in code, each one loading the same pages you would by clicking
+through your classes by hand. Portal terms vary by district and vendor and
+are yours to judge; [the entire footprint is listed](#being-a-good-neighbor-to-the-portal)
+so you can. For Canvas it uses the same observer-scoped API as the official
+Canvas Parent app, [within Instructure's policies](#canvas-the-leading-source).
 
 ### Why Canvas too? I thought ParentVUE was the gradebook.
 
-It is — but it's the *trailing* one. Teachers post assignments and set the
-"missing" flag in Canvas (myMCPS Classroom at MCPS). The Synergy gradebook
-only sees any of it when the teacher syncs, often days later and rarely
-before an item is graded. So the two things a parent acts on, **Needs
-attention** and **Due soon**, come from Canvas first; ParentVUE keeps the
-course grades and the finals. There is no second password: the poll follows
-the Canvas tile on the portal's home page with the session you already
-hold. [How the two are merged.](#canvas-the-leading-source)
+It is — but it's the *trailing* one. Teachers flag work missing in Canvas,
+and the gradebook only sees it when the teacher syncs, often days later. So
+**Needs attention** and **Due soon** come from Canvas first, and ParentVUE
+keeps the course grades and the finals. No second password is involved.
+[How the two are merged.](#canvas-the-leading-source)
 
 ### Does it work outside MCPS?
 
@@ -108,11 +94,9 @@ gives you a go/no-go, without installing anything else:
 lastbell preflight --district your-host.example --username you --report
 ```
 
-It checks login, the data path, and whether the parsers understand your
-district's pages, then prints a report that is redacted by construction
-(no names, grades, or usernames), ready to paste into a [district
-report](https://github.com/noestudios/lastbell/blob/main/.github/ISSUE_TEMPLATE/district-report.md)
-so the parsers can be taught your district. [What preflight checks.](#the-district-preflight)
+It prints a verdict and a redacted report you can paste into a district-report
+issue so the parsers can be taught your district.
+[What it checks, and how to file the report.](#the-district-preflight)
 
 ### Why isn't this a phone app?
 
@@ -153,11 +137,10 @@ free; Telegram and Pushover are optional.
 
 ### What happens when it breaks?
 
-A failed poll logs once and waits for the next cycle, with no retry storms
-and no alerts about nothing. If the portal changes shape, `lastbell preflight`
-tells you which parser stopped understanding what, in a redacted report you
-can file as an issue. If Canvas is unreachable, the poll logs a warning and
-checks the gradebook as before.
+A failed poll logs once and waits for the next cycle. If the portal changes
+shape, `lastbell preflight` tells you which parser stopped understanding
+what, in a redacted report you can file as an issue. If Canvas is
+unreachable, the gradebook still gets checked.
 
 ---
 
@@ -418,8 +401,7 @@ the gradebook a few times a day.**
 - **The User-Agent is `lastbell/<version>`**
   ([`client.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/client.py)), not a spoofed browser.
 
-Portal terms vary by district and vendor and are yours to judge, but the
-list above is the *entire* footprint, so you can judge it accurately.
+That list is the *entire* footprint.
 
 ### Credentials & student data: the actual guarantees
 
