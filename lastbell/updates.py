@@ -9,7 +9,12 @@ a public page.
 """
 from __future__ import annotations
 
+import os
 import re
+import sys
+import threading
+import time
+from typing import Callable
 
 from . import __version__
 from .service import platform_name
@@ -53,6 +58,86 @@ def restart_pending(installed: str | None) -> bool:
     """Newer files on disk than in this process. (A source checkout's
     dist-info can lag *behind* its code; that is not a pending restart.)"""
     return bool(installed) and compare(__version__, installed) == "newer"
+
+
+# ── restarting on our own ─────────────────────────────────────────────
+#
+# ``pipx upgrade`` replaces the files under a running poller and a running
+# dashboard, and both keep the old code in memory until restarted — the
+# step people forgot often enough to earn a footer badge (0.2.5) and a
+# command (0.2.8). Since 0.2.10 the two long-running processes notice on
+# their own: every minute they look at the version on disk and, when it is
+# newer, replace themselves with a fresh process running the same command
+# line. ``exec`` keeps the PID, so systemd and launchd see nothing happen;
+# by hand, the terminal just carries on with the new version.
+
+SELF_RESTART_ENV = "LASTBELL_SELF_RESTART"
+# Set on the re-exec'd process to the version it restarted for. If that
+# process *still* sees the same version pending, the files on disk aren't
+# the files that load (a checkout whose dist-info runs ahead of its code):
+# restarting again would loop every minute, so it doesn't.
+REEXEC_ENV = "LASTBELL_REEXEC_FOR"
+CHECK_EVERY = 60.0
+
+
+def self_restart_enabled() -> bool:
+    return (os.environ.get(SELF_RESTART_ENV, "1").strip().lower()
+            not in ("0", "no", "off", "false"))
+
+
+def pending_upgrade() -> str | None:
+    """The version on disk when it is newer than this process — the signal
+    to restart — else None (also None when self-restart is switched off)."""
+    if not self_restart_enabled():
+        return None
+    installed = installed_version()
+    if not restart_pending(installed):
+        return None
+    if os.environ.get(REEXEC_ENV) == installed:
+        return None
+    return installed
+
+
+_exec = os.execv   # module-level so tests can stub it
+
+
+def reexec(what: str, installed: str, say: Callable[[str], None] = print) -> None:
+    """Replace this process with one running the same command line on the
+    new files. Doesn't return. If the exec itself fails, exits 75 so a
+    service manager with Restart=on-failure brings the process back."""
+    argv = [sys.executable, "-m", "lastbell.cli", *sys.argv[1:]]
+    say(f"Last Bell {installed} is installed; restarting the {what} to use it")
+    os.environ[REEXEC_ENV] = installed      # inherited by the new process
+    # exec discards Python's buffers: the line above must reach the log first.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except (OSError, ValueError):
+            pass
+    try:
+        _exec(sys.executable, argv)
+    except OSError as exc:
+        say(f"couldn't restart in place ({exc.__class__.__name__}: {exc}); "
+            f"exiting so the service manager starts the {what} again")
+    raise SystemExit(75)
+
+
+def watch_for_upgrade(on_pending: Callable[[str], None],
+                      every: float = CHECK_EVERY) -> threading.Thread:
+    """A daemon thread that calls ``on_pending(version)`` once, the first
+    time a newer version is on disk. The dashboard uses it to stop serving
+    (from the thread) and re-exec (from the main thread, once the server
+    loop has returned) — so no request is cut off mid-response."""
+    def run() -> None:
+        while True:
+            time.sleep(every)
+            newer = pending_upgrade()
+            if newer:
+                on_pending(newer)
+                return
+    thread = threading.Thread(target=run, name="lastbell-upgrade-watch", daemon=True)
+    thread.start()
+    return thread
 
 
 class UpdateCheckError(RuntimeError):
@@ -118,9 +203,17 @@ def describe(status: str, latest: str, installed: str | None = None,
     if restart_pending(installed):
         also = (f" ({latest} is also out on PyPI)"
                 if compare(installed, latest) == "newer" else "")
+        if self_restart_enabled():
+            return (f"Last Bell {installed} is installed; this dashboard is still "
+                    f"running {__version__} and restarts itself within a minute{also}")
         return (f"Last Bell {installed} is installed, but this dashboard is still "
                 f"running {__version__} — {restart_hint(plat)}{also}")
     if status == "newer":
+        if self_restart_enabled():
+            return (f"Last Bell {latest} is available (this is {__version__}) — on the "
+                    f"machine running Last Bell: pipx upgrade lastbell (or lastbell "
+                    f"upgrade); the poller and the dashboard restart themselves "
+                    f"within a minute")
         return (f"Last Bell {latest} is available (this is {__version__}) — "
                 f"{UPGRADE_HINT} {restart_hint(plat)}")
     if status == "ahead":

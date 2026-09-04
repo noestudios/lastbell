@@ -4,6 +4,20 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.2.10 — 2026-09-04
+
+**`pipx upgrade lastbell` is now enough.** The poller and the dashboard
+each look at the version on disk once a minute and, when it is newer than
+the one they loaded, replace themselves with a fresh process running the
+same command line: the poller between polls, never mid-poll; the
+dashboard after the last response has gone out. The process id doesn't
+change, so systemd and launchd see nothing happen, and a copy started by
+hand in a terminal just carries on as the new version. The footer badge
+and `lastbell status` now say "restarting within a minute" instead of
+asking you to restart; `lastbell upgrade` still restarts at once.
+`LASTBELL_SELF_RESTART=0` switches it off. A checkout whose dist-info
+runs ahead of its code restarts once, not every minute.
+
 ## 0.2.9 — 2026-09-04
 
 **A heartbeat, a demo you can click, and the rest of the public-repo

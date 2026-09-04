@@ -252,7 +252,8 @@ def render_settings(watcher_list, subscriptions, students=(),
     pending = ""
     if updates.restart_pending(installed):
         pending = (f" <span class='badge warn'>{escape(installed)} installed — "
-                   f"restart to use it</span>")
+                   + ("restarting within a minute" if updates.self_restart_enabled()
+                      else "restart to use it") + "</span>")
     credit = (
         "<footer class='credit'>"
         f"<a href='{_REPO_URL}/releases/tag/v{__version__}' {ext}>"
