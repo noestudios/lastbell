@@ -87,3 +87,18 @@ def test_deterministic_for_a_seed(tmp_path):
             "SELECT COUNT(*), SUM(LENGTH(name)) FROM assignments").fetchone())
         conn.close()
     assert digests[0] == digests[1]
+
+
+def test_demo_reads_as_a_running_watcher(demo):
+    """The home page's freshness line: the demo records a recent poll, so the
+    footer says "Last checked … at …" rather than "Not checked yet"."""
+    from datetime import datetime, timedelta, timezone
+
+    from lastbell.dashboard.render import _freshness_html
+
+    last = store.last_poll(demo)
+    assert last
+    when = datetime.fromisoformat(last).replace(tzinfo=timezone.utc)
+    assert timedelta(minutes=30) < datetime.now(timezone.utc) - when < timedelta(hours=1)
+    html = _freshness_html(last)
+    assert "Last checked" in html and "stale" not in html

@@ -20,7 +20,7 @@ from __future__ import annotations
 import random
 import sqlite3
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from . import store
 from . import watchers as watchermod
@@ -251,6 +251,11 @@ def seed_demo(conn: sqlite3.Connection, *, seed: int = 2026,
         watchermod.subscribe(conn, mom, agu, send_at="16:00", urgent_now=True)
     watchermod.subscribe(conn, maya, _HS.agu,
                          ["assignment_missing", "upcoming_deadline"], ["email"])
+    # A real install's home page ends with "Last checked …"; the demo should
+    # too, and read as a watcher that is running — so: a poll that finished
+    # 41 minutes ago on the real clock (the only place the demo touches it).
+    store.record_poll(conn, (datetime.now(timezone.utc) - timedelta(minutes=41))
+                      .strftime("%Y-%m-%d %H:%M:%S"))
     conn.commit()
 
     return {
