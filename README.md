@@ -53,9 +53,10 @@ same fabricated family as a site, nothing to install.
 ### Who is this for?
 
 A parent or guardian with a student in a district that runs ParentVUE, who
-would rather be told than remember to check, and who has (or can borrow) a
-computer that stays on. You need to be comfortable pasting three commands
-into a terminal. That's the whole bar; the setup wizard does the rest.
+would prefer to have an easy-to-use dashboard and regular reminders, and
+who has (or can borrow) a computer that stays on. You need to be
+comfortable pasting three commands into a terminal. That's the whole bar;
+the setup wizard does the rest.
 
 ### Where does my password go?
 
