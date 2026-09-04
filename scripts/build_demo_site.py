@@ -31,7 +31,7 @@ _BANNER = ("<div class='demo-banner' role='note' style='margin:0 0 16px;padding:
            "border-radius:8px;background:rgba(14,116,144,.12);font-size:14px;"
            "line-height:20px'>This is a static demo of the Last Bell dashboard: a "
            "fabricated family from <code>lastbell seed-demo</code>, no real students. "
-           "Pages and links work; the forms on Settings don't. "
+           "Pages and links work; nothing can be changed. "
            "<a href='https://github.com/noestudios/lastbell'>Install your own.</a></div>")
 
 
@@ -68,9 +68,30 @@ def target(url: str, alert_types=()) -> str:
     return out + frag
 
 
+# Forms can't post to a static host (Pages answers 405). This runs before
+# app.js and catches every submit in the capture phase, so neither the
+# browser nor the dashboard's fetch-based posting ever sends it; the
+# dashboard's own toast says why, in the warn color, and dismisses itself
+# the way app.js dismisses a real one.
+_DEMO_JS = (
+    "<script>document.addEventListener('submit',function(e){"
+    "e.preventDefault();e.stopImmediatePropagation();"
+    "var old=document.querySelector('.toast');if(old)old.remove();"
+    "var t=document.createElement('div');t.className='toast';t.setAttribute('role','status');"
+    "t.style.borderLeftColor='var(--warn)';"
+    "t.textContent='This is a static demo, so nothing can be changed here. "
+    "Install Last Bell to get a dashboard of your own.';"
+    "document.body.appendChild(t);"
+    "var a=document.getElementById('announce');if(a)a.textContent=t.textContent;"
+    "setTimeout(function(){t.classList.add('toast-exit');"
+    "setTimeout(function(){t.remove();},400);},6000);"
+    "},true);</script>")
+
+
 def rewrite(html: str, base: str, alert_types=(), built: date | None = None) -> str:
     html = _LINK.sub(lambda m: f"{m.group(1)}='{base}/{target(m.group(2), alert_types)}'", html)
     html = html.replace("<main id='main'>", "<main id='main'>" + _BANNER, 1)
+    html = html.replace("<script src=", _DEMO_JS + "<script src=", 1)
     when = (built or date.today()).strftime("%b ") + str((built or date.today()).day)
     return _FRESHNESS.sub(f"<footer class='credit freshness'>Static demo built {when}. "
                           "A live install says when it last checked the portal here.</footer>",
