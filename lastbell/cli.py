@@ -697,11 +697,27 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
 
     from . import dashboard
 
+    from .dashboard.server import DashboardRefused, key_link
+
     conf = cfg.load()
-    dashboard.serve(Path(args.db) if args.db else conf.db_path,
-                    args.host or conf.dashboard_host,
-                    args.port or conf.dashboard_port,
-                    hostnames=conf.dashboard_hostnames)
+    host = args.host or conf.dashboard_host
+    port = args.port or conf.dashboard_port
+    if args.show_key:
+        key, where = secretstore.dashboard_key()
+        print(f"dashboard key: {key}   (kept in {where})")
+        print(f"open once on another device: {key_link(host, port, key)}")
+        return 0
+    key = ""
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        key, where = secretstore.dashboard_key()
+        if where.startswith("nowhere"):
+            print(f"warning: the dashboard key was kept {where}", file=sys.stderr)
+    try:
+        dashboard.serve(Path(args.db) if args.db else conf.db_path, host, port,
+                        hostnames=conf.dashboard_hostnames, key=key)
+    except DashboardRefused as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
     return 0
 
 
@@ -863,6 +879,9 @@ def main() -> None:
     p_dash = sub.add_parser("dashboard", help="serve the web dashboard")
     p_dash.add_argument("--host", help="bind address (default: 127.0.0.1)")
     p_dash.add_argument("--port", type=int, help="port (default: 8321)")
+    p_dash.add_argument("--show-key", action="store_true",
+                        help="print the network key (and the link that sets it "
+                             "in a browser) and exit")
     p_dash.add_argument("--db", help="serve a different database "
                         "(e.g. the seed-demo output; default: env)")
     p_dash.set_defaults(func=_cmd_dashboard)

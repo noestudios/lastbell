@@ -205,3 +205,35 @@ def set_canvas_token(token: str) -> str:
     password. Returns a one-line description of where it went."""
     return _store_secret(CANVAS_ACCOUNT, "LASTBELL_CANVAS_TOKEN", "Canvas token",
                          token)
+
+
+# The dashboard's network key. Not a portal credential: it gates the
+# dashboard's own pages when a request arrives from another machine
+# (requests from the machine itself need nothing). It lives in the settings
+# file on every backend, because the dashboard must find the same key after
+# a restart; LASTBELL_DASHBOARD_KEY (or _FILE) in the environment wins.
+DASHBOARD_KEY = "LASTBELL_DASHBOARD_KEY"
+
+
+def dashboard_key() -> tuple[str, str]:
+    """(key, where) — the existing key, or a fresh one persisted to the
+    settings file. ``where`` says where it is kept; when persisting fails
+    the key is ephemeral and ``where`` says so (set LASTBELL_DASHBOARD_KEY
+    to make it stable — the Docker case)."""
+    import secrets as pysecrets
+
+    existing = _from_env(DASHBOARD_KEY)
+    if existing:
+        return existing, "the settings file or environment"
+    key = pysecrets.token_urlsafe(24)
+    from . import paths
+    from .setup_wizard import write_env
+
+    env_path = paths.active_env_file() or paths.default_env_file()
+    try:
+        write_env(env_path, {DASHBOARD_KEY: key})
+    except OSError as exc:
+        return key, (f"nowhere — couldn't write {env_path} "
+                     f"({exc.__class__.__name__}); this key lasts until the "
+                     f"dashboard restarts. Set {DASHBOARD_KEY} to keep one.")
+    return key, f"the settings file ({env_path})"

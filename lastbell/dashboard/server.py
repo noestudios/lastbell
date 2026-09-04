@@ -1,12 +1,16 @@
 """HTTP plumbing: routing, the settings POST handlers, and ``serve``."""
 from __future__ import annotations
 
+import hmac
 import ipaddress
+import os
+import socket
 import sqlite3
 from html import escape
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 from .. import store
 
@@ -346,6 +350,81 @@ def host_allowed(host_header: str | None, bind_host: str, extra: tuple = ()) -> 
     return name in {e.strip().lower() for e in extra if e and e.strip()}
 
 
+# ── the network key ───────────────────────────────────────────────────
+#
+# Binding beyond loopback puts full names and the watcher list on the
+# network, and the dashboard has no accounts. So: a request from the machine
+# itself needs nothing (nothing changes for the default install), and a
+# request from anywhere else needs the dashboard's key — a long random
+# string generated once, kept in the settings file, printed as a link when
+# the dashboard starts. Opening that link once sets a cookie; the browser
+# is then remembered. The same idea as Jupyter's token.
+
+COOKIE = "lastbell_key"
+_LOOPBACK_BINDS = {"127.0.0.1", "localhost", "::1"}
+
+
+class DashboardRefused(RuntimeError):
+    """A bind the dashboard won't do without being told twice."""
+
+
+def peer_is_local(ip: str) -> bool:
+    """Did this request come from the machine the dashboard runs on?"""
+    try:
+        return ipaddress.ip_address((ip or "").split("%", 1)[0]).is_loopback
+    except ValueError:
+        return False
+
+
+def key_matches(presented: str | None, key: str) -> bool:
+    return bool(presented) and bool(key) and hmac.compare_digest(
+        presented.encode("utf-8"), key.encode("utf-8"))
+
+
+def cookie_key(cookie_header: str | None) -> str:
+    try:
+        jar = SimpleCookie()
+        jar.load(cookie_header or "")
+        return jar[COOKIE].value if COOKIE in jar else ""
+    except Exception:  # a malformed Cookie header is just "no cookie"
+        return ""
+
+
+def admitted(peer_ip: str, cookie_header: str | None, key: str) -> bool:
+    """Local peers need no key; anyone else needs the cookie."""
+    return peer_is_local(peer_ip) or key_matches(cookie_key(cookie_header), key)
+
+
+def check_bind(host: str) -> None:
+    """Refuse a bind to a public address unless LASTBELL_DASHBOARD_PUBLIC=1:
+    the key crosses the wire in the clear, which is fine on a home LAN or
+    Tailscale and wrong on the open internet, where a TLS proxy belongs in
+    front. (0.0.0.0 can't be judged from here; it gets the warning instead.)"""
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return
+    if addr.is_global and os.environ.get("LASTBELL_DASHBOARD_PUBLIC") != "1":
+        raise DashboardRefused(
+            f"{host} is a public address, and the dashboard speaks plain HTTP: "
+            f"its key would cross the internet in the clear. Put a TLS reverse "
+            f"proxy in front (or Tailscale) and bind to loopback, or set "
+            f"LASTBELL_DASHBOARD_PUBLIC=1 if you have really thought about it.")
+
+
+def key_link(host: str, port: int, key: str) -> str:
+    """The one-time link, on a name other devices can use: the bound address
+    when it is a real one, else this machine's name."""
+    if host in _LOOPBACK_BINDS or host in _ANY_ADDRESS:
+        name = socket.gethostname()
+        if "." not in name:
+            name += ".local"
+        host = name
+    elif ":" in host:                      # bare IPv6 literal
+        host = f"[{host}]"
+    return f"http://{host}:{port}/?key={key}"
+
+
 def same_origin(headers) -> bool:
     """Is this POST from the dashboard's own pages? Binding to localhost
     doesn't stop the reader's *browser* from being pointed here by any site
@@ -362,8 +441,17 @@ def same_origin(headers) -> bool:
     return urlparse(origin).netloc.lower() == (headers.get("Host") or "").lower()
 
 
-def serve(db_path: Path, host: str, port: int, hostnames: tuple = ()) -> None:
+def serve(db_path: Path, host: str, port: int, hostnames: tuple = (),
+          key: str = "") -> None:
     from .. import store
+
+    widened = host not in _LOOPBACK_BINDS
+    if widened:
+        check_bind(host)
+        if not key:
+            raise DashboardRefused(
+                "binding beyond loopback needs the dashboard key; "
+                "`lastbell dashboard` supplies it (this is a programming error).")
 
     # Apply any pending schema migrations up front — the per-request
     # connections below assume current columns.
@@ -399,11 +487,56 @@ def serve(db_path: Path, host: str, port: int, hostnames: tuple = ()) -> None:
             self.end_headers()
             self.wfile.write(body)
 
+        def _refuse_key(self, path: str, wrong: bool) -> None:
+            body = _page(
+                "Key required",
+                "<h1>This dashboard asks for its key</h1>"
+                + ("<p class='banner bad'>That key didn't match.</p>" if wrong else "")
+                + "<p>You're reaching it over the network rather than from the "
+                "machine it runs on, so it wants the key it printed when it "
+                "started (<code>lastbell dashboard --show-key</code> prints it "
+                "again, as a link). Open that link once in this browser and "
+                "you're remembered.</p>"
+                f"<form method='get' action='{escape(path)}' class='keyform'>"
+                "<input type='password' name='key' autocomplete='off' "
+                "placeholder='paste the key' size='40'> "
+                "<button type='submit'>Open</button></form>").encode("utf-8")
+            self.send_response(403)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _admit(self, allow_query_key: bool) -> bool:
+            """True when the request may proceed. A GET carrying the right
+            ``?key=`` is answered with the cookie and a redirect to the same
+            URL without it (so the key doesn't sit in the address bar or the
+            history), and False is returned since the response is written."""
+            if admitted(self.client_address[0], self.headers.get("Cookie"), key):
+                return True
+            parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+            presented = (query.get("key") or [""])[0]
+            if allow_query_key and key_matches(presented, key):
+                rest = [(k, v) for k, vs in query.items() if k != "key" for v in vs]
+                target = parsed.path + ("?" + urlencode(rest) if rest else "")
+                self.send_response(303)
+                self.send_header("Location", target)
+                self.send_header("Set-Cookie", f"{COOKIE}={key}; Path=/; HttpOnly; "
+                                               f"SameSite=Lax; Max-Age=31536000")
+                self.end_headers()
+                return False
+            self._refuse_key(parsed.path, wrong=bool(presented))
+            return False
+
         def do_GET(self) -> None:  # noqa: N802 (stdlib name)
             if not host_allowed(self.headers.get("Host"), host, hostnames):
                 self._refuse_host()
                 return
             static = self._STATIC.get(urlparse(self.path).path)
+            # Static assets carry no data and the refusal page needs them.
+            if not static and not self._admit(allow_query_key=True):
+                return
             if static:
                 payload = static[0].read_bytes()
                 self.send_response(200)
@@ -444,6 +577,8 @@ def serve(db_path: Path, host: str, port: int, hostnames: tuple = ()) -> None:
             if not host_allowed(self.headers.get("Host"), host, hostnames):
                 self._refuse_host()
                 return
+            if not self._admit(allow_query_key=False):
+                return
             path = urlparse(self.path).path
             if not path.startswith("/settings/"):
                 self.send_error(404)
@@ -475,7 +610,16 @@ def serve(db_path: Path, host: str, port: int, hostnames: tuple = ()) -> None:
             pass  # keep the terminal quiet; this is a background convenience
 
     server = ThreadingHTTPServer((host, port), Handler)
+    port = server.server_address[1]
     print(f"dashboard: http://{host}:{port}/  (Ctrl-C to stop)")
+    if widened:
+        print("  reachable from the network. From this machine nothing is asked;")
+        print("  every other device needs the dashboard key once — open this link")
+        print("  there and the browser is remembered:")
+        print(f"      {key_link(host, port, key)}")
+        print("  (lastbell dashboard --show-key prints it again.) No TLS: the key")
+        print("  crosses the network in the clear — fine on a home LAN or Tailscale,")
+        print("  not the public internet; put a TLS proxy in front there.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

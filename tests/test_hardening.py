@@ -392,3 +392,219 @@ def test_soap_probe_tells_a_live_api_from_a_dead_one():
     status, detail = preflight._soap_probe("https://x.example", answering)
     assert status == preflight.INFO and "may still be enabled" in detail
     assert "Invalid user id" not in detail
+
+
+# ── 3. beyond loopback, the dashboard asks for its key ────────────────
+
+
+def test_admitted_local_peers_need_nothing_others_need_the_cookie():
+    from lastbell.dashboard.server import admitted
+
+    assert admitted("127.0.0.1", None, "k")
+    assert admitted("::1", None, "k")
+    assert not admitted("192.168.1.9", None, "k")
+    assert not admitted("192.168.1.9", "lastbell_key=wrong", "k")
+    assert admitted("192.168.1.9", "other=1; lastbell_key=k", "k")
+    assert not admitted("192.168.1.9", "lastbell_key=k", "")     # no key configured
+    assert not admitted("garbage", "lastbell_key=k;;=bad", "k2")
+
+
+def test_check_bind_refuses_public_addresses_unless_told(monkeypatch):
+    from lastbell.dashboard.server import DashboardRefused, check_bind
+
+    monkeypatch.delenv("LASTBELL_DASHBOARD_PUBLIC", raising=False)
+    for ok in ("127.0.0.1", "0.0.0.0", "192.168.1.20", "10.0.0.5", "100.64.0.9",
+               "fd00::1", "pi.local", ""):
+        check_bind(ok)
+    with pytest.raises(DashboardRefused, match="public address"):
+        check_bind("8.8.8.8")
+    monkeypatch.setenv("LASTBELL_DASHBOARD_PUBLIC", "1")
+    check_bind("8.8.8.8")
+
+
+def test_key_link_names_a_reachable_host(monkeypatch):
+    import socket
+
+    from lastbell.dashboard.server import key_link
+
+    monkeypatch.setattr(socket, "gethostname", lambda: "raspberrypi")
+    assert key_link("0.0.0.0", 8321, "K") == "http://raspberrypi.local:8321/?key=K"
+    monkeypatch.setattr(socket, "gethostname", lambda: "nas.home.arpa")
+    assert key_link("", 8321, "K") == "http://nas.home.arpa:8321/?key=K"
+    assert key_link("192.168.1.20", 8321, "K") == "http://192.168.1.20:8321/?key=K"
+    assert key_link("fd00::7", 8321, "K") == "http://[fd00::7]:8321/?key=K"
+
+
+def test_dashboard_key_is_generated_once_and_persisted(tmp_path, monkeypatch):
+    monkeypatch.setenv("LASTBELL_HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LASTBELL_DASHBOARD_KEY", raising=False)
+    monkeypatch.delenv("LASTBELL_DASHBOARD_KEY_FILE", raising=False)
+    key, where = secretstore.dashboard_key()
+    assert len(key) >= 30 and "settings file" in where
+    assert wiz.read_env(tmp_path / "env")["LASTBELL_DASHBOARD_KEY"] == key
+    assert (tmp_path / "env").stat().st_mode & 0o777 == 0o600
+    # write_env mirrored it into the environment, and a fresh call agrees
+    assert secretstore.dashboard_key()[0] == key
+    monkeypatch.setenv("LASTBELL_DASHBOARD_KEY", "from-env")
+    assert secretstore.dashboard_key()[0] == "from-env"
+
+
+def test_dashboard_key_survives_an_unwritable_settings_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("LASTBELL_HOME", str(tmp_path / "ro"))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LASTBELL_DASHBOARD_KEY", raising=False)
+
+    def boom(path, updates):
+        raise OSError("read-only file system")
+    monkeypatch.setattr(wiz, "write_env", boom)
+    key, where = secretstore.dashboard_key()
+    assert key and where.startswith("nowhere") and "LASTBELL_DASHBOARD_KEY" in where
+
+
+def _serve_in_thread(tmp_path, monkeypatch, **kwargs):
+    """The real handler on an ephemeral loopback port; returns (port, shutdown)."""
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    from lastbell import dashboard, store
+    import lastbell.dashboard.server as srvmod
+
+    db = tmp_path / "d.db"
+    conn = store.connect(db)
+    store.ensure_schema(conn)
+    conn.close()
+    captured = {}
+
+    def fake_server(addr, handler):
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        captured["srv"] = srv
+        return srv
+    monkeypatch.setattr(srvmod, "ThreadingHTTPServer", fake_server)
+    threading.Thread(target=dashboard.serve, args=(db, "0.0.0.0", 0),
+                     kwargs=kwargs, daemon=True).start()
+    for _ in range(300):
+        if "srv" in captured:
+            break
+        threading.Event().wait(0.01)
+    return captured["srv"].server_address[1], captured["srv"].shutdown
+
+
+def _request(port, method, path, **headers):
+    import http.client
+
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    c.putrequest(method, path)
+    for k, v in headers.items():
+        c.putheader(k.replace("_", "-"), v)
+    if method == "POST":
+        c.putheader("Content-Length", "0")
+    c.endheaders()
+    r = c.getresponse()
+    body = r.read().decode()
+    out = (r.status, dict(r.getheaders()), body)
+    c.close()
+    return out
+
+
+def test_network_peers_are_gated_end_to_end(tmp_path, monkeypatch, capsys):
+    import lastbell.dashboard.server as srvmod
+
+    # The test client is on loopback; pretend every peer is on the LAN.
+    monkeypatch.setattr(srvmod, "peer_is_local", lambda ip: False)
+    port, shutdown = _serve_in_thread(tmp_path, monkeypatch, key="s3cret-key")
+    try:
+        status, _, body = _request(port, "GET", "/")
+        assert status == 403 and "asks for its key" in body and "No students yet" not in body
+        assert "didn't match" not in body
+        status, _, body = _request(port, "GET", "/alerts?page=2&key=wrong")
+        assert status == 403 and "didn't match" in body
+        # static assets are not gated: the refusal page needs its stylesheet
+        assert _request(port, "GET", "/static/style.css")[0] == 200
+        # the right key: cookie set, redirected to the same URL minus the key
+        status, headers, _ = _request(port, "GET", "/alerts?page=2&key=s3cret-key")
+        assert status == 303 and headers["Location"] == "/alerts?page=2"
+        cookie = headers["Set-Cookie"]
+        assert cookie.startswith("lastbell_key=s3cret-key;") and "HttpOnly" in cookie
+        assert _request(port, "GET", "/", Cookie="lastbell_key=s3cret-key")[0] == 200
+        # POST: cookie required, ?key= not accepted
+        assert _request(port, "POST", "/settings/watcher-add?key=s3cret-key")[0] == 403
+        assert _request(port, "POST", "/settings/watcher-add",
+                        Cookie="lastbell_key=s3cret-key",
+                        Origin=f"http://127.0.0.1:{port}",
+                        Host=f"127.0.0.1:{port}")[0] == 303
+        out = capsys.readouterr().out
+        assert "?key=s3cret-key" in out and "in the clear" in out
+    finally:
+        shutdown()
+
+
+def test_loopback_bind_asks_nothing_and_prints_no_key(tmp_path, monkeypatch, capsys):
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    from lastbell import dashboard, store
+    import lastbell.dashboard.server as srvmod
+
+    db = tmp_path / "d.db"
+    conn = store.connect(db)
+    store.ensure_schema(conn)
+    conn.close()
+    captured = {}
+
+    def fake_server(addr, handler):
+        captured["srv"] = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        return captured["srv"]
+    monkeypatch.setattr(srvmod, "ThreadingHTTPServer", fake_server)
+    threading.Thread(target=dashboard.serve, args=(db, "127.0.0.1", 0), daemon=True).start()
+    for _ in range(300):
+        if "srv" in captured:
+            break
+        threading.Event().wait(0.01)
+    try:
+        port = captured["srv"].server_address[1]
+        assert _request(port, "GET", "/")[0] == 200
+        assert "key" not in capsys.readouterr().out.lower()
+    finally:
+        captured["srv"].shutdown()
+
+
+def test_widened_bind_without_a_key_is_a_programming_error(tmp_path):
+    from lastbell import dashboard
+    from lastbell.dashboard.server import DashboardRefused
+
+    with pytest.raises(DashboardRefused):
+        dashboard.serve(tmp_path / "d.db", "0.0.0.0", 0)
+
+
+def test_cli_show_key_prints_key_and_link(monkeypatch, capsys, tmp_path):
+    import argparse
+
+    from lastbell import cli
+
+    monkeypatch.setenv("LASTBELL_HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LASTBELL_DISTRICT", "x.example")
+    monkeypatch.setenv("LASTBELL_USERNAME", "p")
+    monkeypatch.setenv("LASTBELL_DASHBOARD_KEY", "K-from-env")
+    rc = cli._cmd_dashboard(argparse.Namespace(db=None, host="192.168.1.20", port=None,
+                                               show_key=True))
+    out = capsys.readouterr().out
+    assert rc == 0 and "K-from-env" in out and "http://192.168.1.20:8321/?key=K-from-env" in out
+
+
+def test_cli_refuses_a_public_bind_in_one_line(monkeypatch, capsys, tmp_path):
+    import argparse
+
+    from lastbell import cli
+
+    monkeypatch.setenv("LASTBELL_HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LASTBELL_DISTRICT", "x.example")
+    monkeypatch.setenv("LASTBELL_USERNAME", "p")
+    monkeypatch.setenv("LASTBELL_DASHBOARD_KEY", "K")
+    monkeypatch.delenv("LASTBELL_DASHBOARD_PUBLIC", raising=False)
+    rc = cli._cmd_dashboard(argparse.Namespace(db=tmp_path / "d.db", host="8.8.8.8",
+                                               port=None, show_key=False))
+    err = capsys.readouterr().err
+    assert rc == 2 and "public address" in err

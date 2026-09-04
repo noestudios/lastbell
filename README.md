@@ -241,16 +241,25 @@ phone?" is one click. The footer shows the version you're running and a
 **Check for updates** link that asks PyPI, on that click only, whether a
 newer release exists.
 
-It listens on `127.0.0.1` only. `--host` (or `LASTBELL_DASHBOARD_HOST`)
-widens that, and before you do, know two things. There is no login: anyone
-who can reach the port can read every page and edit the watcher list, so a
-widened dashboard belongs behind something that authenticates, such as
-Tailscale or a reverse proxy with a password. And it answers only to names
-it recognizes: localhost, IP addresses, `.local` names, the address it was
-bound to, and anything you list in `LASTBELL_DASHBOARD_HOSTNAMES`. A
-request addressed to any other hostname gets a refusal page explaining
-why, which is what stops a web page you happen to visit from reaching the
-dashboard through your own browser (DNS rebinding).
+It listens on `127.0.0.1` only. `--host 0.0.0.0` (or
+`LASTBELL_DASHBOARD_HOST`) opens it to the rest of the house, and then two
+things apply. **A key.** Requests from the machine itself need nothing;
+every other device needs the dashboard's key once. The dashboard generates
+a long random one on first start, keeps it in the settings file, and prints
+a link like `http://raspberrypi.local:8321/?key=…`. Open that link on a
+phone and its browser is remembered; anything without the key gets a page
+asking for it. `lastbell dashboard --show-key` prints the link again. **A
+name check.** It answers only to names it recognizes: localhost, IP
+addresses, `.local` names, the bound address, and anything you list in
+`LASTBELL_DASHBOARD_HOSTNAMES`; a request addressed to any other hostname
+gets a refusal page explaining why. That is what stops a web page you
+happen to visit from reaching the dashboard through your own browser (DNS
+rebinding).
+
+The dashboard speaks plain HTTP, so the key crosses the network in the
+clear. On a home network or over Tailscale that is fine. On the public
+internet it is not: binding to a public address is refused, and the right
+shape there is loopback behind a TLS reverse proxy that does its own login.
 
 You start with one watcher automatically: the first run creates a guardian
 named after the credential holder, subscribed to every student, on the
@@ -457,7 +466,9 @@ and two checks back it up against the reader's own browser: a request whose
 `Host` header names anything other than loopback, an IP address, a `.local`
 name, the bound address, or a hostname in `LASTBELL_DASHBOARD_HOSTNAMES` is
 refused (DNS rebinding), and a settings change posted from another site is
-refused by origin (cross-site request forgery)
+refused by origin (cross-site request forgery). Beyond loopback, a request
+from any other machine needs the dashboard key as a cookie, set once from
+the link the dashboard prints; a public bind address is refused outright
 ([`server.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/dashboard/server.py)).
 The dashboard is stdlib-only, and every page is a read; the only writes are
 the watcher/subscription forms on /settings, household bookkeeping rather
