@@ -299,9 +299,12 @@ when a newer release exists. Then, on the machine running it:
 pipx upgrade lastbell
 ```
 
-and restart the running copy so it picks up the new code: on Linux
-`systemctl --user restart lastbell` (plus `lastbell-dashboard` if you set that
-up); on macOS run `lastbell install-service` again, which reloads the agent.
+and restart **both** long-running copies so they pick up the new code — the
+poller and the dashboard each keep the old version in memory until restarted.
+On Linux: `systemctl --user restart lastbell` (plus `lastbell-dashboard` if you
+set that up); on macOS run `lastbell install-service` again, which reloads the
+agent, and restart the dashboard if one is running. The dashboard footer flags
+"installed — restart to use it" until its own process has been restarted.
 
 <details>
 <summary>Running from a source checkout instead</summary>

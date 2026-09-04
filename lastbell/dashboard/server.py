@@ -108,11 +108,14 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
             totals=fetch_history_totals(conn, course=h_course, field=h_field),
             show_all=show_all)
     if path == "/settings":
+        from .. import updates
+
         return 200, render_settings(watchermod.list_watchers(conn),
                                     watchermod.list_subscriptions(conn),
                                     students,
                                     error=(query.get("err") or [""])[0],
-                                    notice=(query.get("ok") or [""])[0])
+                                    notice=(query.get("ok") or [""])[0],
+                                    installed=updates.installed_version())
     if path == "/watchers":   # pre-Settings URL; keep old bookmarks working
         return 301, "/settings"
     return 404, _page(
@@ -231,7 +234,7 @@ def _handle_settings_post(conn: sqlite3.Connection, action: str,
                 status, latest = updates.check()
             except updates.UpdateCheckError as e:
                 raise watchermod.WatcherError(f"Update check failed: {e}") from e
-            return done(updates.describe(status, latest))
+            return done(updates.describe(status, latest, updates.installed_version()))
         if action == "channel-remove":
             w = watchermod.require_watcher(conn, val("watcher"))
             cname = val("channel")

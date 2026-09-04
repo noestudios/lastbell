@@ -12,9 +12,47 @@ from __future__ import annotations
 import re
 
 from . import __version__
+from .service import platform_name
 
 PYPI_JSON = "https://pypi.org/pypi/lastbell/json"
-UPGRADE_HINT = "on the machine running Last Bell: pipx upgrade lastbell, then restart it"
+UPGRADE_HINT = "on the machine running Last Bell: pipx upgrade lastbell, then"
+
+
+def restart_hint(plat: str | None = None) -> str:
+    """What "restart it" actually means on this host. A poll loop and a
+    dashboard are separate long-running processes, and both keep the old
+    code in memory until restarted — an upgraded box whose dashboard was
+    left running keeps reporting the old version from its own footer."""
+    plat = plat or platform_name()
+    if plat == "linux":
+        return ("restart the poller and, if you run one, the dashboard: "
+                "systemctl --user restart lastbell (and lastbell-dashboard)")
+    if plat == "darwin":
+        return ("run `lastbell install-service` again to reload the agent, and "
+                "restart the dashboard if one is running")
+    return "restart every running Last Bell process — the poller and the dashboard"
+
+
+def installed_version() -> str | None:
+    """The version installed on disk *right now*, re-read on every call.
+    After ``pipx upgrade`` replaces the files under a still-running process,
+    this says the new version while ``__version__`` (what's loaded) still
+    says the old — the one signal that tells "not upgraded" from "not
+    restarted". None when not installed as a distribution."""
+    import importlib
+    import importlib.metadata as metadata
+
+    importlib.invalidate_caches()   # importlib.metadata caches directory listings
+    try:
+        return metadata.version("lastbell")
+    except metadata.PackageNotFoundError:
+        return None
+
+
+def restart_pending(installed: str | None) -> bool:
+    """Newer files on disk than in this process. (A source checkout's
+    dist-info can lag *behind* its code; that is not a pending restart.)"""
+    return bool(installed) and compare(__version__, installed) == "newer"
 
 
 class UpdateCheckError(RuntimeError):
@@ -72,10 +110,19 @@ def check() -> tuple[str, str]:
     return compare(__version__, latest), latest
 
 
-def describe(status: str, latest: str) -> str:
+def describe(status: str, latest: str, installed: str | None = None,
+             plat: str | None = None) -> str:
+    """One line for the Check for updates click. ``installed`` (from
+    ``installed_version``) takes precedence: an upgrade that only lacks a
+    restart must not be told to upgrade again."""
+    if restart_pending(installed):
+        also = (f" ({latest} is also out on PyPI)"
+                if compare(installed, latest) == "newer" else "")
+        return (f"Last Bell {installed} is installed, but this dashboard is still "
+                f"running {__version__} — {restart_hint(plat)}{also}")
     if status == "newer":
         return (f"Last Bell {latest} is available (this is {__version__}) — "
-                f"{UPGRADE_HINT}")
+                f"{UPGRADE_HINT} {restart_hint(plat)}")
     if status == "ahead":
         return (f"This is {__version__}, newer than the latest release on PyPI "
                 f"({latest}) — nothing to do")
