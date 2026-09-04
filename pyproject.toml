@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lastbell"
-version = "0.2.3"
+version = "0.2.4"
 description = "Self-hosted ParentVUE + Canvas grade & assignment monitor — alerts for any number of watchers, and the students too."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -40,7 +40,7 @@ Issues = "https://github.com/noestudios/lastbell/issues"
 
 [project.optional-dependencies]
 service = ["APScheduler>=3.10"]
-dev = ["pytest>=7.4"]
+dev = ["pytest>=7.4", "ruff>=0.5"]
 
 [project.scripts]
 lastbell = "lastbell.cli:main"
@@ -56,3 +56,12 @@ lastbell = ["schema.sql", "style.css", "app.js", "mcps_schools.json", "favicon.p
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py39"   # the advertised floor — keep the linter honest about it
+line-length = 100
+extend-exclude = [".claude"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP"]
+ignore = ["E501"]         # long lines are the HTML/SQL strings' business

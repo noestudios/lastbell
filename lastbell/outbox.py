@@ -21,9 +21,9 @@ import json
 import sqlite3
 import uuid
 from datetime import datetime, time, timedelta
-from typing import Optional
 
 from . import notify
+from .notify import render
 from .router import Delivery
 
 
@@ -59,8 +59,8 @@ def next_occurrence(now: datetime, hhmm: str) -> datetime:
     return candidate
 
 
-def compute_send_after(now: datetime, send_at: Optional[str],
-                       quiet: dict) -> Optional[datetime]:
+def compute_send_after(now: datetime, send_at: str | None,
+                       quiet: dict) -> datetime | None:
     """When this delivery may go out. None means "right now"."""
     moment = now if send_at is None else next_occurrence(now, send_at)
     if in_quiet_hours(moment, quiet):
@@ -87,9 +87,9 @@ def enqueue(conn: sqlite3.Connection, delivery: Delivery,
             continue
         conn.execute(
             "INSERT INTO outbox (id, watcher_id, channel, student_id, alert_type, "
-            "detail, send_after) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "detail, body, send_after) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (uuid.uuid4().hex, delivery.watcher_id, delivery.channel,
-             e.student_agu, e.type.value, e.detail,
+             e.student_agu, e.type.value, e.detail, json.dumps(e.as_dict()),
              send_after.isoformat(sep=" ", timespec="seconds")),
         )
         added += 1
@@ -97,7 +97,7 @@ def enqueue(conn: sqlite3.Connection, delivery: Delivery,
     return added
 
 
-def flush_due(conn: sqlite3.Connection, now: Optional[datetime] = None,
+def flush_due(conn: sqlite3.Connection, now: datetime | None = None,
               channel_factory=notify.channel) -> tuple[int, list[str]]:
     """Send every due outbox group. Returns (messages sent, warnings)."""
     now = now or datetime.now()
@@ -157,19 +157,25 @@ def pending(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def _subject_for(group: list[sqlite3.Row]) -> str:
-    from .notify import render
-
     initials = sorted({r["initials"] or r["student_id"] for r in group})
     return render.subject(initials, [r["alert_type"] for r in group])
 
 
-def _body_for(group: list[sqlite3.Row]):
-    from .notify import render
+def _line(row: sqlite3.Row):
+    """The queued event's parts when the row has them; rows queued by an
+    older version carry only the sentence, which the renderer parses."""
+    try:
+        parts = json.loads(row["body"] or "")
+    except (ValueError, IndexError, KeyError):
+        parts = None
+    return parts if isinstance(parts, dict) else row["detail"]
 
+
+def _body_for(group: list[sqlite3.Row]):
     by_student: dict[str, list] = {}
     for r in group:
         by_student.setdefault(r["initials"] or r["student_id"], []).append(
-            (r["alert_type"], r["detail"]))
+            (r["alert_type"], _line(r)))
     sections = sorted(by_student.items())
     who = ", ".join(k for k, _ in sections)
     return render.alerts(sections, title=f"Digest for {who}")

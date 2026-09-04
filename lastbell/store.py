@@ -14,7 +14,6 @@ import sqlite3
 import uuid
 from datetime import date
 from pathlib import Path
-from typing import Optional
 
 from .differ import Event
 from .models import Assignment, AssignmentStatus, Course, Snapshot, Student
@@ -33,6 +32,10 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # Write-ahead logging: the dashboard keeps reading while the poll
+    # persists, instead of hitting "database is locked" mid-commit. Sticky
+    # per file, so the first connection to set it does it for all.
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
@@ -60,6 +63,7 @@ _MIGRATIONS = [
     ("courses", "source", "TEXT NOT NULL DEFAULT 'parentvue'"),
     ("assignments", "source", "TEXT NOT NULL DEFAULT 'parentvue'"),
     ("assignments", "superseded_by", "TEXT NOT NULL DEFAULT ''"),
+    ("outbox", "body", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 # A Canvas assignment is the leading copy of work that later reaches the
@@ -110,7 +114,7 @@ def _assignment_key(a: Assignment) -> str:
 # ── reading the previous state ────────────────────────────────────────
 
 
-def load_snapshot(conn: sqlite3.Connection, student_agu: str) -> Optional[Snapshot]:
+def load_snapshot(conn: sqlite3.Connection, student_agu: str) -> Snapshot | None:
     """Rebuild the last persisted Snapshot, or None if this student is new
     (None means "baseline run" to the differ — no alerts)."""
     student = conn.execute(
@@ -156,11 +160,11 @@ def load_snapshot(conn: sqlite3.Connection, student_agu: str) -> Optional[Snapsh
                     assignments=assignments, term=student["current_term"] or "")
 
 
-def _from_iso(value: Optional[str]) -> Optional[date]:
+def _from_iso(value: str | None) -> date | None:
     return date.fromisoformat(value) if value else None
 
 
-def _to_iso(value: Optional[date]) -> Optional[str]:
+def _to_iso(value: date | None) -> str | None:
     return value.isoformat() if value else None
 
 
@@ -193,13 +197,19 @@ def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot,
         conn.execute("UPDATE students SET current_term = ? WHERE id = ?",
                      (snap.term, student_id))
 
+    # What the last pass wrote, read once: every course and assignment row
+    # this student has, keyed by id, so the upsert loop below never queries.
+    old_courses = {r["id"]: r for r in conn.execute(
+        "SELECT id, mark, percent FROM courses WHERE student_id = ?", (student_id,))}
+    old_assignments = {r["id"]: r for r in conn.execute(
+        "SELECT a.* FROM assignments a JOIN courses c ON c.id = a.course_id "
+        "WHERE c.student_id = ?", (student_id,))}
+
     course_ids: dict[str, str] = {}  # edupoint_gu -> row id
     for c in snap.courses:
         cid = _course_id(student_id, c)
         course_ids[c.edupoint_gu] = cid
-        old_course = conn.execute(
-            "SELECT mark, percent FROM courses WHERE id = ?", (cid,)
-        ).fetchone()
+        old_course = old_courses.get(cid)
         if old_course is not None:
             for field_name in _COURSE_TRACKED_FIELDS:
                 new_value = getattr(c, field_name)
@@ -228,7 +238,7 @@ def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot,
             "due_date": _to_iso(a.due_date), "graded_at": _to_iso(a.graded_at),
             "score": a.score, "points": a.points, "status": a.status.value,
         }
-        old = conn.execute("SELECT * FROM assignments WHERE id = ?", (aid,)).fetchone()
+        old = old_assignments.get(aid)
         if old is not None:
             for field_name in _TRACKED_FIELDS:
                 if old[field_name] != new[field_name]:
@@ -269,7 +279,7 @@ def record_alert(conn: sqlite3.Connection, student_agu: str, event: Event) -> No
     conn.execute(
         "INSERT INTO alerts (id, student_id, type, body) VALUES (?, ?, ?, ?)",
         (uuid.uuid4().hex, student_agu, event.type.value,
-         json.dumps({"course": event.course_title, "detail": event.detail})),
+         json.dumps(event.as_dict())),
     )
     conn.commit()
 
@@ -293,12 +303,12 @@ def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.commit()
 
 
-def get_meta(conn: sqlite3.Connection, key: str) -> Optional[str]:
+def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
     row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
     return row["value"] if row else None
 
 
-def record_poll(conn: sqlite3.Connection, when: Optional[str] = None) -> None:
+def record_poll(conn: sqlite3.Connection, when: str | None = None) -> None:
     """Note that a poll finished (UTC, the same clock as every other stored
     timestamp). Called after every student is persisted — a quiet poll with
     no changes leaves no other trace, and "last checked" must count it."""
@@ -306,5 +316,5 @@ def record_poll(conn: sqlite3.Connection, when: Optional[str] = None) -> None:
              conn.execute("SELECT datetime('now')").fetchone()[0])
 
 
-def last_poll(conn: sqlite3.Connection) -> Optional[str]:
+def last_poll(conn: sqlite3.Connection) -> str | None:
     return get_meta(conn, LAST_POLL_KEY)

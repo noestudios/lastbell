@@ -10,6 +10,8 @@ secrets/
 # ── Runtime state / data (contains students' records) ─────────────────
 data/
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 snapshots/

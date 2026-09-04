@@ -19,7 +19,7 @@ class TelegramChannel:
     token: str
 
     @classmethod
-    def from_env(cls) -> "TelegramChannel":
+    def from_env(cls) -> TelegramChannel:
         token = os.environ.get("LASTBELL_TELEGRAM_TOKEN")
         if not token:
             raise ValueError(

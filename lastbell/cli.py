@@ -2,11 +2,45 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 
 from . import __version__
 from . import config as cfg
 from . import secrets as secretstore
+
+# The poll's voice. Under the installed service stdout/stderr are appended
+# to a log file with no timestamps of their own, so these lines carry one:
+# "couldn't reach the portal" is only useful with a time next to it.
+log = logging.getLogger("lastbell")
+
+
+class _LineFormatter(logging.Formatter):
+    """Timestamp + level word only where it adds something: ordinary
+    progress lines stay bare, warnings say ``warning:`` as they always did."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        stamp = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
+        if record.levelno >= logging.WARNING:
+            return f"{stamp} warning: {record.getMessage()}"
+        return f"{stamp} {record.getMessage()}"
+
+
+def _configure_logging() -> None:
+    """Progress to stdout, warnings to stderr — the split the commands have
+    always had, now with a clock. Idempotent: the wizard's baseline run and
+    ``lastbell run`` share it."""
+    if log.handlers:
+        return
+    log.setLevel(logging.INFO)
+    out = logging.StreamHandler(sys.stdout)
+    out.addFilter(lambda r: r.levelno < logging.WARNING)
+    err = logging.StreamHandler(sys.stderr)
+    err.setLevel(logging.WARNING)
+    for h in (out, err):
+        h.setFormatter(_LineFormatter())
+        log.addHandler(h)
+    log.propagate = False
 
 
 def _cmd_setup(args: argparse.Namespace) -> int:
@@ -126,15 +160,15 @@ def _run_once(client, conn, notifier, conf) -> int:
     from . import differ, outbox, router, store, watchers
     from .collector import collect_student
 
+    _configure_logging()
     total = 0
     children = client.get_children()
     canvas_layer = _canvas_layer(client, children, conf)
     for child in children:
         col = collect_student(client, child)
         for err in col.errors:
-            print(f"warning [{col.student.initials}]: {err} — that class was "
-                  f"skipped this poll; the others were still checked",
-                  file=sys.stderr)
+            log.warning(f"[{col.student.initials}]: {err} — that class was "
+                        f"skipped this poll; the others were still checked")
 
         snapshot = col.snapshot
         # The Canvas layer folds in before the time rules run, so a Canvas
@@ -143,15 +177,21 @@ def _run_once(client, conn, notifier, conf) -> int:
         stats = None
         if canvas_layer is not None:
             from . import canvas as _canvas
+            # Only the network half runs under the deadline; the merge into
+            # the snapshot happens here, on this thread, and only if the
+            # collection came back in time. A stuck worker can't reach into
+            # the snapshot this poll goes on to persist.
             try:
-                stats = _canvas.with_deadline(
-                    lambda: canvas_layer.apply(snapshot), CANVAS_STUDENT_SECONDS,
+                ccol = _canvas.with_deadline(
+                    lambda agu=child.agu: canvas_layer.collect_for(agu),
+                    CANVAS_STUDENT_SECONDS,
                     f"reading Canvas for {col.student.initials}")
             except _canvas.CanvasError as e:
-                print(f"warning: Canvas: {e} — the gradebook alone was used for "
-                      f"{col.student.initials}", file=sys.stderr)
-                stats = None
-            if stats is not None:
+                log.warning(f"Canvas: {e} — the gradebook alone was used for "
+                            f"{col.student.initials}")
+                ccol = None
+            if ccol is not None:
+                stats = canvas_layer.merge(snapshot, ccol)
                 canvas_note = f" (+{stats['assignments']} from Canvas)"
         snapshot = differ.apply_time_rules(
             snapshot,
@@ -166,11 +206,12 @@ def _run_once(client, conn, notifier, conf) -> int:
 
         n_assign = len(snapshot.assignments)
         if previous is None:
-            print(f"baseline established for {col.student.initials}: "
-                  f"{len(col.classes)} classes, {n_assign} assignments (no alerts on first run)")
+            log.info(f"baseline established for {col.student.initials}: "
+                     f"{len(col.classes)} classes, {n_assign} assignments "
+                     f"(no alerts on first run)")
             continue
-        print(f"checked {col.student.initials}: {len(col.classes)} classes, "
-              f"{n_assign} assignments{canvas_note}, {len(events)} event(s)")
+        log.info(f"checked {col.student.initials}: {len(col.classes)} classes, "
+                 f"{n_assign} assignments{canvas_note}, {len(events)} event(s)")
         if events:
             # Phase 3: fan out per subscription; the global channel remains the
             # fallback so a bare install with no watchers still alerts.
@@ -188,13 +229,13 @@ def _run_once(client, conn, notifier, conf) -> int:
                         queued += outbox.enqueue(conn, d, send_after)
                 sent, send_warnings = router.dispatch(immediate, col.student.initials)
                 warnings += send_warnings
-                print(f"  delivered to {sent} watcher channel(s)"
-                      + (f", queued {queued} item(s) for later" if queued else ""))
+                log.info(f"  delivered to {sent} watcher channel(s)"
+                         + (f", queued {queued} item(s) for later" if queued else ""))
             else:
                 notifier.send(router.subject(col.student.initials, events),
                               router.body(col.student.initials, events))
             for w in warnings:
-                print(f"warning: {w}", file=sys.stderr)
+                log.warning(w)
             for e in events:
                 store.record_alert(conn, child.agu, e)
             total += len(events)
@@ -204,9 +245,9 @@ def _run_once(client, conn, notifier, conf) -> int:
     w = watchers.ensure_default_watcher(
         conn, conf.username, os.environ.get("LASTBELL_SMTP_TO"))
     if w is not None:
-        print(f"created default watcher {w.name!r} (guardian, via "
-              f"{', '.join(w.channels)}), subscribed to all students — "
-              f"adjust with `lastbell watcher` / `subscribe`")
+        log.info(f"created default watcher {w.name!r} (guardian, via "
+                 f"{', '.join(w.channels)}), subscribed to all students — "
+                 f"adjust with `lastbell watcher` / `subscribe`")
     return total
 
 
@@ -224,8 +265,10 @@ def _canvas_layer(client, children, conf):
 
     from . import canvas
 
+    _configure_logging()
+
     def warn(msg: str) -> None:
-        print(f"warning: {msg}", file=sys.stderr)
+        log.warning(msg)
 
     try:
         layer = canvas.with_deadline(
@@ -285,9 +328,7 @@ def _cmd_canvas(args: argparse.Namespace) -> int:
         snapshot = col.snapshot
         pv_courses = list(snapshot.courses)
         if courses_cache is None:
-            courses_cache = cc.get("/api/v1/courses", per_page=100,
-                                   **{"enrollment_state": "active",
-                                      "include[]": ["observed_users", "term"]})
+            courses_cache = canvas.fetch_courses(cc)
         ccol = canvas.collect(cc, o, courses_cache=courses_cache)
         print(f"\n{initials_of(child.name)} — {len(ccol.courses)} Canvas course(s):")
         probe = Snapshot(student_agu=child.agu, courses=pv_courses, term=snapshot.term)
@@ -331,14 +372,15 @@ def _tick(conn, conf) -> None:
     quiet-hours holdbacks) and any daily summaries whose time has come."""
     from . import outbox, summary
 
+    _configure_logging()
     sent, warnings = outbox.flush_due(conn)
     if sent:
-        print(f"flushed {sent} deferred message(s)")
+        log.info(f"flushed {sent} deferred message(s)")
     s_sent, s_warnings = summary.send_due(conn, lookahead_days=conf.lookahead_days)
     if s_sent:
-        print(f"sent {s_sent} daily summar{'ies' if s_sent != 1 else 'y'}")
+        log.info(f"sent {s_sent} daily summar{'ies' if s_sent != 1 else 'y'}")
     for w in warnings + s_warnings:
-        print(f"warning: {w}", file=sys.stderr)
+        log.warning(w)
 
 
 _TICK_SECONDS = 60
@@ -359,6 +401,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     conf = cfg.load()
     pw = secretstore.get_password(conf.username, conf.secret_backend)
     notifier = notify.get(conf.notify_channel)
+    _configure_logging()
 
     conn = store.connect(conf.db_path)
     store.ensure_schema(conn)
@@ -382,12 +425,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     reason = ("couldn't reach the portal"
                               if isinstance(e, _rq.RequestException)
                               else "couldn't finish this poll")
-                    print(f"{reason} ({e or e.__class__.__name__}) — "
-                          f"retrying at {retry_at}", file=sys.stderr)
+                    log.warning(f"{reason} ({e or e.__class__.__name__}) — "
+                                f"retrying at {retry_at}")
                 next_poll = time.time() + conf.poll_minutes * 60
                 if args.loop:
-                    print(f"next portal poll in {conf.poll_minutes} min "
-                          f"(outbox/summaries checked every minute)")
+                    log.info(f"next portal poll in {conf.poll_minutes} min "
+                             f"(outbox/summaries checked every minute)")
             _tick(conn, conf)
             if not args.loop:
                 return 0
@@ -426,7 +469,7 @@ def _parse_channel_args(pairs: list[str]) -> dict:
             try:
                 channels[name] = {key: notify.validate_address(name, value)}
             except ValueError as e:
-                raise SystemExit(f"error: {e}")
+                raise SystemExit(f"error: {e}") from None
     return channels
 
 
@@ -850,25 +893,25 @@ def main() -> None:
     except (cfg.ConfigError, secretstore.SecretError, WatcherError, LoginError,
             ServiceError) as e:
         print(f"error: {e}", file=sys.stderr)
-        raise SystemExit(2)
+        raise SystemExit(2) from None
     except ParseError as e:
         print(f"error: the portal's pages have changed shape ({e}). Run "
               f"`lastbell preflight --report` and file a district report — "
               f"that's the fastest path to a parser fix.", file=sys.stderr)
-        raise SystemExit(2)
+        raise SystemExit(2) from None
     except ParentVueError as e:
         print(f"error: the portal answered in an unexpected way ({e}). Nothing "
               f"was collected — `lastbell preflight` shows whether the data "
               f"path still works.", file=sys.stderr)
-        raise SystemExit(2)
+        raise SystemExit(2) from None
     except requests.RequestException as e:
         print(f"error: couldn't reach the portal "
               f"({e.__class__.__name__}). Check the network and "
               f"LASTBELL_DISTRICT; nothing was collected.", file=sys.stderr)
-        raise SystemExit(2)
+        raise SystemExit(2) from None
     except KeyboardInterrupt:
         print("\nstopped.", file=sys.stderr)
-        raise SystemExit(130)
+        raise SystemExit(130) from None
 
 
 if __name__ == "__main__":

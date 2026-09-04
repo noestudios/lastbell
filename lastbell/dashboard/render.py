@@ -1,29 +1,21 @@
-"""Web dashboard (Phase 3).
-
-The dashboard is for *looking things up on demand* — alerts are always pushed
-out, so nobody has to open this to find out something changed. It's stdlib
-``http.server`` over the same SQLite file the watch loop writes: no framework,
-no build step. Pages are SELECTs; the only write paths are the
-watcher/subscription forms on /settings (``POST /settings/<action>``) —
-household bookkeeping only, never grade data.
-
-It binds 127.0.0.1 by default. To share it on your LAN set
-LASTBELL_DASHBOARD_HOST=0.0.0.0 — and know that unlike alert payloads it
-shows full names (and, on /settings, watcher addresses), so treat the bind
-address as the access control; the write paths carry no auth of their own.
-"""
+"""Page rendering: rows in, HTML out. The shell (nav, theme, icons),
+the shared cell helpers, and the overview / student / alerts / history
+pages. Pure functions — no database, no HTTP."""
 from __future__ import annotations
 
 import os
 import re
-import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from html import escape
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import quote
 
-from . import __version__, schools, store
+from .. import schools
+
+from .queries import (
+    _ALERTS_PAGE,
+    alerts_last_page,
+)
 
 # The public home of the project — the settings-footer credit links here.
 _REPO_URL = "https://github.com/noestudios/lastbell"
@@ -92,404 +84,10 @@ def _score_cutoff() -> float | None:
 # from the Purity UI Dashboard template) and is served at /static/style.css.
 # app.js is the page's one script: settings-form niceties (dirty tracking,
 # row enter/exit motion, toast dismissal) that degrade to plain form posts.
-_STYLE_PATH = Path(__file__).with_name("style.css")
-_FAVICON_PATH = Path(__file__).with_name("favicon.png")
-_APPJS_PATH = Path(__file__).with_name("app.js")
-
-
-# ── data (all read-only) ──────────────────────────────────────────────
-
-
-def fetch_students(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    return conn.execute("SELECT * FROM students ORDER BY name").fetchall()
-
-
-def fetch_student(conn: sqlite3.Connection, agu: str):
-    return conn.execute("SELECT * FROM students WHERE agu = ?", (agu,)).fetchone()
-
-
-def fetch_courses(conn: sqlite3.Connection, student_id: str,
-                  term: str = "") -> list[sqlite3.Row]:
-    """Courses for a student — all terms, or one term when given."""
-    if term:
-        return conn.execute(
-            "SELECT * FROM courses WHERE student_id = ? AND term = ? ORDER BY title",
-            (student_id, term)).fetchall()
-    return conn.execute(
-        "SELECT * FROM courses WHERE student_id = ? ORDER BY title", (student_id,)
-    ).fetchall()
-
-
-def fetch_open_counts(conn: sqlite3.Connection, student_id: str,
-                      term: str = "") -> dict:
-    """Open-issue badge counts, scoped to one term when given — a closed
-    quarter's leftover 'due' rows shouldn't haunt the overview forever."""
-    sql = ("SELECT SUM(a.status = 'missing') AS missing, "
-           "       SUM(a.status = 'ungraded_past_due') AS past_due, "
-           "       SUM(a.status = 'due') AS due "
-           "FROM assignments a JOIN courses c ON c.id = a.course_id "
-           "WHERE c.student_id = ? AND " + store.NOT_SUPERSEDED_SQL)
-    params: tuple = (student_id,)
-    if term:
-        sql += " AND c.term = ?"
-        params += (term,)
-    row = conn.execute(sql, params).fetchone()
-    return {k: row[k] or 0 for k in ("missing", "past_due", "due")}
-
-
-# ── student page data (C0: four views, stat cards, course strip) ──────
-
-_VIEWS = ("problems", "due", "recent", "everything")
-
-# What the Problems view (and its trend sparkline) counts.
-_PROBLEM_STATUSES = ("missing", "ungraded_past_due")
-
-
-def fetch_strip_rows(conn: sqlite3.Connection, student_id: str,
-                     term: str = "") -> list[sqlite3.Row]:
-    """Course-strip rows: each course with its open-issue counts and the date
-    a grade last landed. ``graded_at`` when the source supplied it (the demo
-    seeder does), else the local day a score first appeared in grade_history
-    (seen_at is UTC; the reader's date words are local, as in _when_html) —
-    the live collector never fills graded_at."""
-    sql = ("SELECT c.*, "
-           "  SUM(a.status = 'missing') AS missing, "
-           "  SUM(a.status = 'ungraded_past_due') AS past_due, "
-           "  SUM(a.status = 'due') AS due, "
-           "  MAX(CASE WHEN a.status = 'graded' THEN COALESCE(a.graded_at, "
-           "      (SELECT date(MIN(h.seen_at), 'localtime') FROM grade_history h "
-           "       WHERE h.assignment_id = a.id AND h.field = 'score')) END) "
-           "  AS last_graded "
-           "FROM courses c LEFT JOIN assignments a ON a.course_id = c.id "
-           "  AND " + store.NOT_SUPERSEDED_SQL + " "
-           "WHERE c.student_id = ?")
-    params: list = [student_id]
-    if term:
-        sql += " AND c.term = ?"
-        params.append(term)
-    return conn.execute(sql + " GROUP BY c.id ORDER BY c.title", params).fetchall()
-
-
-def fetch_view_rows(conn: sqlite3.Connection, student_id: str,
-                    term: str = "") -> list[sqlite3.Row]:
-    """Assignments joined to their course, for the student-page views.
-    ``graded_on`` is the display date a grade landed (same fallback rule as
-    the strip's last_graded)."""
-    sql = ("SELECT a.*, c.title AS course_title, c.edupoint_gu AS course_gu, "
-           "  c.term AS course_term, " + store.CANVAS_TWIN_SQL + ", "
-           "  COALESCE(a.graded_at, (SELECT date(MIN(h.seen_at), 'localtime') "
-           "    FROM grade_history h WHERE h.assignment_id = a.id "
-           "    AND h.field = 'score')) AS graded_on "
-           "FROM assignments a JOIN courses c ON c.id = a.course_id "
-           "WHERE c.student_id = ? AND " + store.NOT_SUPERSEDED_SQL)
-    params: list = [student_id]
-    if term:
-        sql += " AND c.term = ?"
-        params.append(term)
-    return conn.execute(sql, params).fetchall()
-
-
-def _fetch_change_rows(conn, table: str, key: str, join: str, student_id: str,
-                       term: str, field: str) -> dict[str, list]:
-    """id -> ascending [(day, old, new), …] from one of the history tables."""
-    sql = (f"SELECT h.{key} AS k, substr(h.seen_at, 1, 10) AS d, "
-           f"  h.old_value, h.new_value FROM {table} h {join} "
-           f"WHERE c.student_id = ? AND h.field = ?")
-    params: list = [student_id, field]
-    if term:
-        sql += " AND c.term = ?"
-        params.append(term)
-    out: dict[str, list] = {}
-    for r in conn.execute(sql + " ORDER BY h.seen_at, h.id", params):
-        out.setdefault(r["k"], []).append((r["d"], r["old_value"], r["new_value"]))
-    return out
-
-
-def fetch_percent_history(conn, student_id: str, term: str = "") -> dict[str, list]:
-    """course_id -> the course's percent changes, ascending."""
-    return _fetch_change_rows(
-        conn, "course_history", "course_id",
-        "JOIN courses c ON c.id = h.course_id", student_id, term, "percent")
-
-
-def fetch_status_history(conn, student_id: str, term: str = "") -> dict[str, list]:
-    """assignment_id -> the assignment's status transitions, ascending."""
-    return _fetch_change_rows(
-        conn, "grade_history", "assignment_id",
-        "JOIN assignments a ON a.id = h.assignment_id "
-        "JOIN courses c ON c.id = a.course_id", student_id, term, "status")
-
-
-def _value_at(rows: list, day: str):
-    """The value in effect at end of ``day``, given ascending change rows.
-    Before the first recorded change, the value is that change's old_value;
-    empty rows mean "no changes ever" and the caller falls back to the
-    current value."""
-    value = None
-    for d, old, new in rows:
-        if d <= day:
-            value = new
-        else:
-            if value is None:
-                value = old
-            break
-    return value
-
-
-def _problem_series(rows, transitions: dict[str, list],
-                    days: list[str]) -> list[int]:
-    """How many assignments sat in a problem status on each sample day,
-    reconstructed from grade_history status transitions. Assignments not yet
-    assigned on a day don't count (best available proxy for existence)."""
-    counts = []
-    for day in days:
-        n = 0
-        for r in rows:
-            if r["assigned"] and r["assigned"] > day:
-                continue
-            trans = transitions.get(r["id"], ())
-            status = r["status"]
-            if trans:
-                status = _value_at(trans, day) or status
-            n += status in _PROBLEM_STATUSES
-        counts.append(n)
-    return counts
-
-
-def build_student_ctx(conn: sqlite3.Connection, student, view: str,
-                      course_gu: str, hl: str = "",
-                      today: date | None = None,
-                      strip_open: bool = False) -> dict:
-    """Everything render_student needs: the strip, the four stat cards' data
-    stories, and the active view's rows (scoped to ?course= when given).
-    ``hl`` is the ?status= highlight from an overview badge click-through;
-    ``strip_open`` (?strip=open) keeps All Courses expanded on a page that
-    would otherwise collapse it — the clear-filter link carries it."""
-    from .models import parse_percent
-
-    today = today or date.today()
-    view = view if view in _VIEWS else "problems"
-    hl = hl if hl in _STATUS_ROWS else ""
-    sid, term = student["id"], student["current_term"] or ""
-    strip = fetch_strip_rows(conn, sid, term)
-    if course_gu and course_gu not in {
-            c["edupoint_gu"] for c in fetch_courses(conn, sid)}:
-        course_gu = ""
-
-    rows = fetch_view_rows(conn, sid, term)
-    problems = sorted(
-        (r for r in rows if r["status"] in _PROBLEM_STATUSES),
-        key=lambda r: (r["status"] != "missing", r["due_date"] or "9999",
-                       r["name"]))
-    due = sorted((r for r in rows if r["status"] == "due"),
-                 key=lambda r: (r["due_date"] or "9999", r["name"]))
-    graded = sorted(
-        (r for r in rows if r["status"] == "graded" and r["graded_on"]),
-        key=lambda r: r["graded_on"], reverse=True)
-
-    # Course strip: 2-week percent deltas from course_history.
-    phist = fetch_percent_history(conn, sid, term)
-    cutoff = (today - timedelta(days=14)).isoformat()
-    deltas: dict[str, tuple] = {}
-    percents = []
-    for c in strip:
-        cur = parse_percent(c["percent"])
-        hrows = phist.get(c["id"], [])
-        base = parse_percent(_value_at(hrows, cutoff)) if hrows else cur
-        deltas[c["id"]] = (cur, base if base is not None else cur)
-        if cur is not None:
-            percents.append(cur)
-    term_avg = sum(percents) / len(percents) if percents else None
-
-    # Problems card: 6-week open-problem trend (weekly samples).
-    sample = [(today - timedelta(days=7 * i)).isoformat()
-              for i in range(5, -1, -1)]
-    pseries = _problem_series(rows, fetch_status_history(conn, sid, term),
-                              sample)
-
-    # Everything card: the term-average trajectory (8 weekly samples).
-    tseries = []
-    for day in [(today - timedelta(days=7 * i)).isoformat()
-                for i in range(7, -1, -1)]:
-        vals = []
-        for c in strip:
-            hrows = phist.get(c["id"], [])
-            v = (parse_percent(_value_at(hrows, day)) if hrows
-                 else parse_percent(c["percent"]))
-            if v is not None:
-                vals.append(v)
-        if vals:
-            tseries.append(sum(vals) / len(vals))
-
-    # Recent card: the last 10 graded scores — the leading indicator.
-    pcts10 = [r["score"] / r["points"] * 100
-              for r in graded if r["points"] and r["score"] is not None][:10]
-
-    def scoped(items):
-        return [r for r in items
-                if not course_gu or r["course_gu"] == course_gu]
-
-    ctx = {
-        "view": view, "course_gu": course_gu, "hl": hl,
-        "strip_open": strip_open, "today": today, "term": term,
-        "strip": strip, "deltas": deltas,
-        "problems": scoped(problems), "due": scoped(due),
-        "recent": scoped(graded),
-        "cards": {
-            "problems_count": len(problems),
-            "problems_week": pseries[-1] - pseries[-2],
-            "problems_series": pseries,
-            "due_count": len(due), "due_next": due[:2],
-            "recent_pcts": pcts10, "term_avg": term_avg,
-            "term_series": tseries, "courses": len(strip),
-        },
-    }
-    if view == "everything":
-        all_rows = fetch_view_rows(conn, sid)
-        by_course: dict[str, list] = {}
-        for r in all_rows:
-            by_course.setdefault(r["course_id"], []).append(r)
-        courses = [c for c in fetch_courses(conn, sid)
-                   if not course_gu or c["edupoint_gu"] == course_gu]
-        terms: list[str] = []
-        for c in courses:
-            if c["term"] not in terms:
-                terms.append(c["term"])
-        ordered = ([term] if term in terms else []) + sorted(
-            (t for t in terms if t != term), reverse=True)
-        ctx["sections"] = [
-            (t, [(c, by_course.get(c["id"], [])) for c in courses
-                 if c["term"] == t])
-            for t in ordered]
-    return ctx
-
-
-# Alerts page size (numbered paging replaces the old silent 100-row cap).
-_ALERTS_PAGE = 50
-
-
-def fetch_alerts(conn: sqlite3.Connection, page: int = 1,
-                 alert_type: str = "") -> list[sqlite3.Row]:
-    """One page of alerts, newest first. Offset paging is safe here because
-    the sort key is stable between requests; the total (for the page count)
-    comes from fetch_alert_counts, which the chips need anyway."""
-    sql = ("SELECT al.*, st.name AS student_name "
-           "FROM alerts al "
-           "JOIN students st ON st.id = al.student_id ")
-    params: list = []
-    if alert_type:
-        sql += "WHERE al.type = ? "
-        params.append(alert_type)
-    sql += "ORDER BY al.created_at DESC, al.rowid DESC LIMIT ? OFFSET ?"
-    params += [_ALERTS_PAGE, (page - 1) * _ALERTS_PAGE]
-    return conn.execute(sql, params).fetchall()
-
-
-def fetch_alert_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """(type, n) per alert type present — the type-group chips."""
-    return conn.execute(
-        "SELECT type, COUNT(*) AS n "
-        "FROM alerts GROUP BY type ORDER BY n DESC, type").fetchall()
-
-
-def alerts_total(counts, alert_type: str = "") -> int:
-    """How many alerts the current filter covers, from the chip counts."""
-    return sum(c["n"] for c in counts if not alert_type or c["type"] == alert_type)
-
-
-def alerts_last_page(total: int) -> int:
-    return max(1, -(-total // _ALERTS_PAGE))   # ceiling division
-
-
-def _page_window(page: int, last: int, *, edge: int = 1,
-                 around: int = 1) -> list:
-    """Which page numbers a pager shows: the first and last ``edge`` pages,
-    ``around`` on each side of the current one, and ``None`` wherever a run
-    is elided — e.g. page 6 of 27 → [1, None, 5, 6, 7, None, 27]. Short
-    ranges (nothing to elide) list every page."""
-    keep = set(range(1, edge + 1)) | set(range(last - edge + 1, last + 1))
-    keep |= set(range(page - around, page + around + 1))
-    out: list = []
-    for n in range(1, last + 1):
-        if n in keep:
-            # A gap of exactly one page is shown, not elided — "…" would be
-            # longer than the number it hides.
-            if out and out[-1] is not None and n - out[-1] == 2:
-                out.append(n - 1)
-            elif out and out[-1] is not None and n - out[-1] > 2:
-                out.append(None)
-            out.append(n)
-    return out
-
-
-def _history_filter(course: str, field: str) -> tuple[str, list]:
-    """The shared WHERE for both history tables: filter by class (course
-    title) and/or change kind (the `field` column). Either may be empty."""
-    where, params = [], []
-    if course:
-        where.append("c.title = ?")
-        params.append(course)
-    if field:
-        where.append("h.field = ?")
-        params.append(field)
-    clause = ("WHERE " + " AND ".join(where) + " ") if where else ""
-    return clause, params
-
-
-# A high safety cap, not a display limit: history is shown a few recent rows at
-# a time with the rest behind a "Show all N" expander, and the filter chips
-# count the true totals — so the fetch must reach every row that a filter (or an
-# expander) could surface. Comfortably covers a household's multi-year log.
-_HISTORY_LIMIT = 5000
-
-
-def fetch_course_history(conn: sqlite3.Connection, limit: int = _HISTORY_LIMIT, *,
-                         course: str = "", field: str = "") -> list[sqlite3.Row]:
-    clause, params = _history_filter(course, field)
-    return conn.execute(
-        "SELECT h.*, c.title AS course_title, c.term, st.name AS student_name "
-        "FROM course_history h "
-        "JOIN courses c ON c.id = h.course_id "
-        "JOIN students st ON st.id = c.student_id " + clause
-        + "ORDER BY h.seen_at DESC, h.id DESC LIMIT ?", (*params, limit)
-    ).fetchall()
-
-
-def fetch_history(conn: sqlite3.Connection, limit: int = _HISTORY_LIMIT, *,
-                  course: str = "", field: str = "") -> list[sqlite3.Row]:
-    clause, params = _history_filter(course, field)
-    return conn.execute(
-        "SELECT h.*, a.name AS assignment_name, c.title AS course_title, "
-        "       st.name AS student_name "
-        "FROM grade_history h "
-        "JOIN assignments a ON a.id = h.assignment_id "
-        "JOIN courses c ON c.id = a.course_id "
-        "JOIN students st ON st.id = c.student_id " + clause
-        + "ORDER BY h.seen_at DESC, h.id DESC LIMIT ?", (*params, limit)
-    ).fetchall()
-
-
-def fetch_history_class_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """(course_title, n) across both history tables — the class-filter chips."""
-    return conn.execute(
-        "SELECT course_title, COUNT(*) AS n FROM ("
-        "  SELECT c.title AS course_title FROM grade_history h"
-        "    JOIN assignments a ON a.id = h.assignment_id"
-        "    JOIN courses c ON c.id = a.course_id"
-        "  UNION ALL"
-        "  SELECT c.title AS course_title FROM course_history h"
-        "    JOIN courses c ON c.id = h.course_id"
-        ") GROUP BY course_title ORDER BY n DESC, course_title").fetchall()
-
-
-def fetch_history_field_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """(field, n) across both history tables — the change-kind chips."""
-    return conn.execute(
-        "SELECT field, COUNT(*) AS n FROM ("
-        "  SELECT field FROM grade_history"
-        "  UNION ALL"
-        "  SELECT field FROM course_history"
-        ") GROUP BY field ORDER BY n DESC, field").fetchall()
+_PKG = Path(__file__).resolve().parent.parent   # lastbell/, where the assets live
+_STYLE_PATH = _PKG / "style.css"
+_FAVICON_PATH = _PKG / "favicon.png"
+_APPJS_PATH = _PKG / "app.js"
 
 
 # ── rendering (pure: rows in, html out) ───────────────────────────────
@@ -771,7 +369,7 @@ def _when_html(utc_iso: str, today: date | None = None) -> str:
 
 def _pct(raw: str) -> str:
     """Course percent for display: one decimal place, or a dash."""
-    from .models import format_percent
+    from ..models import format_percent
 
     formatted = format_percent(raw)
     return formatted if formatted is not None else (raw or "—")
@@ -1422,7 +1020,7 @@ def _pager(page: int, last: int, href) -> str:
             items.append(f"<li><a aria-current='page' href='{href(n)}'>{n}</a></li>")
         else:
             items.append(f"<li><a href='{href(n)}' aria-label='Page {n}'>{n}</a></li>")
-    return (f"<nav class='pager' aria-label='Alert pages'>"
+    return ("<nav class='pager' aria-label='Alert pages'>"
             + end("prev", page - 1, "←", "Previous", page > 1)
             + "<ol>" + "".join(items) + "</ol>"
             + end("next", page + 1, "→", "Next", page < last)
@@ -1521,14 +1119,21 @@ def _history_transition(r) -> str:
 
 
 def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
-                   *, course="", field="", nav_students=()) -> str:
+                   *, course="", field="", nav_students=(),
+                   totals: tuple[int, int] | None = None,
+                   show_all: bool = False) -> str:
+    """``totals`` is (assignment rows, course rows) the filter covers; when a
+    section's fetched rows fall short of it, the section ends with a link
+    to the uncapped page (``?all=1``) after the in-page expander."""
     if not class_counts and not field_counts:
         return _page("History", "<h1>Grade history</h1><p>No changes recorded yet.</p>",
                      nav_students=nav_students, path="/history")
     today = date.today()
 
-    def href(c: str, f: str) -> str:
-        q = ([f"course={quote(c)}"] if c else []) + ([f"field={quote(f)}"] if f else [])
+    def href(c: str, f: str, all_rows: bool = False) -> str:
+        q = (([f"course={quote(c)}"] if c else [])
+             + ([f"field={quote(f)}"] if f else [])
+             + (["all=1"] if all_rows else []))
         return "/history" + ("?" + "&".join(q) if q else "")
 
     def chip_row(label, items, selected, href_of):
@@ -1554,12 +1159,15 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
         items = [(c["field"], _field_label(c["field"]), c["n"]) for c in field_counts]
         filters += chip_row("Change", items, field, lambda v: href(course, v))
 
-    def section(title, head_html, body_rows):
+    def section(title, head_html, body_rows, total=None):
         """A history section, compact: the recent rows shown, the rest in a
         hidden <tbody class='overflow'> of the SAME table so expanding just
         continues the list — one header, aligned columns. The <details> below
-        is the bare no-JS toggle; style.css reveals the tbody via :has()."""
+        is the bare no-JS toggle; style.css reveals the tbody via :has().
+        ``total`` above the rows fetched means the page is capped: the
+        expander shows what's here and a link offers the rest."""
         n = len(body_rows)
+        total = n if total is None else max(total, n)
         slug = title.lower().replace(" ", "-")
         table = (f"<table aria-label='{escape(title)}'>" + head_html
                  + "".join(body_rows[:_HISTORY_PREVIEW]))
@@ -1575,9 +1183,14 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
                     f"the remaining rows are added to the table "
                     f"above</span></summary></details>")
         table += "</table>"
+        if total > n:
+            more += (f"<p class='small' style='margin:0.8rem 0 0'>Newest {n:,} of "
+                     f"{total:,} — <a href='{href(course, field, True)}'>"
+                     f"show all {total:,}</a></p>")
         return (f"<div class='card tablecard'><h2>{escape(title)} "
-                f"<span class='small'>{n}</span></h2>" + table + more + "</div>")
+                f"<span class='small'>{total}</span></h2>" + table + more + "</div>")
 
+    t_assign, t_course = totals or (None, None)
     sections = []
     if course_rows:
         head = ("<tr class='head'><th scope='col'>Course</th><th scope='col'>When</th><th scope='col'>Student</th>"
@@ -1590,7 +1203,7 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
             f"<td data-label='Change'>{escape(_field_label(r['field']))}</td>"
             f"<td data-label='From → To'>{_history_transition(r)}</td></tr>"
             for r in course_rows]
-        sections.append(section("Course grades", head, body))
+        sections.append(section("Course grades", head, body, t_course))
     if rows:
         head = ("<tr class='head'><th scope='col'>Assignment</th><th scope='col'>When</th><th scope='col'>Student</th>"
                 "<th scope='col'>Course</th><th scope='col'>Change</th><th scope='col'>From → To</th></tr>")
@@ -1602,7 +1215,7 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
             f"<td data-label='Change'>{escape(_field_label(r['field']))}</td>"
             f"<td data-label='From → To'>{_history_transition(r)}</td></tr>"
             for r in rows]
-        sections.append(section("Assignments", head, body))
+        sections.append(section("Assignments", head, body, t_assign))
 
     body_html = f"<div class='histfilters'>{filters}</div>"
     body_html += ("".join(sections) if sections
@@ -1611,600 +1224,24 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
                  nav_students=nav_students, path="/history")
 
 
-def _type_multiselect(fid, selected) -> str:
-    """The alert-types control: a checkbox dropdown (<details> popover — the
-    browser handles open/close; app.js keeps the summary label fresh and
-    makes 'all alerts' exclusive). ``fid`` binds row-form controls; None
-    means the checkboxes sit inside their form already."""
-    from .models import AlertType
-
-    sel = set(selected)
-    if not sel or "*" in sel:
-        sel = {"*"}
-    opts = [("*", "all alerts")] + [
-        (t.value, t.value.replace("_", " ")) for t in AlertType]
-    if "*" in sel:
-        label = "all alerts"
-    elif len(sel) == 1:
-        label = next(iter(sel)).replace("_", " ")
-    else:
-        label = f"{len(sel)} types"
-    form_attr = f" form='{escape(fid)}'" if fid else ""
-    boxes = "".join(
-        f"<label><input type='checkbox' name='type' value='{escape(v)}'"
-        f"{form_attr}{' checked' if v in sel else ''}> {escape(lab)}</label>"
-        for v, lab in opts)
-    return (f"<details class='msel'>"
-            f"<summary aria-label='Alert types: {escape(label)}'>"
-            f"{escape(label)}</summary>"
-            f"<div class='msel-list' role='group' "
-            f"aria-label='Alert types'>{boxes}</div></details>")
+def _page_window(page: int, last: int, *, edge: int = 1,
+                 around: int = 1) -> list:
+    """Which page numbers a pager shows: the first and last ``edge`` pages,
+    ``around`` on each side of the current one, and ``None`` wherever a run
+    is elided — e.g. page 6 of 27 → [1, None, 5, 6, 7, None, 27]. Short
+    ranges (nothing to elide) list every page."""
+    keep = set(range(1, edge + 1)) | set(range(last - edge + 1, last + 1))
+    keep |= set(range(page - around, page + around + 1))
+    out: list = []
+    for n in range(1, last + 1):
+        if n in keep:
+            # A gap of exactly one page is shown, not elided — "…" would be
+            # longer than the number it hides.
+            if out and out[-1] is not None and n - out[-1] == 2:
+                out.append(n - 1)
+            elif out and out[-1] is not None and n - out[-1] > 2:
+                out.append(None)
+            out.append(n)
+    return out
 
 
-def _options(pairs, selected="") -> str:
-    """``<option>`` list from (value, label) pairs."""
-    return "".join(
-        f"<option value='{escape(v)}'{' selected' if v == selected else ''}>"
-        f"{escape(label)}</option>"
-        for v, label in pairs)
-
-
-def render_settings(watcher_list, subscriptions, students=(),
-                    error="", notice="") -> str:
-    """The Settings page: full watcher/subscription CRUD as plain HTML forms.
-    These are the dashboard's only write paths; they carry no auth of their
-    own — the bind address is the access control. Env-owned config (poll
-    cadence, thresholds) is deliberately absent: if it can't be changed from
-    here, it isn't shown here.
-    """
-    from . import notify
-
-    watcher_opts = [(w.name, w.name) for w in watcher_list]
-    # The web UI offers email only (owner's call 2026-09-02: text message via
-    # carrier gateways withdrawn — they're shut down or being retired). Other
-    # channels stay CLI territory; pre-0.1.5 sms rows still render and work.
-    channel_opts = [("email", "email")]
-    channel_label = {"email": "email", "sms": "text message"}
-
-    if watcher_list:
-        # One row per watcher, then one row per channel under it (each
-        # editable/removable in place), then an add-channel row for whatever
-        # channels the watcher doesn't have yet. Row forms live in the
-        # actions cell; the other cells' controls bind via form=.
-        w_rows = []
-        for w in watcher_list:
-            w_rows.append(
-                f"<tr id='row-w-{escape(w.id)}' data-w='{escape(w.id)}'>"
-                f"<td><strong>{escape(w.name)}</strong> "
-                f"<span class='small'>{escape(w.kind.value)}</span></td>"
-                f"<td></td>"
-                f"<td data-label='Actions'>"
-                f"<form method='post' action='/settings/watcher-remove' "
-                f"class='rowform' data-group='{escape(w.id)}'>"
-                f"<input type='hidden' name='name' value='{escape(w.name)}'>"
-                f"<button class='ghost' "
-                f"aria-label='Remove watcher {escape(w.name)}'>"
-                f"remove</button></form>"
-                f"</td></tr>")
-            for cname, addr in w.channels.items():
-                fid = f"ch-{escape(w.id)}-{escape(cname)}"
-                hidden = (f"<input type='hidden' name='watcher' value='{escape(w.name)}'>"
-                          f"<input type='hidden' name='channel' value='{escape(cname)}'>")
-                if notify.ADDRESS_KEY.get(cname) is None:   # console: no address
-                    addr_cell = "—"
-                    buttons = (f"<button class='ghost' aria-label='Remove "
-                               f"{escape(channel_label.get(cname, cname))} channel'>"
-                               f"remove</button>")
-                    form = (f"<form id='{fid}' method='post' "
-                            f"action='/settings/channel-remove' class='rowform'>"
-                            f"{hidden}{buttons}</form>")
-                else:
-                    address = next(iter(addr.values()), "")
-                    # name='to' (never 'address' — browsers autofill that as
-                    # a street address). Email rows opt into email autofill;
-                    # sms rows hold a carrier gateway, so no suggestions.
-                    autofill = "email" if cname == "email" else "off"
-                    addr_cell = (f"<input name='to' form='{fid}' "
-                                 f"aria-label='{escape(channel_label.get(cname, cname))} address' "
-                                 f"value='{escape(address)}' "
-                                 f"autocomplete='{autofill}'>")
-                    form = (f"<form id='{fid}' method='post' "
-                            f"action='/settings/channel' class='rowform'>{hidden}"
-                            f"<button class='upd'>Update</button> "
-                            f"<button class='ghost' "
-                            f"aria-label='Send a test "
-                            f"{escape(channel_label.get(cname, cname))} to "
-                            f"{escape(address)}' "
-                            f"formaction='/settings/channel-test'>"
-                            f"test</button> "
-                            f"<button class='ghost' "
-                            f"aria-label='Remove "
-                            f"{escape(channel_label.get(cname, cname))} channel' "
-                            f"formaction='/settings/channel-remove'>"
-                            f"remove</button></form>")
-                w_rows.append(
-                    f"<tr class='chrow' id='row-{fid}' data-w='{escape(w.id)}'>"
-                    f"<td class='chname'>{escape(channel_label.get(cname, cname))}</td>"
-                    f"<td data-label='Address'>{addr_cell}</td>"
-                    f"<td data-label='Actions'>{form}</td></tr>")
-            remaining = [(c, label) for c, label in channel_opts
-                         if c not in w.channels]
-            if remaining:
-                fid = f"chadd-{escape(w.id)}"
-                w_rows.append(
-                    f"<tr class='chrow' id='row-{fid}' data-w='{escape(w.id)}'>"
-                    f"<td class='chname'>"
-                    f"<select name='channel' form='{fid}' aria-label='Channel'>"
-                    f"{_options(remaining)}</select></td>"
-                    f"<td data-label='Address'>"
-                    f"<input name='to' form='{fid}' aria-label='Address' autocomplete='off' "
-                    f"placeholder='name@example.com' "
-                    f"data-tip='Email address'></td>"
-                    f"<td data-label='Actions'>"
-                    f"<form id='{fid}' method='post' action='/settings/channel' "
-                    f"class='rowform'>"
-                    f"<input type='hidden' name='watcher' value='{escape(w.name)}'>"
-                    f"<button>Add channel</button></form></td></tr>")
-        w_body = ("<table class='manage' aria-label='Watchers'><tr class='head'><th scope='col'>Watcher</th>"
-                  "<th scope='col'>Address</th><th scope='col'><span class='vh'>Actions</span></th></tr>" + "".join(w_rows) + "</table>")
-    else:
-        w_body = "<p class='small'>None yet — add the first watcher above.</p>"
-
-    add_form = (
-        "<form method='post' action='/settings/watcher-add' class='edit'>"
-        "<span class='formtitle'>Add</span>"
-        "<input name='name' aria-label='Watcher name' placeholder='Name' required autocomplete='off'>"
-        f"<select name='kind' aria-label='Watcher role'>{_options([('guardian', 'guardian'), ('student', 'student')])}</select>"
-        f"<select name='channel' aria-label='Channel'>{_options([('', 'no channel yet')] + channel_opts)}</select>"
-        "<input name='to' aria-label='Address' autocomplete='off' "
-        "placeholder='name@example.com' "
-        "data-tip='Email address'>"
-        "<button>Add watcher</button></form>")
-    w_card = ("<div class='card tablecard'><h2>Watchers</h2>"
-              + add_form + w_body + "</div>")
-
-    if subscriptions:
-        # A displayed row is a GROUP of single-type subscription rows sharing
-        # (watcher, student, channel, delivery, urgent); the Alerts cell is a
-        # multiselect over the group's types. A <form> can't span table
-        # cells, so each row's form lives in its actions cell and the cells'
-        # controls point at it via form=. Remove shares the form (formaction)
-        # — it only reads the hidden ids.
-        groups: dict = {}
-        for s in subscriptions:
-            key = (s.watcher_id, s.student_id, s.channel, s.send_at, s.urgent_now)
-            groups.setdefault(key, []).append(s)
-        s_rows = []
-        urgent_tip = ("Send urgent alerts (missing, due soon, grade drop) "
-                      "immediately instead of waiting for the digest")
-        for group in groups.values():
-            first = group[0]
-            fid = f"sub-{escape(first.id)}"
-            ids = ",".join(s.id for s in group)
-            s_rows.append(
-                f"<tr id='row-{fid}'>"
-                f"<td>{escape(first.watcher_name)} ⇒ {escape(first.student_name)}</td>"
-                f"<td data-label='Alerts'>"
-                f"{_type_multiselect(fid, [s.alert_type for s in group])}</td>"
-                f"<td data-label='Via'><select name='channel' form='{fid}' "
-                f"aria-label='Delivery channel'>"
-                f"{_options([('*', 'all configured')] + channel_opts, selected=first.channel)}"
-                f"</select></td>"
-                f"<td data-label='Delivery'><input type='time' name='at' form='{fid}' "
-                f"aria-label='Daily digest time' "
-                f"value='{escape(first.send_at or '')}' "
-                f"data-tip='Daily digest time — blank for immediate delivery'> "
-                f"<label class='urgent' data-tip='{escape(urgent_tip)}'>"
-                f"<input type='checkbox' name='urgent' form='{fid}'"
-                f"{' checked' if first.urgent_now else ''}> urgent now</label></td>"
-                f"<td data-label='Actions'>"
-                f"<form id='{fid}' method='post' action='/settings/subscription-update' "
-                f"class='rowform'>"
-                f"<input type='hidden' name='ids' value='{escape(ids)}'>"
-                f"<button class='upd'>Update</button> "
-                f"<button class='ghost' formaction='/settings/unsubscribe' "
-                f"aria-label='Unsubscribe {escape(first.watcher_name)} "
-                f"from {escape(first.student_name)}'>"
-                f"remove</button></form></td></tr>")
-        s_body = ("<table class='manage' aria-label='Subscriptions'><tr class='head'><th scope='col'>Watcher ⇒ Student</th>"
-                  "<th scope='col'>Alerts</th><th scope='col'>Via</th><th scope='col'>Delivery</th><th scope='col'><span class='vh'>Actions</span></th></tr>"
-                  + "".join(s_rows) + "</table>")
-    else:
-        s_body = "<p class='small'>No subscriptions yet.</p>"
-    if watcher_list and students:
-        student_opts = [("*", "all students")] + [
-            (s["agu"], s["name"]) for s in students]
-        s_form = (
-            "<form method='post' action='/settings/subscribe' class='edit'>"
-            "<span class='formtitle'>Add</span>"
-            f"<select name='watcher' aria-label='Watcher'>{_options(watcher_opts)}</select>"
-            "<span class='small'>gets</span>"
-            f"{_type_multiselect(None, ['*'])}"
-            "<span class='small'>for</span>"
-            f"<select name='student' aria-label='Student'>{_options(student_opts)}</select>"
-            "<span class='small'>via</span>"
-            f"<select name='channel' aria-label='Delivery channel'>{_options([('*', 'all channels')] + channel_opts)}</select>"
-            "<input type='time' name='at' value='16:00' aria-label='Daily digest time' "
-            "data-tip='Daily digest time — clear for immediate delivery'>"
-            "<label class='urgent' data-tip='Send urgent alerts (missing, due soon, "
-            "grade drop) immediately instead of waiting for the digest'>"
-            "<input type='checkbox' name='urgent' checked> urgent now</label>"
-            "<button>Subscribe</button></form>")
-    else:
-        s_form = ("<p class='small'>Add a watcher first.</p>" if not watcher_list
-                  else "<p class='small'>Students appear after the first run.</p>")
-    s_card = ("<div class='card tablecard'><h2>Subscriptions</h2>"
-              + s_form + s_body + "</div>")
-
-    banner = (f"<div class='banner bad' role='alert'>{escape(error)}</div>"
-              if error else "")
-    toast = (f"<div class='toast' role='status' aria-live='polite'>"
-             f"{escape(notice)}</div>" if notice else "")
-    # The one place the app credits itself: quiet, at the very bottom of the
-    # page people already come to for housekeeping. Outside #settings-main so
-    # fetch-swaps never repaint it.
-    # Version first: the one thing a bug report needs and a parent can't
-    # otherwise answer. Check for updates is a POST so it only ever runs on
-    # a click — the README promises no phone-home, and this keeps it true.
-    ext = "target='_blank' rel='noopener noreferrer'"
-    credit = (
-        "<footer class='credit'>"
-        f"<a href='{_REPO_URL}/releases/tag/v{__version__}' {ext}>"
-        f"Last Bell {__version__}</a> · "
-        f"© 2026 <a href='{_REPO_URL}' {ext}>Chris Hays</a> · "
-        f"<a href='{_REPO_URL}/blob/main/LICENSE' {ext}>MIT license</a> · "
-        f"<a href='{_REPO_URL}/releases' {ext}>What's new</a> · "
-        f"<a href='{_REPO_URL}/issues' {ext}>Report a problem</a> · "
-        "<form method='post' action='/settings/check-updates' class='inline'>"
-        "<button class='linkish' aria-label='Check for updates: asks PyPI "
-        "whether a newer release exists, only when clicked'>"
-        "Check for updates</button></form>"
-        "</footer>")
-    # settings-main is the region app.js swaps in place after a fetch-based
-    # form post — banner, cards, and toast all live inside it.
-    return _page("Settings", "<h1>Settings</h1><div id='settings-main'>"
-                 + banner + w_card + s_card + toast + "</div>" + credit,
-                 nav_students=students, path="/settings")
-
-
-# ── http plumbing ─────────────────────────────────────────────────────
-
-
-def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
-    """Route one request (path may carry a query string). Returns
-    (status, html) — or, for a 301, the redirect target instead of a body."""
-    from . import watchers as watchermod
-
-    parsed = urlparse(path)
-    path, query = parsed.path, parse_qs(parsed.query)
-    # Every page's nav carries the student links, so fetch once up front.
-    students = fetch_students(conn)
-    if path == "/":
-        # The overview is "right now": only the current term's courses/counts.
-        courses = {s["id"]: fetch_courses(conn, s["id"], term=s["current_term"])
-                   for s in students}
-        counts = {s["id"]: fetch_open_counts(conn, s["id"], term=s["current_term"])
-                  for s in students}
-        return 200, render_overview(students, courses, counts, store.last_poll(conn))
-    if path.startswith("/student/"):
-        agu = path[len("/student/"):]
-        student = fetch_student(conn, agu)
-        if student is None:
-            return 404, _page(
-                "Not found",
-                "<h1>No student by that id</h1>"
-                "<p>They may have been removed, or the link is stale. "
-                "<a href='/'>Back to the overview</a> — every current student "
-                "is listed there.</p>",
-                nav_students=students)
-        ctx = build_student_ctx(conn, student,
-                                (query.get("view") or [""])[0],
-                                (query.get("course") or [""])[0],
-                                (query.get("status") or [""])[0],
-                                strip_open=(query.get("strip") or [""])[0] == "open")
-        return 200, render_student(student, ctx, nav_students=students)
-    if path == "/alerts":
-        try:
-            page = max(1, int((query.get("page") or ["1"])[0]))
-        except ValueError:
-            page = 1
-        alert_type = (query.get("type") or [""])[0]
-        counts = fetch_alert_counts(conn)
-        total = alerts_total(counts, alert_type)
-        last = alerts_last_page(total)
-        if page > last:
-            # Past the end (stale bookmark, hand-edited URL): land on the
-            # last real page rather than an empty table, URL kept truthful.
-            q = ([f"type={quote(alert_type)}"] if alert_type else []) + (
-                [f"page={last}"] if last > 1 else [])
-            return 301, "/alerts" + ("?" + "&".join(q) if q else "")
-        return 200, render_alerts(fetch_alerts(conn, page, alert_type), counts,
-                                  nav_students=students, page=page,
-                                  alert_type=alert_type, total=total)
-    if path == "/history":
-        h_course = (query.get("course") or [""])[0]
-        h_field = (query.get("field") or [""])[0]
-        return 200, render_history(
-            fetch_history(conn, course=h_course, field=h_field),
-            fetch_course_history(conn, course=h_course, field=h_field),
-            fetch_history_class_counts(conn), fetch_history_field_counts(conn),
-            course=h_course, field=h_field, nav_students=students)
-    if path == "/settings":
-        return 200, render_settings(watchermod.list_watchers(conn),
-                                    watchermod.list_subscriptions(conn),
-                                    students,
-                                    error=(query.get("err") or [""])[0],
-                                    notice=(query.get("ok") or [""])[0])
-    if path == "/watchers":   # pre-Settings URL; keep old bookmarks working
-        return 301, "/settings"
-    return 404, _page(
-        "Not found",
-        "<h1>No such page</h1>"
-        "<p>That address doesn't go anywhere. "
-        "<a href='/'>Back to the overview</a>.</p>",
-        nav_students=students)
-
-
-def _handle_settings_post(conn: sqlite3.Connection, action: str,
-                          form: dict) -> tuple[int, str]:
-    """POST /settings/<action> — the Settings page's write paths. They carry
-    no auth of their own: the bind address is the access control. Always
-    redirects back to /settings; a validation failure carries the message in
-    ?err= and renders as a banner, with the tables (and the browser's
-    back-button form state) intact."""
-    from . import notify
-    from . import watchers as watchermod
-    from .models import WatcherKind
-
-    def val(key: str) -> str:
-        return (form.get(key) or [""])[0].strip()
-
-    def vals(key: str) -> list[str]:
-        return [v.strip() for v in (form.get(key) or []) if v.strip()]
-
-    def channel_update() -> dict:
-        name = val("channel")
-        if name not in notify.ADDRESS_KEY:
-            raise watchermod.WatcherError(
-                f"unknown channel {name!r} (valid: {', '.join(notify.CHANNEL_NAMES)})")
-        key = notify.ADDRESS_KEY[name]
-        if key is None:                       # console needs no address
-            return {name: {}}
-        address = val("to")
-        if address:
-            address = notify.validate_address(name, address)
-        return {name: {key: address} if address else None}
-
-    def done(message: str, new_rows: tuple = ()) -> tuple[int, str]:
-        """Success redirect: ?ok= becomes the toast, ?new= names the row
-        elements the client animates in."""
-        target = "/settings?ok=" + quote(message)
-        if new_rows:
-            target += "&new=" + ",".join(new_rows)
-        return 303, target
-
-    # Toasts name who and what changed ("Removed Mom's email
-    # (mom@example.com)"), not just the verb — the reader shouldn't have to
-    # diff the table to learn what happened.
-    chlabel = {"email": "email", "sms": "text message"}
-
-    def _addr(update: dict, cname: str) -> str:
-        return next(iter((update.get(cname) or {}).values()), "")
-
-    try:
-        if action == "watcher-add":
-            name = val("name")
-            if not name:
-                raise watchermod.WatcherError("the watcher needs a name")
-            channels = {}
-            if val("channel"):
-                channels = channel_update()
-                if None in channels.values():
-                    raise watchermod.WatcherError(
-                        f"the {val('channel')} channel needs an address")
-            w = watchermod.add_watcher(conn, name, WatcherKind(val("kind")), channels)
-            msg = f"Added watcher {w.name}"
-            if channels:
-                cname = next(iter(channels))
-                addr = _addr(channels, cname)
-                msg += f" with {chlabel.get(cname, cname)}"
-                msg += f" {addr}" if addr else ""
-            return done(msg, (f"row-w-{w.id}", f"row-chadd-{w.id}"))
-        if action == "watcher-remove":
-            w = watchermod.get_watcher(conn, val("name"))
-            watchermod.remove_watcher(conn, val("name"))
-            return done(f"Removed watcher {w.name if w else val('name')}")
-        if action == "channel":         # add or update; removal is its own action
-            update = channel_update()
-            if None in update.values():
-                raise watchermod.WatcherError(
-                    f"the {val('channel')} channel needs an address")
-            existing = watchermod.require_watcher(conn, val("watcher"))
-            cname = next(iter(update))
-            watchermod.set_channels(conn, val("watcher"), update)
-            label, addr = chlabel.get(cname, cname), _addr(update, cname)
-            if cname in existing.channels:
-                return done(f"Updated {existing.name}'s {label}"
-                            + (f": {addr}" if addr else ""))
-            return done(f"Added {label} for {existing.name}"
-                        + (f": {addr}" if addr else ""),
-                        (f"row-ch-{existing.id}-{cname}",))
-        if action == "channel-test":
-            # Tests the *saved* address: what the next alert would use. An
-            # edited-but-not-updated field is the Update button's business.
-            w = watchermod.require_watcher(conn, val("watcher"))
-            cname = val("channel")
-            if cname not in w.channels:
-                raise watchermod.WatcherError(
-                    f"{w.name} has no {chlabel.get(cname, cname)} channel")
-            address = w.channels[cname]
-            where = next(iter(address.values()), "") if address else ""
-            try:
-                notify.send_test(cname, address)
-            except Exception as e:
-                raise watchermod.WatcherError(
-                    f"Test {chlabel.get(cname, cname)} to {where} failed: {e}")
-            return done(f"Sent a test {chlabel.get(cname, cname)} to {where} — "
-                        f"check that it arrived")
-        if action == "check-updates":
-            from . import updates
-
-            try:
-                status, latest = updates.check()
-            except updates.UpdateCheckError as e:
-                raise watchermod.WatcherError(f"Update check failed: {e}")
-            return done(updates.describe(status, latest))
-        if action == "channel-remove":
-            w = watchermod.require_watcher(conn, val("watcher"))
-            cname = val("channel")
-            old = next(iter((w.channels.get(cname) or {}).values()), "")
-            watchermod.set_channels(conn, val("watcher"), {cname: None})
-            return done(f"Removed {w.name}'s {chlabel.get(cname, cname)}"
-                        + (f" ({old})" if old else ""))
-        if action == "subscribe":
-            w = watchermod.require_watcher(conn, val("watcher"))
-            if val("student") == "*":     # one step: every student at once
-                targets = [s["id"] for s in fetch_students(conn)]
-                target_desc = "all students"
-            else:
-                srow = watchermod.resolve_student(conn, val("student"))
-                targets = [srow["id"]]
-                target_desc = srow["name"]
-            sub_types, channel = vals("type"), val("channel")
-            added: list[str] = []
-            for student_id in targets:
-                added += watchermod.subscribe(
-                    conn, w, student_id,
-                    None if not sub_types or "*" in sub_types else sub_types,
-                    None if channel in ("", "*") else [channel],
-                    val("at") or None,
-                    urgent_now=bool(val("urgent")))
-            if not added:
-                return done(f"{w.name} is already subscribed to {target_desc}")
-            n = len(added)
-            return done(f"Subscribed {w.name} to {target_desc}"
-                        + (f" — {n} subscriptions" if n > 1 else ""),
-                        tuple(f"row-sub-{i}" for i in added))
-        if action == "subscription-update":
-            ids = [i for i in val("ids").split(",") if i]
-            named = next((s for s in watchermod.list_subscriptions(conn)
-                          if s.id in ids), None)
-            watchermod.set_subscription_group(
-                conn, ids, vals("type"), val("channel") or "*",
-                val("at") or None, urgent_now=bool(val("urgent")))
-            return done(f"Updated {named.watcher_name}'s subscription for "
-                        f"{named.student_name}" if named
-                        else "Subscription updated")
-        if action == "unsubscribe":
-            ids = [i for i in val("ids").split(",") if i]
-            if not ids:
-                raise watchermod.WatcherError("no subscription selected")
-            named = next((s for s in watchermod.list_subscriptions(conn)
-                          if s.id in ids), None)
-            for sub_id in ids:
-                watchermod.remove_subscription(conn, sub_id)
-            return done(f"Unsubscribed {named.watcher_name} from "
-                        f"{named.student_name}" if named
-                        else "Subscription removed")
-        return 404, _page(
-            "Not found",
-            "<h1>No such action</h1>"
-            "<p>That settings action doesn't exist — the page may be out of "
-            "date. <a href='/settings'>Back to Settings</a>.</p>",
-            nav_students=fetch_students(conn))
-    except (watchermod.WatcherError, ValueError) as e:
-        return 303, "/settings?err=" + quote(str(e))
-
-
-def serve(db_path: Path, host: str, port: int) -> None:
-    from . import store
-
-    # Apply any pending schema migrations up front — the per-request
-    # connections below assume current columns.
-    boot = store.connect(db_path)
-    store.ensure_schema(boot)
-    boot.close()
-
-    class Handler(BaseHTTPRequestHandler):
-        _STATIC = {
-            "/static/style.css": (_STYLE_PATH, "text/css; charset=utf-8"),
-            "/static/app.js": (_APPJS_PATH, "text/javascript; charset=utf-8"),
-            "/static/favicon.png": (_FAVICON_PATH, "image/png"),
-            # Browsers ask for this on their own; answer it rather than 404.
-            "/favicon.ico": (_FAVICON_PATH, "image/png"),
-        }
-
-        def do_GET(self) -> None:  # noqa: N802 (stdlib name)
-            static = self._STATIC.get(urlparse(self.path).path)
-            if static:
-                payload = static[0].read_bytes()
-                self.send_response(200)
-                self.send_header("Content-Type", static[1])
-                self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
-                return
-            # A connection per request: cheap for SQLite, and thread-safe by
-            # construction under ThreadingHTTPServer.
-            conn = store.connect(db_path)
-            try:
-                status, html = _handle(conn, self.path)
-            except sqlite3.OperationalError as e:
-                status, html = 500, _page(
-                    "Error",
-                    "<h1>Something went wrong</h1>"
-                    "<p>The dashboard couldn't read its database just now — "
-                    "usually momentary (a poll or backup holding the file). "
-                    "Refresh to try again; if it keeps happening, check that "
-                    "the database file exists and is writable.</p>"
-                    f"<p class='small'>Detail: {escape(str(e))}</p>")
-            finally:
-                conn.close()
-            if status == 301:   # html is the redirect target, not a body
-                self.send_response(301)
-                self.send_header("Location", html)
-                self.end_headers()
-                return
-            payload = html.encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            self.wfile.write(payload)
-
-        def do_POST(self) -> None:  # noqa: N802 (stdlib name)
-            path = urlparse(self.path).path
-            if not path.startswith("/settings/"):
-                self.send_error(404)
-                return
-            length = int(self.headers.get("Content-Length") or 0)
-            form = parse_qs(self.rfile.read(length).decode("utf-8"))
-            conn = store.connect(db_path)
-            try:
-                status, result = _handle_settings_post(
-                    conn, path[len("/settings/"):], form)
-            finally:
-                conn.close()
-            if status == 303:
-                self.send_response(303)
-                self.send_header("Location", result)
-                self.end_headers()
-                return
-            payload = result.encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            self.wfile.write(payload)
-
-        def log_message(self, fmt: str, *args) -> None:
-            pass  # keep the terminal quiet; this is a background convenience
-
-    server = ThreadingHTTPServer((host, port), Handler)
-    print(f"dashboard: http://{host}:{port}/  (Ctrl-C to stop)")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nbye")
-    finally:
-        server.server_close()

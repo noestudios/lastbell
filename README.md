@@ -167,7 +167,7 @@ through those services' APIs.
 
 **The dashboard shows full names, so it binds to `127.0.0.1` only** unless
 you deliberately widen it — the bind address is the access control
-([`config.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/config.py), [`dashboard.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/dashboard.py)).
+([`config.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/config.py), [`dashboard/`](https://github.com/noestudios/lastbell/blob/main/lastbell/dashboard)).
 
 If the code ever stops backing one of these sentences, that's a bug — file it.
 

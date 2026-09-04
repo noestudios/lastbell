@@ -139,10 +139,33 @@ def get_smtp_password() -> str:
     return _optional_from_keyring(SMTP_ACCOUNT)
 
 
-def set_smtp_password(password: str) -> None:
+def set_smtp_password(password: str) -> str:
+    """Store the SMTP password where this install keeps secrets — the OS
+    keyring, or on the ``env`` backend the owner-only settings file, like
+    the portal password. Returns a one-line description of where it went."""
+    return _store_secret(SMTP_ACCOUNT, "LASTBELL_PASSWORD_SMTP", "SMTP password",
+                         password)
+
+
+def _store_secret(account: str, env_key: str, label: str, value: str) -> str:
+    if backend() == "env":
+        from . import paths
+        from .setup_wizard import write_env
+
+        env_path = paths.active_env_file() or paths.default_env_file()
+        write_env(env_path, {env_key: value})
+        return f"the settings file ({env_path})"
     import keyring
 
-    keyring.set_password(SERVICE, SMTP_ACCOUNT, password)
+    try:
+        keyring.set_password(SERVICE, account, value)
+    except Exception as exc:  # NoKeyringError, PasswordSetError, …
+        raise SecretError(
+            f"Couldn't store the {label} in the OS keyring "
+            f"({exc.__class__.__name__}: {exc}). Set {env_key} in the "
+            f"environment instead, or re-run `lastbell setup` and choose the "
+            f"settings-file store.") from exc
+    return "the OS keyring"
 
 
 # A Canvas personal access token is optional: the poll can ride the portal's
@@ -162,20 +185,5 @@ def set_canvas_token(token: str) -> str:
     """Store the token where this install keeps secrets: the OS keyring, or —
     on the ``env`` backend — the owner-only settings file, like the portal
     password. Returns a one-line description of where it went."""
-    if backend() == "env":
-        from . import paths
-        from .setup_wizard import write_env
-
-        env_path = paths.active_env_file() or paths.default_env_file()
-        write_env(env_path, {"LASTBELL_CANVAS_TOKEN": token})
-        return f"the settings file ({env_path})"
-    import keyring
-
-    try:
-        keyring.set_password(SERVICE, CANVAS_ACCOUNT, token)
-    except Exception as exc:
-        raise SecretError(
-            f"Couldn't store the Canvas token in the OS keyring "
-            f"({exc.__class__.__name__}: {exc}). Set LASTBELL_CANVAS_TOKEN in "
-            f"the environment instead.") from exc
-    return "the OS keyring"
+    return _store_secret(CANVAS_ACCOUNT, "LASTBELL_CANVAS_TOKEN", "Canvas token",
+                         token)

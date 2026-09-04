@@ -196,7 +196,7 @@ class _Session:
 
     def get(self, url, params=None, headers=None, **kw):
         self.calls.append((url, params, headers))
-        for i, (needle, resp) in enumerate(self.script):
+        for i, (needle, _resp) in enumerate(self.script):
             if needle in url:
                 return self.script.pop(i)[1]
         raise AssertionError(f"unexpected GET {url}")

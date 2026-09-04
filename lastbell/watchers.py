@@ -15,7 +15,6 @@ import json
 import sqlite3
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional
 
 from .models import AlertType, WatcherKind
 
@@ -46,7 +45,7 @@ class Subscription:
     student_name: str
     alert_type: str   # AlertType value or '*'
     channel: str      # channel name or '*'
-    send_at: Optional[str] = None   # HH:MM digest/summary time; None = immediate
+    send_at: str | None = None   # HH:MM digest/summary time; None = immediate
     urgent_now: bool = False        # urgent alert types skip the digest wait
 
 
@@ -62,7 +61,7 @@ def _row_to_watcher(r: sqlite3.Row) -> Watcher:
 
 
 def add_watcher(conn: sqlite3.Connection, name: str, kind: WatcherKind,
-                channels: Optional[dict] = None) -> Watcher:
+                channels: dict | None = None) -> Watcher:
     if get_watcher(conn, name) is not None:
         raise WatcherError(f"a watcher named {name!r} already exists")
     channels = {k: v for k, v in (channels or {}).items() if v is not None}
@@ -75,7 +74,7 @@ def add_watcher(conn: sqlite3.Connection, name: str, kind: WatcherKind,
     return w
 
 
-def get_watcher(conn: sqlite3.Connection, name: str) -> Optional[Watcher]:
+def get_watcher(conn: sqlite3.Connection, name: str) -> Watcher | None:
     r = conn.execute(
         "SELECT * FROM watchers WHERE name = ? COLLATE NOCASE", (name,)
     ).fetchone()
@@ -118,7 +117,7 @@ def set_channels(conn: sqlite3.Connection, name: str, updates: dict) -> Watcher:
 
 
 def ensure_default_watcher(conn: sqlite3.Connection, username: str,
-                           email: Optional[str] = None) -> Optional[Watcher]:
+                           email: str | None = None) -> Watcher | None:
     """Whoever installs with a username/password IS a watcher (UX decision 3).
 
     With zero watchers, create a guardian named after the credential holder
@@ -180,12 +179,13 @@ def validate_hhmm(value: str) -> str:
         if len(parts) != 2 or not (0 <= h <= 23 and 0 <= m <= 59):
             raise ValueError
     except (ValueError, IndexError):
-        raise WatcherError(f"{value!r} is not a valid time — use 24h HH:MM, e.g. 17:30")
+        raise WatcherError(
+            f"{value!r} is not a valid time — use 24h HH:MM, e.g. 17:30") from None
     return f"{h:02d}:{m:02d}"
 
 
 def set_quiet_hours(conn: sqlite3.Connection, name: str,
-                    start: Optional[str], end: Optional[str]) -> Watcher:
+                    start: str | None, end: str | None) -> Watcher:
     """Set (or clear, with None) the watcher's quiet window. Alerts landing
     inside it are held in the outbox until the window ends — deferred, never
     dropped."""
@@ -205,9 +205,9 @@ def set_quiet_hours(conn: sqlite3.Connection, name: str,
 
 
 def subscribe(conn: sqlite3.Connection, watcher: Watcher, student_id: str,
-              alert_types: Optional[list[str]] = None,
-              channels: Optional[list[str]] = None,
-              send_at: Optional[str] = None,
+              alert_types: list[str] | None = None,
+              channels: list[str] | None = None,
+              send_at: str | None = None,
               urgent_now: bool = False) -> list[str]:
     """Create subscription rows (and the watcher_student link). Returns the
     ids of the rows actually added; existing identical rows are left alone.
@@ -253,7 +253,7 @@ def subscribe(conn: sqlite3.Connection, watcher: Watcher, student_id: str,
 
 
 def unsubscribe(conn: sqlite3.Connection, watcher: Watcher,
-                student_id: Optional[str] = None) -> int:
+                student_id: str | None = None) -> int:
     """Drop the watcher's subscriptions (for one student, or all of them)."""
     if student_id is None:
         cur = conn.execute("DELETE FROM subscriptions WHERE watcher_id=?", (watcher.id,))
@@ -271,7 +271,7 @@ def unsubscribe(conn: sqlite3.Connection, watcher: Watcher,
 
 def set_subscription_group(conn: sqlite3.Connection, ids: list[str],
                            alert_types: list[str], channel: str,
-                           send_at: Optional[str],
+                           send_at: str | None,
                            urgent_now: bool = False) -> None:
     """Rewrite a displayed subscription row (the dashboard's per-row edit).
 
@@ -364,7 +364,7 @@ def list_subscriptions(conn: sqlite3.Connection) -> list[Subscription]:
             for r in rows]
 
 
-def subscriptions_for_student(conn: sqlite3.Connection, student_id: str) -> list[tuple[Watcher, str, str, Optional[str], bool]]:
+def subscriptions_for_student(conn: sqlite3.Connection, student_id: str) -> list[tuple[Watcher, str, str, str | None, bool]]:
     """(watcher, alert_type, channel, send_at, urgent_now) tuples that target
     this student. ``daily_summary`` rows are generated content, not event
     routing — the summary sender handles them, so they're excluded here."""

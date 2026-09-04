@@ -14,22 +14,25 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import date, datetime, timedelta
-from typing import Optional
 
 from . import notify, store, watchers
+from .differ import MISSING_PHRASE, compose, due_phrase, past_due_phrase
+from .models import format_percent
+from .notify import render
 
 
 def build(conn: sqlite3.Connection, student_id: str, initials: str,
-          *, lookahead_days: int = 7, today: Optional[date] = None):
+          *, lookahead_days: int = 7, today: date | None = None):
     """The summary body for one student: overall marks, open problems,
     what's coming, and the week's recent alerts. A ``render.Message``: plain
     text for every channel, with the HTML twin email attaches."""
     today = today or date.today()
     lines: list[str] = []
-    html_groups: list[tuple[str, str, list[str]]] = []
+    html_groups: list[tuple[str, str, list[dict]]] = []
 
-    from .models import format_percent
-    from .notify import render
+    def line(course: str, item: str, what: str) -> dict:
+        return {"course": course, "item": item, "what": what, "via": "",
+                "detail": compose(course, what, item)}
 
     # Scope to the current marking period once one is known — a closed
     # quarter's courses and leftover statuses stay out of the daily picture.
@@ -66,21 +69,20 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
     missing = open_items("missing")
     if missing:
         lines.append(f"Missing ({len(missing)}):")
-        details = [f"{r['title']}: “{r['name']}” is marked missing" for r in missing]
-        lines.extend(f"  • {r['title']}: “{r['name']}”" for r in missing)
-        html_groups.append((f"Missing ({len(missing)})", "Needs attention", details))
+        # Under a "Missing" heading the sentence's verb goes without saying.
+        lines.extend(f"  • {compose(r['title'], '', r['name'])}" for r in missing)
+        html_groups.append((f"Missing ({len(missing)})", "Needs attention",
+                            [line(r["title"], r["name"], MISSING_PHRASE) for r in missing]))
 
     past_due = open_items("ungraded_past_due")
     if past_due:
         lines.append(f"Ungraded past due ({len(past_due)}):")
-        details = [f"{r['title']}: “{r['name']}”"
-                   + (f" (was due {r['due_date']})" if r["due_date"] else "")
-                   + " is still ungraded" for r in past_due]
-        lines.extend(
-            f"  • {r['title']}: “{r['name']}”"
-            + (f" (was due {r['due_date']})" if r["due_date"] else "")
-            for r in past_due)
-        html_groups.append((f"Ungraded past due ({len(past_due)})", "Slipping", details))
+        for r in past_due:
+            when = f"(was due {r['due_date']})" if r["due_date"] else ""
+            lines.append(f"  • {compose(r['title'], when, r['name'])}")
+        html_groups.append((f"Ungraded past due ({len(past_due)})", "Slipping",
+                            [line(r["title"], r["name"], past_due_phrase(r["due_date"]))
+                             for r in past_due]))
 
     horizon = (today + timedelta(days=lookahead_days)).isoformat()
     upcoming = conn.execute(
@@ -93,8 +95,8 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
     ).fetchall()
     if upcoming:
         lines.append(f"Due in the next {lookahead_days} days ({len(upcoming)}):")
-        details = [f"{r['title']}: “{r['name']}” due {r['due_date']}" for r in upcoming]
-        lines.extend(f"  • {d}" for d in details)
+        details = [line(r["title"], r["name"], due_phrase(r["due_date"])) for r in upcoming]
+        lines.extend(f"  • {d['detail']}" for d in details)
         html_groups.append((f"Due in the next {lookahead_days} days ({len(upcoming)})",
                             "Coming up", details))
 
@@ -108,16 +110,18 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
         "AND created_at >= datetime('now', '-7 days') "
         "ORDER BY created_at DESC LIMIT 10", (student_id,)
     ).fetchall()
-    recent_details: list[str] = []
+    recent_details: list = []
     if recent:
         lines.append(f"Recent alerts this week ({len(recent)}):")
         for r in recent:
             try:
-                detail = json.loads(r["body"]).get("detail", "")
-            except Exception:
-                detail = r["body"]
-            lines.append(f"  • {detail}")
-            recent_details.append(detail)
+                parts = json.loads(r["body"])
+            except ValueError:
+                parts = {"detail": r["body"]}
+            if not isinstance(parts, dict):
+                parts = {"detail": r["body"]}
+            lines.append(f"  • {parts.get('detail', '')}")
+            recent_details.append(parts)
 
     return render.Message(
         "\n".join(lines),
@@ -126,7 +130,7 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
 
 
 def send_due(conn: sqlite3.Connection, *, lookahead_days: int = 7,
-             now: Optional[datetime] = None,
+             now: datetime | None = None,
              channel_factory=notify.channel) -> tuple[int, list[str]]:
     """Send every daily_summary subscription whose time has come today.
 

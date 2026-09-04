@@ -21,7 +21,6 @@ import random
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Optional
 
 from . import store
 from . import watchers as watchermod
@@ -82,9 +81,9 @@ class _Planned:
     points: float
     assigned: date
     due: date
-    graded_on: Optional[date] = None   # score appears this day
-    score: Optional[float] = None
-    missing_on: Optional[date] = None  # portal flags it missing this day
+    graded_on: date | None = None   # score appears this day
+    score: float | None = None
+    missing_on: date | None = None  # portal flags it missing this day
 
 
 def _quality(personality: str, progress: float, rng: random.Random) -> float:
@@ -188,7 +187,7 @@ def _snapshot_on(day: date, term: str, courses: list[tuple[Course, str]],
 
 
 def seed_demo(conn: sqlite3.Connection, *, seed: int = 2026,
-              today: Optional[date] = None) -> dict:
+              today: date | None = None) -> dict:
     """Populate an (empty, schema'd) connection with the demo season."""
     rng = random.Random(seed)
     today = today or date.today()

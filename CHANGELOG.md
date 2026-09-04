@@ -4,6 +4,50 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.2.4 — 2026-09-04
+
+Fixes from a code review of the whole package. Nothing changes in what
+you see day to day; several things change in what can go wrong.
+
+**A Canvas read that runs out of time can no longer touch the poll.**
+The Canvas step runs under a time limit so a stuck read can't hang a
+poll. Before, a read that hit the limit was abandoned but kept running
+in the background — and it was writing into the very gradebook snapshot
+the poll went on to save. Now the abandoned read holds nothing but its
+own Canvas data; the merge into the snapshot happens only when the read
+comes back in time, on the poll's own thread. The Canvas sign-in hop
+likewise gets its own connection instead of sharing the portal's.
+
+**The dashboard refuses settings changes that come from other sites.**
+Binding to 127.0.0.1 stops other machines, not your own browser: any web
+page you visit could quietly submit a form to the dashboard and add a
+stranger's address as a watcher on every student. Settings posts now
+have to come from the dashboard's own pages. Nothing changes for you.
+
+**The dashboard reads while the poll writes.** The database now uses
+write-ahead logging, so a page load during a poll no longer hits the
+"couldn't read its database just now" screen.
+
+**A lighter History page.** History used to render every change ever
+recorded into the page — 700 KB after one season. Each section now
+shows its newest 300 with a link to the full list.
+
+**The service log has timestamps.** `lastbell.log` lines from the poll
+now start with the date and time, so "couldn't reach the portal" can be
+placed.
+
+**Smaller fixes.** A typo in a numeric setting (`LASTBELL_POLL_MINUTES=soon`)
+is a one-line error, not a traceback. `lastbell setup` stores the SMTP
+password in the settings file on an install that keeps secrets there,
+and a keyring failure while storing it is a plain error. A portal error
+while looking for the Canvas link is reported as one, not as "no Canvas
+link". Alert lines are stored with their parts (course, assignment, what
+happened) so the HTML email lays them out without re-parsing the
+sentence; rows written by older versions still render. The dashboard
+module is now a package (queries, render, settings, server) and a linter
+runs in CI; the two `spike_*.py` shims at the repo root are gone —
+`lastbell preflight` and `lastbell canvas` are what they forwarded to.
+
 ## 0.2.3 — 2026-09-03
 
 **Canvas no longer invents classes.** Two kinds of Canvas course were

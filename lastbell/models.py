@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from enum import Enum
-from typing import Optional
 
 
 class AssignmentStatus(str, Enum):
@@ -53,7 +52,7 @@ URGENT_ALERT_TYPES = frozenset({
 })
 
 
-def parse_percent(raw: str) -> Optional[float]:
+def parse_percent(raw: str) -> float | None:
     """``"87.20%"`` -> ``87.2``; None when the text isn't a number."""
     try:
         return float(raw.strip().rstrip("%"))
@@ -61,7 +60,7 @@ def parse_percent(raw: str) -> Optional[float]:
         return None
 
 
-def format_percent(raw: str) -> Optional[str]:
+def format_percent(raw: str) -> str | None:
     """Display rule for course percents: always one decimal place ("93.0",
     "0.0", "51.1"). Applied at *display* time only — the stored value stays
     the portal's raw string, so the differ never sees a formatting change as
@@ -96,11 +95,11 @@ class Assignment:
     course_gu: str
     name: str
     kind: str = ""
-    assigned: Optional[date] = None
-    due_date: Optional[date] = None
-    graded_at: Optional[date] = None
-    score: Optional[float] = None
-    points: Optional[float] = None
+    assigned: date | None = None
+    due_date: date | None = None
+    graded_at: date | None = None
+    score: float | None = None
+    points: float | None = None
     status: AssignmentStatus = AssignmentStatus.DUE
     source: str = SOURCE_PARENTVUE
     # A Canvas row whose gradebook twin exists names it here (the twin's

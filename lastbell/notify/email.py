@@ -50,7 +50,7 @@ class SmtpTransport:
     sender: str
 
     @classmethod
-    def from_env(cls) -> "SmtpTransport":
+    def from_env(cls) -> SmtpTransport:
         from .. import secrets as secretstore
 
         return cls(
@@ -78,7 +78,7 @@ class EmailNotifier:
     recipient: str
 
     @classmethod
-    def from_env(cls) -> "EmailNotifier":
+    def from_env(cls) -> EmailNotifier:
         return cls(transport=SmtpTransport.from_env(),
                    recipient=_need("LASTBELL_SMTP_TO"))
 
@@ -94,7 +94,7 @@ class EmailChannel:
     transport: SmtpTransport
 
     @classmethod
-    def from_env(cls) -> "EmailChannel":
+    def from_env(cls) -> EmailChannel:
         return cls(transport=SmtpTransport.from_env())
 
     def send(self, to: dict, subject: str, body: str) -> None:
