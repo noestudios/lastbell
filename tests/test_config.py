@@ -78,3 +78,12 @@ def test_placeholder_username_rejected(monkeypatch):
     monkeypatch.setenv("LASTBELL_USERNAME", "your_parentvue_username")
     with pytest.raises(cfg.ConfigError, match="placeholder"):
         cfg.load()
+
+
+def test_heartbeat_url_is_optional_and_trimmed(monkeypatch):
+    monkeypatch.setenv("LASTBELL_DISTRICT", "x.example")
+    monkeypatch.setenv("LASTBELL_USERNAME", "someone")
+    monkeypatch.delenv("LASTBELL_HEARTBEAT_URL", raising=False)
+    assert cfg.load().heartbeat_url == ""
+    monkeypatch.setenv("LASTBELL_HEARTBEAT_URL", " https://hc-ping.com/abc ")
+    assert cfg.load().heartbeat_url == "https://hc-ping.com/abc"

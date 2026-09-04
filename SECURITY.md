@@ -40,3 +40,12 @@ machine running Last Bell.
 The latest release on PyPI. Fixes ship as a new release, noted in
 [CHANGELOG.md](CHANGELOG.md) with enough detail to judge whether you
 were affected.
+
+## Provenance
+
+Every release is built and published by this repository's tagged
+`release.yml` workflow through PyPI trusted publishing, with a
+[PEP 740 attestation](https://docs.pypi.org/attestations/) on each file.
+PyPI shows the provenance on the release's file list; `pypi-attestations
+verify pypi` checks it locally. A file on PyPI that this repository's
+workflow didn't build would fail that check.

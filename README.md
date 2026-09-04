@@ -1,5 +1,10 @@
 # Last Bell
 
+[![PyPI](https://img.shields.io/pypi/v/lastbell)](https://pypi.org/project/lastbell/)
+[![Python](https://img.shields.io/pypi/pyversions/lastbell)](https://pypi.org/project/lastbell/)
+[![tests](https://github.com/noestudios/lastbell/actions/workflows/ci.yml/badge.svg)](https://github.com/noestudios/lastbell/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 **Find out about the missing assignment the day the teacher flags it, not
 the night before report cards.**
 
@@ -37,6 +42,9 @@ to receive it.
 
 *Every screenshot is from `lastbell seed-demo`, a fabricated family at
 end-of-quarter volume, no real students. [More screenshots below.](#a-tour-of-the-dashboard)*
+
+**[Click through the demo](https://noestudios.github.io/lastbell/)**: the
+same fabricated family as a site, nothing to install.
 
 ---
 
@@ -88,11 +96,15 @@ keeps the course grades and the finals. No second password is involved.
 ### Does it work outside MCPS?
 
 Probably, if your district runs the Synergy PXP2 web portal. One command
-gives you a go/no-go, without installing anything else:
+gives you a go/no-go without installing anything: pipx fetches Last Bell,
+runs the check, and keeps nothing.
 
 ```bash
-lastbell preflight --district your-host.example --username you --report
+pipx run lastbell preflight --district your-host.example --username you --report
 ```
+
+Leave off `--username` for an anonymous check that sends no credentials
+anywhere.
 
 It prints a verdict and a redacted report you can paste into a district-report
 issue so the parsers can be taught your district.
@@ -147,6 +159,13 @@ can't lock the account. If the portal changes shape, `lastbell preflight`
 tells you which parser stopped understanding what, in a redacted report
 you can file as an issue. If Canvas is unreachable, the gradebook still
 gets checked.
+
+If the whole machine stops, because the Pi lost power or the SD card died,
+nothing can email you from a box that is off. For that there is a
+heartbeat: point `LASTBELL_HEARTBEAT_URL` at a free
+[healthchecks.io](https://healthchecks.io) check or an Uptime Kuma push
+monitor, and Last Bell fetches it after every successful poll. That
+service raises the alarm when the pings stop.
 
 When you want to see for yourself, `lastbell status` puts it on one
 screen: which version is running and whether a newer one is installed but
@@ -387,6 +406,15 @@ Subjects count by kind: `[Last Bell] J.P.H.: 1 missing, 2 due soon`. Push
 channels get the same grouping as text. `lastbell watcher test NAME --sample`
 sends a realistic sample with made-up courses.
 
+<p>
+<img src="assets/screenshots/email-digest.png" width="49%" alt="A digest email: updates grouped by Needs attention, Coming up, Grades posted, per student">
+<img src="assets/screenshots/email-summary.png" width="49%" alt="A daily summary email: overall marks, then what is due">
+</p>
+<p><img src="assets/screenshots/email-failure.png" width="49%" alt="The watcher-health notice: can't check the gradebook, and what to do"></p>
+
+*Left to right: an afternoon digest, a morning summary, and the one message
+guardians get when checking stops.*
+
 | Channel    | Where it goes                                   | Setup                                        |
 |------------|-------------------------------------------------|----------------------------------------------|
 | `email`    | any inbox                                       | `LASTBELL_SMTP_*`: any email account you own; `lastbell setup` asks |
@@ -496,7 +524,9 @@ the codebase is the portal client ([`client.py`](https://github.com/noestudios/l
 district preflight ([`preflight.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/preflight.py)), the alert
 channels **you** configure ([`notify/`](https://github.com/noestudios/lastbell/blob/main/lastbell/notify)), and one
 public PyPI page fetched only when you click **Check for
-updates** in the dashboard's footer ([`updates.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/updates.py)).
+updates** in the dashboard's footer ([`updates.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/updates.py)),
+plus the heartbeat URL, if you set one, fetched after each successful poll
+([`health.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/health.py)).
 
 **What leaves is only what you route, and it's low-PII by design.** Alert
 payloads carry initials + course + assignment, never a child's full name
@@ -516,6 +546,44 @@ the link the dashboard prints; a public bind address is refused outright
 The dashboard is stdlib-only, and every page is a read; the only writes are
 the watcher/subscription forms on /settings, household bookkeeping rather
 than grade data.
+
+### Threat model, in half a page
+
+Who Last Bell is built to hold out, what each would get, and where the
+line is.
+
+- **Someone on the internet.** Nothing to reach. Last Bell only makes
+  outbound requests, and the dashboard binds to loopback; a public bind
+  address is refused unless you set `LASTBELL_DASHBOARD_PUBLIC=1`, and
+  even then the network key gates every page.
+- **Another device on your home network.** Without the key cookie, the
+  dashboard answers nothing. With it (set once from a link only the
+  machine's owner can print), it reads the dashboard. Alerts travel
+  through your own mail account or the push service you chose, so a device
+  that can read them already has your mail.
+- **A web page open in your browser.** It can't read the dashboard (the
+  Host allow-list defeats DNS rebinding) and can't change settings (the
+  origin check refuses cross-site posts; reflected values are escaped).
+- **Someone holding your backup file.** Names and grades, no password:
+  `lastbell backup` leaves every secret out. Keep the file private anyway.
+- **Someone with your user account on that machine.** Everything: the
+  database, the settings file, and on the env backend the password in it.
+  This is where the line is drawn, and it is why the wizard says so out
+  loud before writing a password to disk. Root is the same, as it is for
+  every program.
+- **The district and the vendor.** One parent's normal traffic from your
+  address, with an honest User-Agent, never more often than every 15
+  minutes.
+- **The services you route alerts through.** Whatever you send: initials,
+  a course, an assignment. Never a name, never a credential.
+- **PyPI and GitHub.** Each release is built by the workflow in this
+  repository and published through trusted publishing with a
+  [PEP 740 attestation](https://docs.pypi.org/attestations/), so what
+  `pipx` installs is what the tag built. The only phone-home is the update
+  check you click and the heartbeat you configure.
+
+Anything that crosses one of these lines is a security bug:
+[SECURITY.md](SECURITY.md).
 
 ### Configuration & secrets
 
@@ -684,6 +752,14 @@ digests, quiet hours and daily summaries, the dashboard, the Canvas layer,
 and the redacted district preflight. Releases are on
 [PyPI](https://pypi.org/project/lastbell/); what changed in each is in
 [CHANGELOG.md](https://github.com/noestudios/lastbell/blob/main/CHANGELOG.md).
+
+## Contributing
+
+District reports, bug reports with `lastbell status` pasted in, and
+questions in [Discussions](https://github.com/noestudios/lastbell/discussions)
+are the most useful things to send. [CONTRIBUTING.md](CONTRIBUTING.md) has
+the ground rules for code. Anything touching a credential or a student's
+data goes through [SECURITY.md](SECURITY.md).
 
 ## Credits
 

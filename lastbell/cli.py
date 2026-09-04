@@ -417,11 +417,16 @@ def _poll_failed(conn, notifier, conf, exc: BaseException) -> int:
     return delay
 
 
-def _poll_succeeded(conn, notifier) -> None:
-    """Clear the failure record; if guardians had been told, send the all-clear."""
+def _poll_succeeded(conn, notifier, conf=None) -> None:
+    """Clear the failure record; if guardians had been told, send the
+    all-clear; ping the heartbeat URL, if one is set."""
     from . import health
 
     cleared = health.record_success(conn)
+    if conf is not None and conf.heartbeat_url:
+        problem = health.heartbeat(conf.heartbeat_url)
+        if problem:
+            log.warning(problem)
     if cleared.failing:
         log.info(f"checking again after {cleared.failures} failed poll(s)")
     if cleared.notified:
@@ -473,7 +478,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                         raise
                     delay = _poll_failed(conn, notifier, conf, e)
                 else:
-                    _poll_succeeded(conn, notifier)
+                    _poll_succeeded(conn, notifier, conf)
                 next_poll = time.time() + delay * 60
                 if args.loop:
                     log.info(f"next portal poll in {delay} min "

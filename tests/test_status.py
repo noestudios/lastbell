@@ -190,6 +190,13 @@ def test_report_keyring_backend_names_it_without_reading(world, monkeypatch):
     assert "Password: the OS keyring (macOS Keychain)" in text
 
 
+def test_report_names_the_heartbeat_host_only(world, monkeypatch):
+    monkeypatch.setenv("LASTBELL_HEARTBEAT_URL", "https://hc-ping.com/secret-uuid")
+    text = "\n".join(status.report(NOW))
+    assert "Heartbeat: hc-ping.com (pinged after every successful check)" in text
+    assert "secret-uuid" not in text
+
+
 def test_report_env_backend_without_a_password_says_so(world, monkeypatch):
     monkeypatch.delenv("LASTBELL_PASSWORD")
     (world["home"] / "env").write_text("LASTBELL_USERNAME=p\n")

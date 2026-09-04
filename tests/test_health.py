@@ -33,6 +33,7 @@ class Notifier:
 
 class Conf:
     poll_minutes = 180
+    heartbeat_url = ""
 
 
 # ── the record ────────────────────────────────────────────────────────
@@ -94,6 +95,61 @@ def test_messages_are_low_pii_and_say_what_to_do(conn):
         assert word not in body
     subject, body = health.recovery_message(s)
     assert "checking again" in subject and "2 tries" in body
+
+
+def test_notices_carry_an_html_twin(conn):
+    s = health.record_failure(conn, "portal", "x")
+    subject, body = health.failure_message(s, host="pi")
+    assert body.html.startswith("<!doctype html>")
+    assert "check the gradebook" in body.html and "pi" in body.html
+    assert "<" not in str(body)                          # the text stays plain
+    _, body = health.recovery_message(s)
+    assert "Checking again" in body.html and "checking the gradebook again" in str(body)
+
+
+def test_heartbeat_pings_once_and_never_raises(monkeypatch):
+    seen = []
+
+    class Resp:
+        def __init__(self, code):
+            self.code = code
+
+        def raise_for_status(self):
+            if self.code >= 400:
+                raise requests.HTTPError(str(self.code))
+
+    def fake_get(url, timeout, headers):
+        seen.append((url, headers["User-Agent"]))
+        if "down" in url:
+            raise requests.ConnectionError("no route")
+        return Resp(500 if "broken" in url else 200)
+    monkeypatch.setattr(requests, "get", fake_get)
+    assert health.heartbeat("https://hc-ping.com/abc") is None
+    from lastbell import __version__
+    assert seen == [("https://hc-ping.com/abc", f"lastbell/{__version__}")]
+    warn = health.heartbeat("https://down.example/abc")
+    assert warn.startswith("heartbeat: couldn't reach down.example (ConnectionError)")
+    assert "abc" not in warn                             # the URL is a secret; host only
+    assert "HTTPError" in health.heartbeat("https://broken.example/x")
+    assert "isn't an http(s) URL" in health.heartbeat("ftp://x")
+    assert len(seen) == 3
+
+
+def test_poll_succeeded_pings_the_heartbeat(conn, monkeypatch):
+    pinged = []
+    monkeypatch.setattr(health, "heartbeat", lambda url: pinged.append(url) or None)
+
+    class C(Conf):
+        heartbeat_url = "https://hc-ping.com/abc"
+    cli._poll_succeeded(conn, Notifier(), C())
+    assert pinged == ["https://hc-ping.com/abc"]
+    cli._poll_succeeded(conn, Notifier(), Conf())        # no URL: nothing pinged
+    assert pinged == ["https://hc-ping.com/abc"]
+    monkeypatch.setattr(health, "heartbeat", lambda url: "heartbeat: couldn't reach x (Boom)")
+    warned = []
+    monkeypatch.setattr(cli.log, "warning", warned.append)
+    cli._poll_succeeded(conn, Notifier(), C())
+    assert warned == ["heartbeat: couldn't reach x (Boom)"]
 
 
 def test_deliver_reaches_every_guardian_channel_not_students(conn, monkeypatch):

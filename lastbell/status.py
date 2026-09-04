@@ -326,6 +326,11 @@ def report(now: datetime | None = None) -> list[str]:
         lines.append(f"Password: {_password_line(conf, env_file)}")
         lines.append(f"Checks every {conf.poll_minutes} min; alerts: {_alerts_line(conf)}")
         lines.append(f"Canvas: {_canvas_line(conf)}")
+        if conf.heartbeat_url:
+            from urllib.parse import urlparse
+
+            lines.append(f"Heartbeat: {urlparse(conf.heartbeat_url).netloc or 'set'} "
+                         "(pinged after every successful check)")
         lines.append("")
 
     for i, line in enumerate(service_state(plat)):
