@@ -1,0 +1,47 @@
+name: demo site
+
+# The static demo at https://noestudios.github.io/lastbell/ — the dashboard
+# rendered from `lastbell seed-demo` data by scripts/build_demo_site.py.
+# Rebuilt whenever the dashboard or the seed changes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lastbell/**"
+      - "scripts/build_demo_site.py"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install .
+      - run: python scripts/build_demo_site.py --out _site --base /lastbell
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

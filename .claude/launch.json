@@ -46,6 +46,18 @@
         "data/canvas-preview.db"
       ],
       "port": 8330
+    },
+    {
+      "name": "demo-site",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8331",
+        "-d",
+        "_site"
+      ],
+      "port": 8331
     }
   ]
 }

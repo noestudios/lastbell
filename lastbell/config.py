@@ -87,6 +87,10 @@ class Config:
     canvas_host: str = ""
     canvas_skip: tuple = ()     # course-name fragments never given their own row
     dashboard_hostnames: tuple = ()
+    # A dead-man's switch: fetched once after every successful poll and
+    # never otherwise, so a service that quietly stops is noticed by the
+    # monitor that stops hearing from it (healthchecks.io, Uptime Kuma …).
+    heartbeat_url: str = ""
 
     @property
     def base_url(self) -> str:
@@ -134,4 +138,5 @@ def load() -> Config:
         dashboard_hostnames=tuple(
             h.strip() for h in (_get("LASTBELL_DASHBOARD_HOSTNAMES", "") or "").split(",")
             if h.strip()),
+        heartbeat_url=(_get("LASTBELL_HEARTBEAT_URL", "") or "").strip(),
     )

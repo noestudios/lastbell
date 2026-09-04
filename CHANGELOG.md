@@ -4,6 +4,33 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.2.9 — 2026-09-04
+
+**A heartbeat, a demo you can click, and the rest of the public-repo
+list.**
+
+- **Heartbeat URL.** A stopped machine can't email anyone. Set
+  `LASTBELL_HEARTBEAT_URL` to a healthchecks.io check or an Uptime Kuma
+  push monitor and Last Bell fetches it once after every successful poll,
+  never otherwise; that service raises the alarm when the pings stop. A
+  ping that fails is one warning in the log, never a failed poll. It is
+  off unless set, listed in the README's outbound-HTTP inventory, and
+  `lastbell status` names the host it pings (never the URL, which is a
+  secret).
+- **The watcher-health notices wear the email frame.** "Can't check the
+  gradebook" and "Checking again" now carry the same HTML twin the alerts
+  and summaries do, with commands as code; the plain text every other
+  channel gets is unchanged.
+- **A static demo.** `scripts/build_demo_site.py` renders every dashboard
+  page from `seed-demo` data, and a workflow publishes it to
+  https://noestudios.github.io/lastbell/ whenever the dashboard changes.
+- **README.** Badges; a link to the demo; the district question now leads
+  with `pipx run lastbell preflight …`, which installs nothing; screenshots
+  of the three emails (digest, daily summary, the health notice), made by
+  `scripts/render_emails.py`; a half-page threat model; a Contributing
+  section. SECURITY.md documents the PEP 740 attestations each release
+  carries, and CONTRIBUTING.md is new.
+
 ## 0.2.8 — 2026-09-04
 
 **Three commands for the second week: `status`, `upgrade`, `backup`.**

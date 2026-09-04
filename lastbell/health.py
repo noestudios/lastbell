@@ -151,6 +151,25 @@ def _local(utc: str | None) -> str:
     return dt.strftime("%a %b ") + str(dt.day) + dt.strftime(", %I:%M %p").replace(" 0", " ")
 
 
+def _notice(heading: str, paragraphs: list):
+    """Plain text every channel carries, plus the same HTML frame the alert
+    emails wear, so a watcher-health notice looks like it came from the
+    same sender (because it did)."""
+    from html import escape
+
+    from .notify import render
+
+    import re
+
+    text = "\n\n".join(paragraphs)
+    # `a command` in the text becomes a code span in the HTML twin.
+    html = "".join(f"<p style=\"margin:12px 0;font-size:14px;line-height:20px;"
+                   f"color:{render._INK}\">"
+                   + re.sub(r"`([^`]+)`", r"<code>\1</code>", escape(p)) + "</p>"
+                   for p in paragraphs)
+    return render.Message(text, render._document(heading, html))
+
+
 def failure_message(state: Health, host: str | None = None) -> tuple[str, str]:
     """(subject, body) for the one message guardians get. Low-PII by
     construction: no student, no course, no credential — only what is wrong
@@ -158,19 +177,45 @@ def failure_message(state: Health, host: str | None = None) -> tuple[str, str]:
     host = host or socket.gethostname()
     why = EXPLAIN.get(state.kind, EXPLAIN["other"]).format(host=host)
     n = state.failures
-    body = (f"Last Bell hasn't been able to check the gradebook since "
-            f"{_local(state.since)} ({n} {'try' if n == 1 else 'tries'}): "
-            f"{why}\n\nNo alerts are coming from ParentVUE or Canvas until "
-            f"this is fixed. You'll get one more message when checking resumes.")
+    body = _notice("Can't check the gradebook", [
+        f"Last Bell hasn't been able to check the gradebook since "
+        f"{_local(state.since)} ({n} {'try' if n == 1 else 'tries'}): {why}",
+        "No alerts are coming from ParentVUE or Canvas until this is fixed. "
+        "You'll get one more message when checking resumes."])
     return "[Last Bell] can't check the gradebook — action needed", body
 
 
 def recovery_message(cleared: Health) -> tuple[str, str]:
-    body = (f"Last Bell is checking the gradebook again. It had been failing "
-            f"since {_local(cleared.since)} ({cleared.failures} tries); alerts "
-            f"resume from here, and anything that changed in between shows up "
-            f"in the next digest.")
+    body = _notice("Checking again", [
+        f"Last Bell is checking the gradebook again. It had been failing "
+        f"since {_local(cleared.since)} ({cleared.failures} tries); alerts "
+        f"resume from here, and anything that changed in between shows up "
+        f"in the next digest."])
     return "[Last Bell] checking again", body
+
+
+def heartbeat(url: str, timeout: float = 10.0) -> str | None:
+    """Fetch the heartbeat URL once. The URL is the whole message: a monitor
+    such as healthchecks.io or Uptime Kuma raises the alarm when the pings
+    stop, which is exactly the failure a stopped service can't report for
+    itself. Returns a one-line warning when the ping didn't land, else
+    None; never raises — a poll that succeeded has succeeded."""
+    from urllib.parse import urlparse
+
+    from . import __version__
+
+    where = urlparse(url).netloc or url
+    if urlparse(url).scheme not in ("http", "https"):
+        return "heartbeat: LASTBELL_HEARTBEAT_URL isn't an http(s) URL; not pinged"
+    try:
+        import requests
+
+        response = requests.get(url, timeout=timeout,
+                                headers={"User-Agent": f"lastbell/{__version__}"})
+        response.raise_for_status()
+    except Exception as exc:
+        return f"heartbeat: couldn't reach {where} ({exc.__class__.__name__}); the poll itself succeeded"
+    return None
 
 
 def deliver(conn: sqlite3.Connection, notifier, subject: str, body: str) -> tuple[int, list[str]]:
