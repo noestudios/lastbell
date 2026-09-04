@@ -4,7 +4,45 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
-## 0.2.7 — 2026-09-04
+## 0.2.8 — 2026-09-04
+
+**Three commands for the second week: `status`, `upgrade`, `backup`.**
+Once it runs, the questions change from "how do I set it up" to "is it
+still working", "how do I update it", and "what if the SD card dies".
+Each now has a one-word answer.
+
+- **`lastbell status`** puts the install on one screen: the version
+  running and, if different, the version installed but not yet restarted;
+  the platform and whether the clock is on UTC; the settings file and
+  where the password lives (the keyring by name, or the owner-only
+  settings file — never the password); the poll interval, alert channel,
+  and Canvas mode; whether the service is installed and running (both
+  user units on Linux, the launchd agent on macOS); whether the dashboard
+  is listening and whether its network key exists; the log's size and
+  age; the last successful check, whether checking is failing and since
+  when, and when the next check is due (or that it is overdue, which is
+  how a stopped service looks); students as initials; every watcher with
+  their channels and who they are subscribed to; alerts sent and queued.
+  Home directories print as `~`, so the whole thing can be pasted into an
+  issue. It creates nothing, reads no secret, and touches no network.
+- **`lastbell upgrade`** runs `pipx upgrade lastbell` and then restarts
+  the poller and, where one is set up, the dashboard — the step people
+  forgot often enough to earn a footer badge in 0.2.5. It reports the
+  version before and after and what it restarted. `--no-restart` upgrades
+  the files only; `--restart-only` skips pipx. Without pipx on PATH it
+  says how to upgrade a venv or checkout instead.
+- **`lastbell backup [path]`** writes one owner-only zip: the database
+  copied through SQLite's backup API (a copy taken mid-poll is still
+  whole, and the write-ahead log is folded in, which a plain `cp` can
+  miss) and the settings file with every secret left out — passwords,
+  channel tokens, the dashboard key — each replaced by a line saying so.
+  A README inside says what it holds and how to restore it.
+- **`lastbell restore <file>`** checks the archive, refuses to replace an
+  existing database unless `--force` (and then keeps the old one beside
+  it as `.before-restore`, with its log folded in first), merges the
+  settings without touching the secrets already on the machine, and
+  reminds you to store the password again.
+
 
 **It no longer fails silently, it can forget you, and three audits'
 findings are fixed.** A read of the credential path in 0.2.6 left six

@@ -148,6 +148,14 @@ tells you which parser stopped understanding what, in a redacted report
 you can file as an issue. If Canvas is unreachable, the gradebook still
 gets checked.
 
+When you want to see for yourself, `lastbell status` puts it on one
+screen: which version is running and whether a newer one is installed but
+not yet restarted, whether the service is running, when the last
+successful check was and when the next is due, who is subscribed to whom,
+and where the password lives (never the password itself). Students appear
+as initials and home directories as `~`, so the output can go straight
+into an issue.
+
 ### How do I remove it?
 
 ```bash
@@ -211,15 +219,33 @@ box's clock is on UTC: digests and quiet hours follow the local clock.
 when a newer release exists. Then, on the machine running it:
 
 ```bash
-pipx upgrade lastbell
+lastbell upgrade
 ```
 
-and restart **both** long-running copies so they pick up the new code. The
-poller and the dashboard each keep the old version in memory until restarted.
-On Linux: `systemctl --user restart lastbell` (plus `lastbell-dashboard` if you
-set that up); on macOS run `lastbell install-service` again, which reloads the
-agent, and restart the dashboard if one is running. The dashboard footer flags
-"installed — restart to use it" until its own process has been restarted.
+That runs `pipx upgrade lastbell` and then restarts **both** long-running
+copies, the poller and the dashboard, which each keep the old version in
+memory until restarted. On Linux that is the two user units; on macOS the
+launchd agent, with a reminder about the dashboard. By hand, the same thing
+is `pipx upgrade lastbell`, then `systemctl --user restart lastbell` (plus
+`lastbell-dashboard` if you set that up) on Linux, or `lastbell
+install-service` again on macOS. The dashboard footer flags "installed —
+restart to use it" until its own process has been restarted.
+
+**Backing up.** One command, one file:
+
+```bash
+lastbell backup
+```
+
+The zip holds the database, copied through SQLite's own backup API so a copy
+taken mid-poll is still whole, and the settings file with every secret left
+out: the portal and SMTP passwords, channel tokens, the dashboard key. It is
+written owner-only and still holds names and grades, so keep it somewhere
+private. `lastbell restore <file>` brings it back on a fresh install. It
+refuses to replace an existing database unless told `--force` (and then keeps
+the old one beside it), merges settings without touching the secrets already
+there, and reminds you to store the password again with `lastbell setup` or
+`lastbell set-password`.
 
 <details>
 <summary>Running from a source checkout instead</summary>

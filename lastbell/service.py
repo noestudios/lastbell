@@ -32,6 +32,9 @@ from . import paths
 
 LABEL = "com.noestudios.lastbell"
 UNIT = "lastbell.service"
+# A dashboard kept running as its own user unit (the README shows how) —
+# not installed by us, but restarted by `lastbell upgrade` when it exists.
+DASHBOARD_UNIT = "lastbell-dashboard.service"
 TASK_NAME = "Last Bell"
 
 Say = Callable[[str], None]
