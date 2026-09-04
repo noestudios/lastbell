@@ -5,21 +5,21 @@ the night before report cards.**
 
 Last Bell watches your own students' ParentVUE gradebook and their Canvas
 coursework from a computer you control, and tells the people who should
-know — guardians, and the students themselves — by email or push, in a
+know, guardians and the students themselves, by email or push, in a
 message safe enough for a lock screen. It runs on a Raspberry Pi, a NAS, or
 the laptop that never sleeps. Free, open source, no account, no company in
-the middle: your credentials and your kids' data never leave your house.
+the middle: your credentials and your kids' data stay on a computer you own.
 
 > Not affiliated with Edupoint (ParentVUE / Synergy) or Instructure (Canvas).
-> Built and verified against Montgomery County Public Schools (MCPS); works
-> anywhere the Synergy PXP2 web portal runs — [check your district](#does-it-work-outside-mcps).
+> Built and verified against Montgomery County Public Schools (MCPS). It should
+> work anywhere the Synergy PXP2 web portal runs ([check your district](#does-it-work-outside-mcps)).
 
 **What it tells you**
 
 - **Missing work** the moment Canvas or the gradebook says so.
-- **Due soon** — what's coming in the next 7 days, before it's late.
+- **Due soon**, everything due in the next 7 days, before it's late.
 - **Grades posted** and **grade drops** past a threshold you set.
-- **Still ungraded** past the due date — the quiet kind of missing.
+- **Still ungraded** past the due date, the quiet kind of missing.
 - **Finals** when a marking period closes, once, then a clean start.
 
 Delivered per person: Mom gets everything in a 4pm digest with the urgent
@@ -35,7 +35,7 @@ to receive it.
 <img src="assets/screenshots/mobile-alerts.png" width="40%" alt="Alerts on a phone">
 </p>
 
-*Every screenshot is from `lastbell seed-demo` — a fabricated family at
+*Every screenshot is from `lastbell seed-demo`, a fabricated family at
 end-of-quarter volume, no real students. [More screenshots below.](#a-tour-of-the-dashboard)*
 
 ---
@@ -53,7 +53,7 @@ into a terminal. That's the whole bar; the setup wizard does the rest.
 
 Into your operating system's keyring (macOS Keychain, Windows Credential
 Manager, Linux Secret Service) and, at poll time, to your district's own
-login form over HTTPS — the same request your browser makes. It is never
+login form over HTTPS, the same request your browser makes. It is never
 written to a settings file, the database, a log, or anywhere on the
 internet. The one exception is an always-on box with no usable keyring, like
 a headless Pi: there the wizard offers to keep it in an owner-only file,
@@ -66,7 +66,7 @@ Nowhere. Snapshots, history, and alerts live in a SQLite file on the machine
 running Last Bell. There is no telemetry, no analytics, no phone-home. The
 only outbound traffic in the codebase is to your district's portal and
 Canvas, to the alert channels you configure, and to one public PyPI page
-when — and only when — you click **Check for updates**.
+only when you click **Check for updates**.
 
 What leaves is what you route, and it's deliberately low-PII: alert
 messages carry initials, course, and assignment, never a child's full name.
@@ -92,7 +92,7 @@ Instructure's acceptable use policy.
 
 It is — but it's the *trailing* one. Teachers post assignments and set the
 "missing" flag in Canvas (myMCPS Classroom at MCPS). The Synergy gradebook
-only sees any of it when the teacher syncs, often days later and never
+only sees any of it when the teacher syncs, often days later and rarely
 before an item is graded. So the two things a parent acts on, **Needs
 attention** and **Due soon**, come from Canvas first; ParentVUE keeps the
 course grades and the finals. There is no second password: the poll follows
@@ -102,15 +102,15 @@ hold. [How the two are merged.](#canvas-the-leading-source)
 ### Does it work outside MCPS?
 
 Probably, if your district runs the Synergy PXP2 web portal. One command
-answers definitively, without installing anything else:
+gives you a go/no-go, without installing anything else:
 
 ```bash
 lastbell preflight --district your-host.example --username you --report
 ```
 
 It checks login, the data path, and whether the parsers understand your
-district's pages, then prints a report that is redacted by construction —
-no names, grades, or usernames — ready to paste into a [district
+district's pages, then prints a report that is redacted by construction
+(no names, grades, or usernames), ready to paste into a [district
 report](https://github.com/noestudios/lastbell/blob/main/.github/ISSUE_TEMPLATE/district-report.md)
 so the parsers can be taught your district. [What preflight checks.](#the-district-preflight)
 
@@ -133,7 +133,7 @@ everywhere; `ntfy` is free push if you want it on a lock screen.
 
 ### Can my kid get the alerts too?
 
-Yes, and that's the design. Students are watchers like anyone else, and
+Yes. Students are watchers like anyone else, and
 subscriptions are filtered by alert type, so a student typically gets
 missing-work and deadline nudges and no grades. The people being watched
 are on the watcher list.
@@ -148,13 +148,13 @@ are on the watcher list.
 
 ### What does it cost?
 
-Nothing. MIT licensed. Email rides your own account; `ntfy` is free; Telegram
-and Pushover are optional.
+It costs nothing and is MIT licensed. Email rides your own account; `ntfy` is
+free; Telegram and Pushover are optional.
 
 ### What happens when it breaks?
 
-A failed poll logs once and waits for the next cycle — no retry storms, no
-alerts about nothing. If the portal changes shape, `lastbell preflight`
+A failed poll logs once and waits for the next cycle, with no retry storms
+and no alerts about nothing. If the portal changes shape, `lastbell preflight`
 tells you which parser stopped understanding what, in a redacted report you
 can file as an issue. If Canvas is unreachable, the poll logs a warning and
 checks the gradebook as before.
@@ -186,7 +186,7 @@ password straight into the OS keyring, verifies login + data path + parsers
 with the preflight, walks you through one notification channel (email; ntfy
 push for the terminal-minded) ending in a live test message, offers to run
 the first collection, and offers to install itself as a background service
-so the third command above becomes optional. Re-run it any time — it
+so the third command above becomes optional. Re-run it any time. It
 remembers your answers. Settings land in your user config dir, data in your
 user data dir (both printed at the end).
 
@@ -203,7 +203,7 @@ starts at login and restarts if it stops; Windows is shown the Task Scheduler
 command to paste. `--print` shows exactly what would be written and run
 without touching anything, `--uninstall` reverses it. On a Pi that boots
 without a desktop session, say **yes** when `lastbell setup` asks whether Last
-Bell will run as a background service — that moves the password from the
+Bell will run as a background service. That moves the password from the
 keyring (which a boot-time service can't unlock) into the owner-only settings
 file, and the wizard says so before doing it. The installer also warns if the
 box's clock is on UTC: digests and quiet hours follow the local clock.
@@ -215,7 +215,7 @@ when a newer release exists. Then, on the machine running it:
 pipx upgrade lastbell
 ```
 
-and restart **both** long-running copies so they pick up the new code — the
+and restart **both** long-running copies so they pick up the new code. The
 poller and the dashboard each keep the old version in memory until restarted.
 On Linux: `systemctl --user restart lastbell` (plus `lastbell-dashboard` if you
 set that up); on macOS run `lastbell install-service` again, which reloads the
@@ -259,53 +259,53 @@ newer release exists.
 
 You start with one watcher automatically: the first run creates a guardian
 named after the credential holder, subscribed to every student, on the
-considerate default — one daily digest at 4pm, with urgent alert types
+considerate default of one daily digest at 4pm, with urgent alert types
 (missing assignment, upcoming deadline, grade drop) sent immediately. Rename
 or remove it freely.
 
 Want to see it populated before pointing it at your own kids? `lastbell
 seed-demo` fabricates a fake family at end-of-quarter volume (two marking
-periods, hundreds of assignments, months of history — no real student data)
+periods, hundreds of assignments, months of history, no real student data)
 and `lastbell dashboard --db <path it prints>` serves it.
 
 ### A tour of the dashboard
 
-**The four tracking cards** — a student's page is a set of views, and the
+**The four tracking cards.** A student's page is a set of views, and the
 cards are both the summary and the switch:
 
 ![The four tracking cards: Needs attention, Due soon, Recent grades, Everything](assets/screenshots/stat-cards.png)
 
-- **Needs attention** — work the teacher marked missing, plus anything
+- **Needs attention.** Work the teacher marked missing, plus anything
   past due with no grade posted. The count, this week's change, and a
   six-week trend line, so a bad week and a slow slide look different.
-- **Due soon** — what's coming in the next 7 days (`LASTBELL_LOOKAHEAD_DAYS`),
+- **Due soon.** What's coming in the next 7 days (`LASTBELL_LOOKAHEAD_DAYS`),
   with the next two named right on the card.
-- **Recent grades** — the average of the last ten scores, shown as bars
+- **Recent grades.** The average of the last ten scores, shown as bars
   against the term average: the fastest read on how things are going
   *right now*, before it moves the course grade.
-- **Everything** — the term average across all courses and its trend, and
+- **Everything.** The term average across all courses and its trend, and
   the door into the full archive: every class, every assignment, closed
   terms folded to their finals.
 
 <details>
 <summary>More screens: student page, Needs attention, Alerts, History, Settings</summary>
 
-**A student's page** — the All Courses strip collapsed (the default; the
+**A student's page.** The All Courses strip collapsed (the default; the
 cards are the front door) and expanded (grade, two-week movement, open
-items, last graded — each course name filters the view below to that class):
+items, last graded). Each course name filters the view below to that class:
 
 <p>
 <img src="assets/screenshots/student-collapsed.png" width="49%" alt="Student page with the All Courses strip collapsed">
 <img src="assets/screenshots/student-expanded.png" width="49%" alt="Student page with the All Courses strip expanded">
 </p>
 
-**Needs attention** — the default view: missing work first, then ungraded
+**Needs attention.** The default view: missing work first, then ungraded
 past-due, each row tinted and iconed so the list scans by color before
 it's read.
 
 ![Needs attention panel: missing and ungraded-past-due assignments](assets/screenshots/needs-attention-panel.png)
 
-**Alerts and history** — Alerts is everything a watcher was told about,
+**Alerts and history.** Alerts is everything a watcher was told about,
 grouped by type and paged; History is every grade and status change ever
 seen, filterable by class and by kind of change.
 
@@ -314,7 +314,7 @@ seen, filterable by class and by kind of change.
 <img src="assets/screenshots/history.png" width="49%" alt="Grade history with class and change-kind filters">
 </p>
 
-**Settings** — watchers (guardians *and* students) with their channels,
+**Settings.** Watchers (guardians *and* students) with their channels,
 and subscriptions: who hears about which student, over which channel,
 immediately or in a daily digest, with the urgent types allowed through
 right away.
@@ -326,14 +326,14 @@ right away.
 
 Push-**out**, not pull-in: nobody signs into Last Bell to receive an alert.
 A *watcher* is just a name plus addresses; *subscriptions* say which student's
-events reach them, over which channels, filtered by alert type. One poll, one
-message per watcher-channel — a watcher subscribed to three alert types gets a
-single message listing everything.
+events reach them, over which channels, filtered by alert type. One poll means
+one message per watcher-channel, so a watcher subscribed to three alert types
+gets a single message listing everything.
 
-Email carries an HTML version next to the plain text — updates grouped by
+Email carries an HTML version next to the plain text: updates grouped by
 what they mean (Needs attention, Slipping, Coming up, Grades posted), the
-course above the assignment, a *Canvas* pill where the work came from
-Canvas — and the daily summary gets an Overall table
+course above the assignment, and a *Canvas* pill where the work came from
+Canvas. The daily summary gets an Overall table
 ([`notify/render.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/notify/render.py)).
 Subjects count by kind: `[Last Bell] J.P.H.: 1 missing, 2 due soon`. Push
 channels get the same grouping as text. `lastbell watcher test NAME --sample`
@@ -350,11 +350,11 @@ sends a realistic sample with made-up courses.
 The wizard and the dashboard offer email; the other three stay available
 from `lastbell watcher`. Know your transports: `email` rides your own SMTP
 account; `ntfy` posts to the public ntfy.sh unless you self-host, and **the
-topic name is the only secret** there — make it long and random; `telegram`
+topic name is the only secret** there, so make it long and random; `telegram`
 and `pushover` go through those services' APIs.
 
 In `run --loop`, the portal is polled every `POLL_MINUTES` but the outbox and
-summaries are checked **every minute**, so a 17:00 digest goes out at 17:00 —
+summaries are checked **every minute**, so a 17:00 digest goes out at 17:00,
 not at the next three-hour poll. Time-based deliveries use the host's local
 clock. An event subscribed both immediately and in a digest is sent once,
 immediately. A summary reports *standing state* (overall marks, missing work,
@@ -391,34 +391,34 @@ list is ever empty again.
 
 ## Under the hood
 
-Everything below is the detail behind the answers above. Every sentence is
+Everything below is the detail behind the answers above. The claims are
 backed by linked code; if the code ever stops backing one of them, that's a
-bug — file it.
+bug. File it.
 
 ### Being a good neighbor to the portal
 
 Last Bell's traffic is built to look like what it is: **one parent, checking
-the gradebook a few times a day** — never a crawler.
+the gradebook a few times a day.**
 
-- **Eight polls a day by default** — one every 3 hours
-  (`LASTBELL_POLL_MINUTES=180`), and the interval is **clamped to a 15-minute
-  floor in code** ([`config.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/config.py)), so no misconfiguration
-  can hammer anyone's servers.
-- **A poll is small, sequential, and identical to human use**: one login, one
+- Polls eight times a day by default, once every 3 hours
+  (`LASTBELL_POLL_MINUTES=180`). The interval is **clamped to a 15-minute
+  floor in code** ([`config.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/config.py)), so a misconfiguration
+  can't hammer anyone's servers.
+- Each poll is small, sequential, and shaped like human use: one login, one
   home page, then per student the gradebook page, the class list, and one
-  fragment per class — the very `LoadControl` calls the portal's own UI issues
-  when you click through your classes, with a polite pause between them
-  ([`collector.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/collector.py)). A two-student, seven-class
-  household is ~21 requests per poll (~170/day) — fewer than a single manual
+  fragment per class. Those are the same `LoadControl` calls the portal's own
+  UI issues when you click through your classes, with a polite pause between
+  them ([`collector.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/collector.py)). A two-student, seven-class
+  household is ~21 requests per poll (~170/day), fewer than a single manual
   portal visit loads in page assets alone.
-- **Zero portal traffic between polls.** Digests, summaries, and the dashboard
-  run entirely off the local database.
-- **A failed poll just waits for the next cycle** ([`cli.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/cli.py))
-  — no retry storms.
-- **It identifies itself honestly**: the User-Agent is `lastbell/<version>`
+- Nothing touches the portal between polls. Digests, summaries, and the
+  dashboard run entirely off the local database.
+- A failed poll waits for the next cycle rather than retrying
+  ([`cli.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/cli.py)).
+- **The User-Agent is `lastbell/<version>`**
   ([`client.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/client.py)), not a spoofed browser.
 
-Portal terms vary by district and vendor and are yours to judge — but the
+Portal terms vary by district and vendor and are yours to judge, but the
 list above is the *entire* footprint, so you can judge it accurately.
 
 ### Credentials & student data: the actual guarantees
@@ -429,46 +429,47 @@ Keychain / Windows Credential Manager / Linux Secret Service
 ([`secrets.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/secrets.py)); it never appears in `.env`, the
 database, logs, or the source tree. (Docker installs inject it via
 `LASTBELL_PASSWORD` from a secret store instead. The one exception is an
-always-on box with no usable keyring — a headless Pi, or a boot-time service
-that can't unlock the desktop keyring: there `lastbell setup` offers to keep
+always-on box with no usable keyring, such as a headless Pi or a boot-time
+service that can't unlock the desktop keyring: there `lastbell setup` offers to keep
 it in the owner-only settings file, tells you that trade-off out loud, and
 does nothing until you say yes.) At runtime it is held in
-memory and sent to one destination — your district's own login form, over
-HTTPS enforced in [`config.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/config.py) — the same request your
+memory and sent to one destination, your district's own login form, over
+HTTPS enforced in [`config.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/config.py). That is the same request your
 browser makes ([`client.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/client.py)).
 
 **Student data lives on your machine, full stop.** Snapshots, history, and
 alerts sit in a local SQLite file in your user data dir (in a checkout,
-`data/` — git-ignored, as is `.env`).
+`data/`, git-ignored, as is `.env`).
 There is no telemetry, no analytics, no phone-home: the only outbound HTTP in
 the codebase is the portal client ([`client.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/client.py)), the
 district preflight ([`preflight.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/preflight.py)), the alert
 channels **you** configure ([`notify/`](https://github.com/noestudios/lastbell/blob/main/lastbell/notify)), and one
-public PyPI page fetched when — and only when — you click **Check for
+public PyPI page fetched only when you click **Check for
 updates** in the dashboard's footer ([`updates.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/updates.py)).
 
-**What leaves is only what you route — and it's low-PII by design.** Alert
+**What leaves is only what you route, and it's low-PII by design.** Alert
 payloads carry initials + course + assignment, never a child's full name
-([`router.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/router.py)) — safe for a lock-screen preview.
+([`router.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/router.py)), so it's safe for a lock-screen preview.
 
 **The dashboard shows full names, so it binds to `127.0.0.1` only** unless
-you deliberately widen it — the bind address is the access control
+you deliberately widen it. The bind address is the access control
 ([`config.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/config.py), [`dashboard/`](https://github.com/noestudios/lastbell/blob/main/lastbell/dashboard)).
-It's stdlib-only. Every page is a read; the only writes are the
-watcher/subscription forms on /settings — household bookkeeping, never grade
-data.
+The dashboard is stdlib-only, and every page is a read; the only writes are
+the watcher/subscription forms on /settings, household bookkeeping rather
+than grade data.
 
 ### Configuration & secrets
 
 All non-secret settings live in one env file, written for you by `lastbell
 setup` (in your user config dir; a checkout's git-ignored `.env` takes
-precedence, with `.env.example` as its template). Passwords never go in that
-file, the database, or the source tree — only a *reference* to where the
-secret lives:
+precedence, with `.env.example` as its template). The password stays out of
+that file, the database, and the source tree; the file holds only a
+*reference* to where the secret lives. The always-on row below is the one
+exception, and the wizard states the trade-off before taking it:
 
 | Install        | Secret store                                                        |
 |----------------|---------------------------------------------------------------------|
-| Bare-metal     | OS keyring — macOS Keychain / Windows Credential Manager / Secret Service (`lastbell set-password`) |
+| Bare-metal     | OS keyring: macOS Keychain / Windows Credential Manager / Secret Service (`lastbell set-password`) |
 | Always-on box (headless Pi, Linux boot-time service) | `LASTBELL_SECRET_BACKEND=env` + `LASTBELL_PASSWORD` in the settings file, mode 0600. **Trade-off:** the password is on disk in plain text, readable by your user (and root). `lastbell setup` offers this only when there is no usable keyring or you say the service runs unattended, and states the trade-off first. |
 | Docker / CI    | `LASTBELL_PASSWORD`, injected from Docker secrets or a CI secret store |
 
@@ -485,53 +486,53 @@ or VPS.
 ParentVUE is the gradebook of record, but it is the *trailing* one. Teachers
 post assignments, collect work, and set the "missing" flag in Canvas (myMCPS
 Classroom at MCPS); the Synergy gradebook sees any of it only when the
-teacher syncs — days later, and never before an item is graded. So the two
+teacher syncs, usually days later and rarely before an item is graded. So the two
 cards a parent acts on, **Needs attention** and **Due soon**, are fed from
 Canvas first, and ParentVUE keeps the course grades and the finals.
 
 **How it gets in.** With nothing configured (`LASTBELL_CANVAS=auto`), the
 poll follows the Canvas tile on the portal's own home page. That link is a
 SAML entry, and Synergy is the identity provider: the ParentVUE session you
-already hold is the only credential — there is no second password anywhere
+already hold is the only credential, and there is no second password anywhere
 ([`canvas.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/canvas.py),
 [`client.py`](https://github.com/noestudios/lastbell/blob/main/lastbell/client.py)).
 If your district lets observers mint a personal access token (Canvas →
 Account → Settings → New Access Token), `lastbell set-canvas-token` plus
 `LASTBELL_CANVAS_HOST` skips the hop. `lastbell canvas` shows which path
 connected, which Canvas student is which portal student, and what each course
-would contribute — read-only, initials only. `LASTBELL_CANVAS=off` never
-touches Canvas.
+would contribute. It is read-only and shows initials only. `LASTBELL_CANVAS=off`
+never touches Canvas.
 
-**What it reads — the Canvas REST API, not pages.** Per poll: the observer's
+**What it reads: the Canvas REST API, not pages.** Per poll: the observer's
 linked students, the course list, and per course the assignments with your
-student's submission plus the category names — the documented,
+student's submission plus the category names. These are the documented,
 observer-scoped endpoints the official Canvas Parent app uses, with the same
 polite pause between calls as the gradebook sweep. A two-student household
 adds roughly two calls per course per poll. Instructure's [Acceptable Use
 Policy](https://www.instructure.com/policies/acceptable-use) permits its
 "publicly supported interfaces" and forbids sharing credentials or tokens
-with third parties; both hold here — a token is yours, held in your keyring,
+with third parties; both hold here: a token is yours, held in your keyring,
 sent only to your district's Canvas. Its [API
 Policy](https://www.instructure.com/policies/api-policy) throttles per token
-and revokes chronic over-users; eight polls a day is nowhere near that.
+and revokes chronic over-users; eight polls a day is well under that.
 
 **How it merges.** A Canvas course is matched to the ParentVUE course with
 the same title (period prefixes and the `-Teacher-S1-2027` suffix stripped)
 and its work attaches to that course, keyed `canvas:<id>`; a Canvas course
 that matches nothing gets its own row, with no course grade, only when it
-looks like a class — it carries real work, it isn't in Canvas's built-in
+looks like a class: it carries real work, it isn't in Canvas's built-in
 *Default Term* (where the password-reset and training shells live), and it
 sits in the same Canvas term as the classes that did match. Name fragments
 in `LASTBELL_CANVAS_SKIP` silence anything else. Only published work with a
-due date or points is kept — the undated "read this page" items a course
+due date or points is kept, since the undated "read this page" items a course
 shell accumulates aren't actionable. Canvas's own words are trusted:
 `missing` is **MISSING**, a posted score is **graded**, a submission is
 **turned in** (a status only Canvas can supply), and everything else is
 **due** for the time rules to judge. Once the same piece of work reaches the
 gradebook under the same name, the gradebook row is the record: the Canvas
 twin leaves the counts, lists, and alerts but is kept and updated, and when
-the two disagree — Canvas has 9/10 where the gradebook shows a 0, a
-different score, or a missing flag — the gradebook row shows *Canvas says
+the two disagree (Canvas has 9/10 where the gradebook shows a 0, a
+different score, or a missing flag), the gradebook row shows *Canvas says
 9/10* and one alert asks you to check with the teacher. A gradebook row that
 is merely ungraded while Canvas has a score is ordinary sync lag: hinted,
 not alerted
@@ -541,7 +542,7 @@ Alert lines from Canvas end in `[Canvas]`, so a lock-screen preview says
 which app to open. Canvas rows wear a small *Canvas* mark on the dashboard.
 
 **What it can't do.** Teachers use Canvas unevenly; a course whose teacher
-posts nothing contributes nothing, and that's visible — its Canvas twin
+posts nothing contributes nothing, and that's visible: its Canvas twin
 shows no work. Canvas course grades are deliberately ignored (ParentVUE is
 the record), and the Canvas layer is additive: if Canvas is unreachable, the
 poll logs one warning and checks the gradebook as before.
@@ -567,20 +568,20 @@ lastbell preflight --district your-host.example --username you --report
 ```
 
 It checks, in order: the PXP2 login form exists → the legacy SOAP API's status
-(the deprecation code your district returns is kept verbatim — useful
-cross-district data) → web login → students on the credential → the
+(the deprecation code your district returns is kept verbatim, which is
+useful cross-district data) → web login → students on the credential → the
 `LoadControl` data path → and finally whether the **parsers understand your
 district's fragments**, which is the question that actually decides
 compatibility. Verdicts: `go`, `partial` (data path answers but a parser
-needs a tweak — the most fixable kind of report), `no-go`, `anonymous-ok`.
+needs a tweak, the most fixable kind of report), `no-go`, `anonymous-ok`.
 Exit codes match (0 go, 1 not yet, 2 couldn't run) so it scripts cleanly.
 
-`--report` prints Markdown that is **redacted by construction** — no student
-names, grades, or usernames can appear in it — ready to paste into a
+`--report` prints Markdown that is **redacted by construction**, so no student
+names, grades, or usernames can appear in it, ready to paste into a
 [district report issue](https://github.com/noestudios/lastbell/blob/main/.github/ISSUE_TEMPLATE/district-report.md). `--json`
 is for scripts; `--show-values` reveals names locally only, and is never
 included in exported output; `--dump` saves raw fragments to `debug/` in your
-data dir (personal data — stays local, never committed) for parser
+data dir (personal data, so it stays local) for parser
 development. It also installs standalone as `parentvue-preflight`.
 
 ### The data path (and why scraping, not the SOAP API)
@@ -603,7 +604,7 @@ are wired against real captured fragments from both school types.
 
 Each class row's `data-focus` attribute carries the ready-made
 `{LoadParams, FocusArgs}` the portal's own `GB.LoadControl` click handler
-sends, so `run` sweeps every class exactly the way a human clicking through
+sends, so `run` sweeps every class the same way a human clicking through
 them would (with a polite delay between calls, and duplicate screen/print
 row variants fetched once). Each run persists a snapshot keyed on the
 Edupoint assignment GUID and diffs it against the previous one; the diff is
@@ -628,8 +629,8 @@ and the redacted district preflight. Releases are on
 
 The dashboard's visual design (colors, type, card and badge styling in
 [`lastbell/style.css`](https://github.com/noestudios/lastbell/blob/main/lastbell/style.css)) is derived from
-[Purity UI Dashboard](https://github.com/creativetimofficial/purity-ui-dashboard)
-— Copyright (c) 2021 Creative Tim, released under the MIT license; its
+[Purity UI Dashboard](https://github.com/creativetimofficial/purity-ui-dashboard),
+Copyright (c) 2021 Creative Tim, released under the MIT license; its
 copyright and permission notice applies to those derived styles.
 
 The web-portal approach (ASP.NET form login, embedded child-list JSON) was
@@ -642,5 +643,5 @@ documentation of the (now largely deprecated) SOAP API lives at
 
 ## License
 
-MIT — see [LICENSE](https://github.com/noestudios/lastbell/blob/main/LICENSE). Because the connector is original code (not a fork),
+MIT (see [LICENSE](https://github.com/noestudios/lastbell/blob/main/LICENSE)). Because the connector is original code (not a fork),
 the license is a free choice; MIT is the permissive default for maximum forkability.
