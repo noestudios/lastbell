@@ -2,8 +2,6 @@
 request, with the network stubbed."""
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from lastbell import __version__, updates
@@ -73,8 +71,7 @@ def test_describe_wording():
     assert "nothing to do" in updates.describe("ahead", "0.0.1")
 
 
-def test_restart_hint_names_both_processes_per_platform(monkeypatch):
-    monkeypatch.setenv("LASTBELL_SELF_RESTART", "0")
+def test_restart_hint_names_both_processes_per_platform():
     linux = updates.restart_hint("linux")
     assert "systemctl --user restart lastbell" in linux and "lastbell-dashboard" in linux
     assert "lastbell install-service" in updates.restart_hint("darwin")
@@ -82,10 +79,9 @@ def test_restart_hint_names_both_processes_per_platform(monkeypatch):
     assert "lastbell-dashboard" in updates.describe("newer", "9.9.9", plat="linux")
 
 
-def test_upgraded_but_not_restarted_is_told_to_restart_not_upgrade(monkeypatch):
+def test_upgraded_but_not_restarted_is_told_to_restart_not_upgrade():
     """pipx upgrade replaced the files under this still-running process:
     the on-disk version is newer than the loaded one."""
-    monkeypatch.setenv("LASTBELL_SELF_RESTART", "0")      # the pre-0.2.10 wording
     msg = updates.describe("newer", "9.9.9", installed="9.9.9", plat="linux")
     assert msg.startswith("Last Bell 9.9.9 is installed, but this dashboard is still running")
     assert __version__ in msg and "systemctl --user restart lastbell" in msg
@@ -118,93 +114,10 @@ def test_installed_version_reads_the_disk_each_call(monkeypatch):
     assert updates.installed_version() is None
 
 
-def test_settings_footer_flags_a_pending_restart(monkeypatch):
+def test_settings_footer_flags_a_pending_restart():
     from lastbell import dashboard
 
-    monkeypatch.delenv("LASTBELL_SELF_RESTART", raising=False)
-    html = dashboard.render_settings([], [], installed="9.9.9")
-    assert "9.9.9 installed — restarting within a minute" in html
-    monkeypatch.setenv("LASTBELL_SELF_RESTART", "0")
     html = dashboard.render_settings([], [], installed="9.9.9")
     assert "9.9.9 installed — restart to use it" in html
     assert "installed — restart" not in dashboard.render_settings([], [], installed="0.0.1")
     assert "installed — restart" not in dashboard.render_settings([], [])
-
-
-# ── restarting on our own (0.2.10) ────────────────────────────────────
-
-
-def test_self_restart_wording_is_the_default(monkeypatch):
-    monkeypatch.delenv("LASTBELL_SELF_RESTART", raising=False)
-    msg = updates.describe("newer", "9.9.9", installed="9.9.9", plat="linux")
-    assert "restarts itself within a minute" in msg and "systemctl" not in msg
-    assert "(9.9.10 is also out on PyPI)" in updates.describe(
-        "newer", "9.9.10", installed="9.9.9")
-    msg = updates.describe("newer", "9.9.9")
-    assert "pipx upgrade lastbell" in msg and "restart themselves within a minute" in msg
-    for off in ("0", "no", "off", "false"):
-        monkeypatch.setenv("LASTBELL_SELF_RESTART", off)
-        assert not updates.self_restart_enabled()
-
-
-def test_pending_upgrade_is_the_newer_on_disk_version_only(monkeypatch):
-    monkeypatch.delenv("LASTBELL_SELF_RESTART", raising=False)
-    monkeypatch.setattr(updates, "installed_version", lambda: "99.0.0")
-    assert updates.pending_upgrade() == "99.0.0"
-    monkeypatch.setattr(updates, "installed_version", lambda: "0.0.1")   # a checkout
-    assert updates.pending_upgrade() is None
-    monkeypatch.setattr(updates, "installed_version", lambda: __version__)
-    assert updates.pending_upgrade() is None
-    monkeypatch.setattr(updates, "installed_version", lambda: "99.0.0")
-    monkeypatch.setenv("LASTBELL_SELF_RESTART", "0")
-    assert updates.pending_upgrade() is None
-    # Already restarted for this version and still behind: don't loop.
-    monkeypatch.delenv("LASTBELL_SELF_RESTART")
-    monkeypatch.setenv("LASTBELL_REEXEC_FOR", "99.0.0")
-    assert updates.pending_upgrade() is None
-    monkeypatch.setenv("LASTBELL_REEXEC_FOR", "98.0.0")
-    assert updates.pending_upgrade() == "99.0.0"
-
-
-def test_reexec_runs_the_same_command_line_on_the_new_files(monkeypatch):
-    import sys
-    seen = []
-    said = []
-    monkeypatch.setattr(sys, "argv", ["/home/pi/.local/bin/lastbell", "run", "--loop"])
-    flushed = []
-    monkeypatch.setattr(updates, "_exec", lambda exe, argv: seen.append((exe, argv)))
-    monkeypatch.setattr(sys.stdout, "flush", lambda: flushed.append("out"), raising=False)
-    monkeypatch.delenv("LASTBELL_REEXEC_FOR", raising=False)
-    with pytest.raises(SystemExit) as e:          # a stub exec returns; the real one never does
-        updates.reexec("poller", "9.9.9", say=said.append)
-    assert e.value.code == 75
-    assert os.environ["LASTBELL_REEXEC_FOR"] == "9.9.9"   # the new process knows why it started
-    assert flushed == ["out"]                             # the log line lands before exec
-    assert seen == [(sys.executable, [sys.executable, "-m", "lastbell.cli", "run", "--loop"])]
-    assert said == ["Last Bell 9.9.9 is installed; restarting the poller to use it"]
-
-    def boom(exe, argv):
-        raise OSError(2, "No such file")
-    monkeypatch.setattr(updates, "_exec", boom)
-    said.clear()
-    with pytest.raises(SystemExit) as e:
-        updates.reexec("dashboard", "9.9.9", say=said.append)
-    assert e.value.code == 75
-    assert "couldn't restart in place (FileNotFoundError" in said[1]
-    assert "starts the dashboard again" in said[1]
-
-
-def test_watch_for_upgrade_fires_once(monkeypatch):
-    import threading
-    answers = iter([None, None, "9.9.9", "9.9.9"])
-    monkeypatch.setattr(updates, "pending_upgrade", lambda: next(answers))
-    fired = []
-    done = threading.Event()
-
-    def on_pending(v):
-        fired.append(v)
-        done.set()
-    t = updates.watch_for_upgrade(on_pending, every=0.005)
-    assert done.wait(2)
-    t.join(2)
-    assert fired == ["9.9.9"] and not t.is_alive()

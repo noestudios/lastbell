@@ -4,19 +4,22 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.2.11 — 2026-09-04
+
+**0.2.10's self-restart is removed.** For one release the poller and the
+dashboard watched the version on disk and restarted themselves when it
+changed. That made a running service act on something other than a
+person's decision, and the owner would rather it didn't: an upgrade is a
+choice, and the restart belongs to that choice. So it is gone, entirely.
+`pipx upgrade lastbell` moves the files and nothing more; `lastbell
+upgrade` moves them and restarts the poller and the dashboard, which is
+the path to use. The footer badge and `lastbell status` say "restart to
+use it" again, as they did in 0.2.9. Nothing else changed.
+
 ## 0.2.10 — 2026-09-04
 
-**`pipx upgrade lastbell` is now enough.** The poller and the dashboard
-each look at the version on disk once a minute and, when it is newer than
-the one they loaded, replace themselves with a fresh process running the
-same command line: the poller between polls, never mid-poll; the
-dashboard after the last response has gone out. The process id doesn't
-change, so systemd and launchd see nothing happen, and a copy started by
-hand in a terminal just carries on as the new version. The footer badge
-and `lastbell status` now say "restarting within a minute" instead of
-asking you to restart; `lastbell upgrade` still restarts at once.
-`LASTBELL_SELF_RESTART=0` switches it off. A checkout whose dist-info
-runs ahead of its code restarts once, not every minute.
+The poller and the dashboard restarted themselves within a minute of a
+newer version appearing on disk. Withdrawn in 0.2.11; see above.
 
 ## 0.2.9 — 2026-09-04
 

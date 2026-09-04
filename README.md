@@ -245,14 +245,11 @@ lastbell upgrade
 That runs `pipx upgrade lastbell` and then restarts **both** long-running
 copies, the poller and the dashboard, which each keep the old version in
 memory until restarted. On Linux that is the two user units; on macOS the
-launchd agent, with a reminder about the dashboard. Plain `pipx upgrade
-lastbell` works too: since 0.2.10 the poller and the dashboard look at the
-version on disk once a minute and, when it is newer, restart themselves
-between polls, keeping the same process id so systemd and launchd see
-nothing happen. The dashboard footer says "installed, restarting within a
-minute" in the meantime. `LASTBELL_SELF_RESTART=0` turns that off if you
-would rather restart by hand (`systemctl --user restart lastbell`, or
-`lastbell install-service` again on macOS).
+launchd agent, with a reminder about the dashboard. By hand, the same thing
+is `pipx upgrade lastbell`, then `systemctl --user restart lastbell` (plus
+`lastbell-dashboard` if you set that up) on Linux, or `lastbell
+install-service` again on macOS. The dashboard footer flags "installed —
+restart to use it" until its own process has been restarted.
 
 **Backing up.** One command, one file:
 

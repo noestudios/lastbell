@@ -150,11 +150,8 @@ def test_report_names_a_failing_watcher_and_the_pending_restart(world, monkeypat
     health.mark_notified(conn)
     conn.close()
     monkeypatch.setattr(updates, "installed_version", lambda: "99.0.0")
-    monkeypatch.delenv("LASTBELL_SELF_RESTART", raising=False)
     text = "\n".join(status.report(NOW))
-    assert "99.0.0 installed — the service restarts itself within a minute" in text
-    monkeypatch.setenv("LASTBELL_SELF_RESTART", "0")
-    assert "99.0.0 installed — restart to use it" in "\n".join(status.report(NOW))
+    assert "99.0.0 installed — restart to use it" in text
     assert "Checking: FAILING — 3 in a row since" in text
     assert "the portal rejected the sign-in; guardians were told just now" in text
     assert "last error: Invalid user id or password" in text
