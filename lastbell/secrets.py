@@ -237,3 +237,27 @@ def dashboard_key() -> tuple[str, str]:
                      f"({exc.__class__.__name__}); this key lasts until the "
                      f"dashboard restarts. Set {DASHBOARD_KEY} to keep one.")
     return key, f"the settings file ({env_path})"
+
+
+def forget(accounts: list) -> list:
+    """Delete this install's keyring entries. Returns one line per account
+    saying what happened; on the env backend the keyring is never touched
+    (it may hang on a headless box) and the caller has removed the file."""
+    if backend() == "env":
+        return ["keyring: not touched (this install keeps secrets in the settings file)"]
+    try:
+        import keyring
+        from keyring.errors import PasswordDeleteError
+    except ImportError:  # pragma: no cover
+        return ["keyring: the keyring library isn't installed; nothing to remove"]
+    out = []
+    for account in accounts:
+        try:
+            keyring.delete_password(SERVICE, account)
+            out.append(f"✓ removed the keyring entry for {account!r}")
+        except PasswordDeleteError:
+            out.append(f"  no keyring entry for {account!r}")
+        except Exception as exc:  # NoKeyringError, a locked daemon …
+            out.append(f"⚠ couldn't reach the keyring for {account!r} "
+                       f"({exc.__class__.__name__})")
+    return out

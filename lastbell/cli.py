@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import logging
 import sys
 
@@ -376,7 +377,8 @@ def _tick(conn, conf) -> None:
     sent, warnings = outbox.flush_due(conn)
     if sent:
         log.info(f"flushed {sent} deferred message(s)")
-    s_sent, s_warnings = summary.send_due(conn, lookahead_days=conf.lookahead_days)
+    s_sent, s_warnings = summary.send_due(conn, lookahead_days=conf.lookahead_days,
+                                          grace_days=conf.ungraded_grace_days)
     if s_sent:
         log.info(f"sent {s_sent} daily summar{'ies' if s_sent != 1 else 'y'}")
     for w in warnings + s_warnings:
@@ -384,6 +386,49 @@ def _tick(conn, conf) -> None:
 
 
 _TICK_SECONDS = 60
+
+
+def _poll_failed(conn, notifier, conf, exc: BaseException) -> int:
+    """Record a failed poll; tell the guardians once it has lasted long
+    enough to matter; return the minutes until the next attempt (longer
+    while sign-in is being rejected). Never raises — this runs when things
+    are already going wrong."""
+    from datetime import datetime, timedelta
+
+    from . import health
+
+    kind = health.classify(exc)
+    text = str(exc) or exc.__class__.__name__
+    state = health.record_failure(conn, kind, text)
+    delay = health.next_delay_minutes(state, conf.poll_minutes)
+    reason = {"login": "the portal rejected the sign-in",
+              "portal": "couldn't reach the portal"}.get(kind, "couldn't finish this poll")
+    retry_at = (datetime.now() + timedelta(minutes=delay)).strftime("%H:%M")
+    log.warning(f"{reason} ({text}) — {state.failures} in a row; retrying at {retry_at}"
+                + (" tomorrow" if delay >= 24 * 60 else ""))
+    if state.notice_due:
+        subject, body = health.failure_message(state)
+        sent, warnings = health.deliver(conn, notifier, subject, body)
+        for w in warnings:
+            log.warning(w)
+        if sent:
+            health.mark_notified(conn)
+            log.warning(f"told {sent} guardian channel(s) that checking has stopped")
+    return delay
+
+
+def _poll_succeeded(conn, notifier) -> None:
+    """Clear the failure record; if guardians had been told, send the all-clear."""
+    from . import health
+
+    cleared = health.record_success(conn)
+    if cleared.failing:
+        log.info(f"checking again after {cleared.failures} failed poll(s)")
+    if cleared.notified:
+        subject, body = health.recovery_message(cleared)
+        sent, warnings = health.deliver(conn, notifier, subject, body)
+        for w in warnings:
+            log.warning(w)
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -405,6 +450,14 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     conn = store.connect(conf.db_path)
     store.ensure_schema(conn)
+    if args.loop:
+        from .service import _host_is_utc
+
+        if _host_is_utc():
+            log.warning("this machine's clock is on UTC: due dates, digest times, "
+                        "and quiet hours follow the local clock, so everything "
+                        "will run hours early. Set the timezone (Linux: sudo "
+                        "timedatectl set-timezone America/New_York) and restart.")
     next_poll = 0.0
     try:
         while True:
@@ -412,24 +465,18 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 # Fresh client per pass: portal sessions expire well inside a
                 # poll interval, and re-login is one request.
                 client = ParentVueClient(conf.base_url, conf.username, pw)
+                delay = conf.poll_minutes
                 try:
                     _run_once(client, conn, notifier, conf)
                 except Exception as e:
                     if not args.loop:
                         raise
-                    import requests as _rq
-                    from datetime import datetime, timedelta
-
-                    retry_at = (datetime.now()
-                                + timedelta(minutes=conf.poll_minutes)).strftime("%H:%M")
-                    reason = ("couldn't reach the portal"
-                              if isinstance(e, _rq.RequestException)
-                              else "couldn't finish this poll")
-                    log.warning(f"{reason} ({e or e.__class__.__name__}) — "
-                                f"retrying at {retry_at}")
-                next_poll = time.time() + conf.poll_minutes * 60
+                    delay = _poll_failed(conn, notifier, conf, e)
+                else:
+                    _poll_succeeded(conn, notifier)
+                next_poll = time.time() + delay * 60
                 if args.loop:
-                    log.info(f"next portal poll in {conf.poll_minutes} min "
+                    log.info(f"next portal poll in {delay} min "
                              f"(outbox/summaries checked every minute)")
             _tick(conn, conf)
             if not args.loop:
@@ -641,7 +688,8 @@ def _cmd_flush(args: argparse.Namespace) -> int:
     conn = _db(conf)
     try:
         sent, warnings = outbox.flush_due(conn)
-        s_sent, s_warnings = summary.send_due(conn, lookahead_days=conf.lookahead_days)
+        s_sent, s_warnings = summary.send_due(conn, lookahead_days=conf.lookahead_days,
+                                          grace_days=conf.ungraded_grace_days)
         for w in warnings + s_warnings:
             print(f"warning: {w}", file=sys.stderr)
         remaining = outbox.pending(conn)
@@ -718,6 +766,85 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
     except DashboardRefused as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
+    return 0
+
+
+def _cmd_forget(args: argparse.Namespace) -> int:
+    """Remove everything Last Bell created on this machine: the background
+    service, the database with every snapshot and alert, the settings file,
+    and the keyring entries. Shows the list first and asks; `--yes` skips
+    the question for scripts."""
+    import shutil
+    from pathlib import Path
+
+    from . import paths, service
+
+    plan: list[tuple[str, object]] = []          # (label, action)
+    # Config may not load (no settings yet) — forget still works from paths.
+    try:
+        conf = cfg.load()
+    except cfg.ConfigError:
+        conf = None
+    username = conf.username if conf else os.environ.get("LASTBELL_USERNAME", "")
+
+    files: list[Path] = []
+    if conf is not None:
+        files += [conf.db_path, conf.snapshot_dir]
+    files += [paths.data_dir(), paths.config_dir()]
+    env_file = paths.active_env_file()
+    if env_file is not None:
+        files.append(env_file)
+    seen: set[Path] = set()
+    for f in files:
+        f = Path(f).expanduser()
+        if f in seen or not f.exists():
+            continue
+        # A parent already listed covers its children.
+        if any(parent in seen for parent in f.parents):
+            continue
+        seen.add(f)
+        plan.append((f"{'directory' if f.is_dir() else 'file'} {f}", f))
+    for f in list(seen):
+        for sibling in (f.with_name(f.name + "-wal"), f.with_name(f.name + "-shm")):
+            if sibling.exists() and sibling not in seen:
+                seen.add(sibling)
+                plan.append((f"file {sibling}", sibling))
+
+    print("This removes everything Last Bell keeps on this machine:")
+    if service.platform_name() in ("linux", "darwin"):
+        print("  - the background service (if installed)")
+    for label, _ in plan:
+        print(f"  - {label}")
+    accounts = [a for a in (username, "smtp", "canvas") if a]
+    print(f"  - OS keyring entries for: {', '.join(accounts)}")
+    print("Not removed: the program itself (`pipx uninstall lastbell`), and any")
+    print("alerts already delivered to inboxes or phones.")
+    if not args.yes:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            print("error: not a terminal — pass --yes to confirm", file=sys.stderr)
+            return 2
+        answer = input("Type forget to continue: ").strip().lower()
+        if answer != "forget":
+            print("nothing removed")
+            return 1
+
+    if service.platform_name() in ("linux", "darwin"):
+        try:
+            service.uninstall(say=lambda line: print(line))
+        except Exception as e:
+            print(f"  ⚠ service: {e}")
+    for label, target in plan:
+        try:
+            if Path(target).is_dir():
+                shutil.rmtree(target)
+            else:
+                Path(target).unlink()
+            print(f"  ✓ removed {label}")
+        except OSError as e:
+            print(f"  ⚠ couldn't remove {label}: {e}")
+    for line in secretstore.forget(accounts):
+        print(f"  {line}")
+    print("Done. Last Bell has forgotten this household.")
     return 0
 
 
@@ -885,6 +1012,14 @@ def main() -> None:
     p_dash.add_argument("--db", help="serve a different database "
                         "(e.g. the seed-demo output; default: env)")
     p_dash.set_defaults(func=_cmd_dashboard)
+
+    p_forget = sub.add_parser(
+        "forget",
+        help="remove everything Last Bell keeps here: service, database, "
+             "settings, keyring entries")
+    p_forget.add_argument("--yes", action="store_true",
+                          help="don't ask; for scripts")
+    p_forget.set_defaults(func=_cmd_forget)
 
     p_seed = sub.add_parser(
         "seed-demo",

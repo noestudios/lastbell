@@ -396,10 +396,17 @@ def _low_class(pct: float | None) -> str:
     return "low" if pct is not None and cutoff and pct < cutoff else ""
 
 
-def _freshness_html(last_poll_utc: str | None, now: datetime | None = None) -> str:
+def _freshness_html(last_poll_utc: str | None, now: datetime | None = None,
+                    failure_note: str = "") -> str:
     """The home page's last line: when the watcher last finished a poll, in
     the reader's local time. Past twice the poll interval it turns into a
-    notice — the data on the page is what a stopped watcher last saw."""
+    notice — the data on the page is what a stopped watcher last saw. A
+    ``failure_note`` (the watcher is running but its polls are failing)
+    makes it a notice at once, whatever the age."""
+    if failure_note:
+        when = f"Last checked {escape(last_poll_utc)}. " if last_poll_utc else ""
+        return (f"<footer class='credit freshness stale' role='status'>{when}"
+                f"{escape(failure_note)}</footer>")
     if not last_poll_utc:
         return ("<footer class='credit freshness'>Not checked yet — run "
                 "<code>lastbell run</code> to take the first look.</footer>")
@@ -435,7 +442,7 @@ def _freshness_html(last_poll_utc: str | None, now: datetime | None = None) -> s
 
 
 def render_overview(students, courses_by_student, counts_by_student,
-                    last_poll_utc: str | None = None) -> str:
+                    last_poll_utc: str | None = None, failure_note: str = "") -> str:
     if not students:
         return _page("Students",
                      "<h1>No students yet</h1><p>Run <code>lastbell run</code> "
@@ -478,7 +485,7 @@ def render_overview(students, courses_by_student, counts_by_student,
             f"<table class='courses'><tr class='head'><th scope='col'>Course</th><th scope='col'>Teacher</th>"
             f"<th scope='col'>%</th><th scope='col'>Mark</th></tr>{rows}</table></div>")
     return _page("Students", "<h1>Students</h1><div class='cards'>" + "".join(cards)
-                 + "</div>" + _freshness_html(last_poll_utc), path="/",
+                 + "</div>" + _freshness_html(last_poll_utc, failure_note=failure_note), path="/",
                  nav_students=students)
 
 
@@ -1078,7 +1085,7 @@ def render_alerts(alerts, counts=(), nav_students=(),
     first = (page - 1) * _ALERTS_PAGE + 1 if total else 0
     span = (f"{first:,}–{min(page * _ALERTS_PAGE, total):,} of {total:,}"
             if total > _ALERTS_PAGE else f"all {total:,}")
-    what = f"{alert_type.replace('_', ' ')} alerts" if alert_type else "alerts"
+    what = f"{escape(alert_type.replace('_', ' '))} alerts" if alert_type else "alerts"
     range_line = f"<p class='pager-range'>Showing {span} {what}</p>"
     pager = _pager(page, last, lambda p: href(alert_type, p))
 

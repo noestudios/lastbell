@@ -4,6 +4,63 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.2.7 — 2026-09-04
+
+**It no longer fails silently, it can forget you, and three audits'
+findings are fixed.** A read of the credential path in 0.2.6 left six
+things on the list; this release does all of them.
+
+- **Guardians are told when checking stops.** A watcher that can't sign
+  in (the ParentVUE password changed) or can't reach the portal used to
+  fail every three hours forever, and the only sign was a stale footer
+  on a dashboard nobody opens. Now, after a rejected sign-in has lasted
+  two polls (a day for an unreachable portal), every guardian gets one
+  message on their own channels saying what is wrong and what to do; one
+  more arrives when checking resumes. The home page footer names the
+  failure meanwhile. While sign-in is being rejected the poller also
+  backs off to once a day, so a stale password can't trip a district's
+  lockout policy.
+- **`lastbell forget`** removes everything Last Bell keeps on a machine:
+  the background service, the database with every snapshot and alert,
+  the settings file, and the keyring entries. It lists what it will do
+  and asks first; `--yes` is for scripts. (The program itself stays;
+  `pipx uninstall lastbell` removes that.)
+- **Preflight: the shareable report is redacted on the failure paths
+  too.** A LoadControl error from the portal is post-login text that
+  could name anyone; it now stays local and the report carries a fixed
+  sentence. A request failure after login is reported by exception name
+  only (its text carries a URL, and the gradebook URL carries the
+  student's id). A pasted portal URL is reduced to its hostname before it
+  is printed anywhere. Table cells can't break the table. The command
+  never prints a traceback.
+- **Dashboard: the alerts page's type filter was reflected unescaped.**
+  A crafted link could run script in the dashboard's own origin. The
+  filter is now escaped and, before that, only ever one of the types
+  actually present.
+- **Email addresses mean one mailbox.** The validator accepted
+  `kid@example.com, other@evil.com` and display-name and group forms,
+  which SMTP would fan out to every address named. One bare address, or
+  a plain refusal.
+- **Clocks.** History buckets (the six-week trend, "this week") were
+  grouped by UTC date while everything around them used local days, so
+  an evening change didn't count until midnight. A daily summary whose
+  slot fell inside a poll that ran past midnight was skipped for the day;
+  a missed day is now caught up. Work in the grace window (due in the
+  last few days, still ungraded) had dropped out of the summary; it has
+  its own line now, matching the dashboard. `run --loop` warns at start
+  when the host clock is on UTC.
+- **Locks.** The poller and the dashboard restart together after an
+  upgrade and both run migrations; the loser of that race died on a
+  duplicate-column error. A settings save while the poller held the
+  database past the busy timeout dropped the connection, and the page's
+  fallback re-submitted the form. Both now end well: the migration
+  tolerates the race, the save answers "busy, try again". WAL runs with
+  `synchronous=NORMAL`, the standard setting, so a poll's many small
+  commits aren't each a full fsync on the SD card.
+- **Housekeeping for a public repo:** `SECURITY.md` with a private
+  reporting path, Dependabot for pip and Actions, and a `pip-audit` job
+  that also runs weekly against fresh advisories.
+
 ## 0.2.6 — 2026-09-04
 
 **A hardening pass over the parts a careful reader checks first.** Seven

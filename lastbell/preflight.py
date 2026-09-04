@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlsplit
 
 import requests
 
@@ -179,13 +180,30 @@ def _soap_endpoint_probe(base_url: str, get: Callable = requests.get) -> tuple[s
     return INFO, f"HTTP {r.status_code}"
 
 
+def _portal_error_detail(control: str, e: ParentVueError) -> str:
+    """A shareable sentence about a LoadControl failure. Says which shape
+    of failure it was — never what the portal's error text said, because
+    that text is written by an authenticated server and could name anyone."""
+    text = str(e)
+    if "did not return JSON" in text:
+        shape = "answered with something other than JSON"
+    elif "server error" in text:
+        shape = "answered with an error object"
+    elif "no html fragment" in text:
+        shape = "answered without a fragment"
+    else:
+        shape = "failed"
+    return (f"{control} {shape} — run with --dump and file a district report; "
+            f"the response is saved locally as debug/")
+
+
 # ── the runs ──────────────────────────────────────────────────────────
 
 
 def run_anonymous(district: str, base_url: str,
                   get: Callable = requests.get) -> Report:
     """Credential-free probe: nothing but public GETs, nothing sent."""
-    report = Report(district=district, mode="anonymous",
+    report = Report(district=host_of(district), mode="anonymous",
                     generated=datetime.now().strftime("%Y-%m-%d"))
     status, detail = _login_page_probe(base_url, get)
     report.add("login_page", "PXP2 web portal", status, detail)
@@ -207,7 +225,7 @@ def run_full(district: str, base_url: str, username: str, password: str,
              post: Callable = requests.post) -> Report:
     from .gradebook import ParseError, parse_class_details, parse_school_classes
 
-    report = Report(district=district, mode="full",
+    report = Report(district=host_of(district), mode="full",
                     generated=datetime.now().strftime("%Y-%m-%d"))
     client = client or ParentVueClient(base_url, username, password)
 
@@ -238,7 +256,12 @@ def run_full(district: str, base_url: str, username: str, password: str,
                    if isinstance(e, LoginError) else f"request failed ({type(e).__name__})")
         return skip_rest("blocked by login")
 
-    children = client.get_children()
+    try:
+        children = client.get_children()
+    except requests.RequestException as e:
+        report.add("students", "Students on credential", FAIL,
+                   f"the home page request failed ({type(e).__name__})")
+        return skip_rest("blocked by the home page")
     report.add("students", "Students on credential",
                PASS if children else WARN,
                f"{len(children)} student(s) found" if children else
@@ -246,7 +269,12 @@ def run_full(district: str, base_url: str, username: str, password: str,
                private=", ".join(c.name for c in children))
 
     agu = children[0].agu if children else "0"
-    focus = client.get_focus_args(agu)
+    try:
+        focus = client.get_focus_args(agu)
+    except requests.RequestException as e:
+        report.add("focus_args", "Gradebook focus bootstrap", FAIL,
+                   f"the gradebook page request failed ({type(e).__name__})")
+        return skip_rest("blocked by the gradebook page")
     if dump_dir is not None:
         dump_dir.mkdir(parents=True, exist_ok=True)
         page = getattr(client, "last_gradebook_html", "")
@@ -272,8 +300,16 @@ def run_full(district: str, base_url: str, username: str, password: str,
                    f"Gradebook_SchoolClasses returned a {len(classes_html) // 1024} KB fragment")
         _dump("schoolclasses_fragment.html", classes_html)
     except ParentVueError as e:
-        report.add("gate_fetch", "LoadControl data path", FAIL, str(e))
+        # The portal's own error text is post-login and unbounded — it stays
+        # local (private / --dump); the shareable line is a fixed sentence.
+        report.add("gate_fetch", "LoadControl data path", FAIL,
+                   _portal_error_detail("Gradebook_SchoolClasses", e),
+                   private=str(e)[:300])
         _dump("loadcontrol_error.html", e.response_text)
+        return skip_rest("blocked by the data path")
+    except requests.RequestException as e:
+        report.add("gate_fetch", "LoadControl data path", FAIL,
+                   f"the LoadControl request failed ({type(e).__name__})")
         return skip_rest("blocked by the data path")
 
     try:
@@ -300,8 +336,12 @@ def run_full(district: str, base_url: str, username: str, password: str,
                    private=f"mark: {cd.mark} {cd.percent}")
     except ParentVueError as e:
         report.add("parse_assignments", "Assignment parser", FAIL,
-                   f"Gradebook_ClassDetails not returned ({e})")
+                   _portal_error_detail("Gradebook_ClassDetails", e),
+                   private=str(e)[:300])
         _dump("classdetails_error.html", e.response_text)
+    except requests.RequestException as e:
+        report.add("parse_assignments", "Assignment parser", FAIL,
+                   f"the Gradebook_ClassDetails request failed ({type(e).__name__})")
     except ParseError as e:
         report.add("parse_assignments", "Assignment parser", FAIL,
                    f"fragment fetched but not understood ({e}) — "
@@ -336,7 +376,7 @@ def render_markdown(report: Report) -> str:
         "",
         "| | |",
         "|---|---|",
-        f"| District host | `{report.district}` |",
+        f"| District host | `{_cell(report.district)}` |",
         f"| Tool | lastbell preflight v{report.version} |",
         f"| Date | {report.generated} |",
         f"| Mode | {report.mode} |",
@@ -346,13 +386,18 @@ def render_markdown(report: Report) -> str:
         "|---|---|---|",
     ]
     for c in report.checks:
-        lines.append(f"| {c.title} | {_ICONS[c.status]} {c.status} | {c.detail} |")
+        lines.append(f"| {c.title} | {_ICONS[c.status]} {c.status} | {_cell(c.detail)} |")
     lines += ["", f"> {VERDICT_TEXT[report.verdict]}",
               "",
               "_Generated by `lastbell preflight --report`. "
               "Checks are redacted by construction: no student names, grades, "
               "or usernames appear above._"]
     return "\n".join(lines)
+
+
+def _cell(text: str) -> str:
+    """One Markdown table cell: no pipes, no line breaks."""
+    return " ".join(str(text).replace("|", "\\|").split())
 
 
 def render_json(report: Report) -> str:
@@ -371,9 +416,25 @@ def render_json(report: Report) -> str:
 # ── entrypoint ────────────────────────────────────────────────────────
 
 
+def host_of(district: str) -> str:
+    """The bare hostname of whatever was typed: a pasted URL loses its
+    scheme, any user:pass@, path, and query (a gradebook URL carries the
+    student's id in it, and this string is printed in every report)."""
+    text = (district or "").strip()
+    if "://" not in text:
+        text = "https://" + text
+    try:
+        host = urlsplit(text).hostname or ""
+    except ValueError:
+        host = ""
+    if not host:  # not parseable as a URL: fall back to the old trimming
+        host = (district or "").replace("https://", "").replace("http://", "")
+        host = host.split("@")[-1].split("/")[0].split("?")[0].strip()
+    return host.lower()
+
+
 def _base_url(district: str) -> str:
-    host = district.replace("https://", "").replace("http://", "").strip("/")
-    return f"https://{host}"
+    return f"https://{host_of(district)}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -406,18 +467,28 @@ def main(argv: list[str] | None = None) -> int:
         args.username or os.environ.get("LASTBELL_USERNAME"))
     if username == "your_parentvue_username":  # the .env.example placeholder
         username = None
+    district = host_of(district)
+    if not district:
+        print("error: that district value has no hostname in it", file=sys.stderr)
+        return 2
     base = _base_url(district)
 
-    if username is None:
-        report = run_anonymous(district, base)
-    else:
-        backend = os.environ.get("LASTBELL_SECRET_BACKEND", "keyring")
-        try:
-            password = secretstore.get_password(username, backend)
-        except secretstore.SecretError:
-            password = secretstore.prompt_password()
-        dump_dir = paths.data_dir() / "debug" if args.dump else None
-        report = run_full(district, base, username, password, dump_dir=dump_dir)
+    try:
+        if username is None:
+            report = run_anonymous(district, base)
+        else:
+            backend = os.environ.get("LASTBELL_SECRET_BACKEND", "keyring")
+            try:
+                password = secretstore.get_password(username, backend)
+            except secretstore.SecretError:
+                password = secretstore.prompt_password()
+            dump_dir = paths.data_dir() / "debug" if args.dump else None
+            report = run_full(district, base, username, password, dump_dir=dump_dir)
+    except Exception as e:  # never a traceback: those get pasted into issues
+        print(f"error: the preflight couldn't finish ({type(e).__name__}). No report "
+              f"was produced. If it happens again, an issue with just that name and "
+              f"your district host is enough to start.", file=sys.stderr)
+        return 2
 
     if args.json:
         print(render_json(report))

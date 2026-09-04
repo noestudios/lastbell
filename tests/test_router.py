@@ -167,3 +167,27 @@ def test_send_test_uses_the_channel_transport(monkeypatch):
     (to, subject, body), = calls
     assert to == {"to": "mom@example.com"}
     assert subject == "Last Bell test" and "test message" in body
+
+
+@pytest.mark.parametrize("address", [
+    "kid@example.com, attacker@evil.com",
+    "Kid <kid@example.com>, attacker@evil.com",
+    "x: a@b.com, c@d.com;",
+    "kid@example.com\nBcc: x@evil.com",
+    "Kid <kid@example.com>",
+    "\"kid\"@example.com",
+    "kid@example.com@evil.com",
+    "kid@example",
+])
+def test_validate_address_means_one_bare_mailbox(address):
+    from lastbell import notify
+
+    with pytest.raises(ValueError):
+        notify.validate_address("email", address)
+
+
+def test_validate_address_accepts_ordinary_mailboxes():
+    from lastbell import notify
+
+    for ok in ("kid@example.com", "first.last+tag@sub.example.co.uk", " mom@example.com "):
+        assert notify.validate_address("email", ok) == ok.strip()

@@ -60,10 +60,19 @@ def validate_address(channel_name: str, address: str) -> str:
     """
     address = address.strip()
     if channel_name in ("email", "sms"):
+        # Exactly one bare mailbox. Anything an address parser would read as
+        # more than that — a comma-separated list, a display name, a group,
+        # a folded header — is refused, so one "address" can never fan an
+        # alert out to a second inbox the Settings table doesn't show.
+        from email.utils import getaddresses
+
+        parsed = getaddresses([address])
+        bad = (not address.isprintable() or any(ch in address for ch in ',;<>:"() ')
+               or len(parsed) != 1 or parsed[0][1] != address or parsed[0][0])
         local, sep, domain = address.partition("@")
-        if not sep or not local or "." not in domain:
+        if bad or not sep or not local or "." not in domain or "@" in domain:
             raise ValueError(
-                f"{address!r} doesn't look like an email address (name@example.com)")
+                f"{address!r} doesn't look like a single email address (name@example.com)")
         dead = DEAD_GATEWAYS.get(domain.lower())
         if dead:
             raise ValueError(

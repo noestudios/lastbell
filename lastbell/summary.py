@@ -22,7 +22,8 @@ from .notify import render
 
 
 def build(conn: sqlite3.Connection, student_id: str, initials: str,
-          *, lookahead_days: int = 7, today: date | None = None):
+          *, lookahead_days: int = 7, today: date | None = None,
+          grace_days: int = 3):
     """The summary body for one student: overall marks, open problems,
     what's coming, and the week's recent alerts. A ``render.Message``: plain
     text for every channel, with the HTML twin email attaches."""
@@ -100,7 +101,28 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
         html_groups.append((f"Due in the next {lookahead_days} days ({len(upcoming)})",
                             "Coming up", details))
 
-    all_clear = not (missing or past_due or upcoming)
+    # Work that was due in the last few days and is still ungraded sits in
+    # the grace window: not yet "past due" to the time rules, but gone from
+    # "due soon". The dashboard shows it as "yesterday"; so does the summary.
+    recent_due = conn.execute(
+        "SELECT a.name, a.due_date, c.title FROM assignments a "
+        "JOIN courses c ON c.id = a.course_id "
+        "WHERE c.student_id = ? AND a.status = 'due' "
+        "AND a.due_date IS NOT NULL AND a.due_date < ? AND a.due_date >= ? AND "
+        + store.NOT_SUPERSEDED_SQL + term_sql + " ORDER BY a.due_date",
+        (student_id, today.isoformat(),
+         (today - timedelta(days=grace_days)).isoformat()) + term_args
+    ).fetchall()
+    if recent_due:
+        lines.append(f"Due recently, not yet graded ({len(recent_due)}):")
+        for r in recent_due:
+            when = f"(was due {r['due_date']})"
+            lines.append(f"  • {compose(r['title'], when, r['name'])}")
+        html_groups.append((f"Due recently, not yet graded ({len(recent_due)})", "Slipping",
+                            [line(r["title"], r["name"], past_due_phrase(r["due_date"]))
+                             for r in recent_due]))
+
+    all_clear = not (missing or past_due or upcoming or recent_due)
     if all_clear:
         lines.append("Nothing missing, nothing overdue, nothing due soon. 🎉")
 
@@ -131,7 +153,7 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
 
 def send_due(conn: sqlite3.Connection, *, lookahead_days: int = 7,
              now: datetime | None = None,
-             channel_factory=notify.channel) -> tuple[int, list[str]]:
+             channel_factory=notify.channel, grace_days: int = 3) -> tuple[int, list[str]]:
     """Send every daily_summary subscription whose time has come today.
 
     Explicitly scheduled, so quiet hours don't apply — a 07:00 summary is a
@@ -139,6 +161,7 @@ def send_due(conn: sqlite3.Connection, *, lookahead_days: int = 7,
     """
     now = now or datetime.now()
     today_str = now.date().isoformat()
+    yesterday_str = (now.date() - timedelta(days=1)).isoformat()
     sent = 0
     warnings: list[str] = []
     transports: dict[str, notify.Channel] = {}
@@ -146,13 +169,20 @@ def send_due(conn: sqlite3.Connection, *, lookahead_days: int = 7,
     for sub in watchers.summary_subscriptions(conn):
         send_at = sub["send_at"] or "07:00"
         h, m = (int(x) for x in send_at.split(":"))
-        if (now.hour, now.minute) < (h, m) or sub["last_sent_on"] == today_str:
+        last = sub["last_sent_on"]
+        # Its slot today has passed, or a whole day was skipped (a poll that
+        # ran across midnight past a 23:55 slot, a service that was down):
+        # one summary is owed either way, and the day is never silently lost.
+        due_today = (now.hour, now.minute) >= (h, m)
+        owed = bool(last) and last < yesterday_str
+        if last == today_str or not (due_today or owed):
             continue
         addresses = json.loads(sub["watcher_channels"] or "{}")
         channel_names = (list(addresses) or ["console"]) \
             if sub["channel"] == watchers.ALL else [sub["channel"]]
         body = build(conn, sub["student_id"], sub["initials"],
-                     lookahead_days=lookahead_days, today=now.date())
+                     lookahead_days=lookahead_days, today=now.date(),
+                     grace_days=grace_days)
         subject = f"[Last Bell] Daily summary for {sub['initials'] or sub['agu']}"
         delivered = False
         for ch_name in channel_names:
