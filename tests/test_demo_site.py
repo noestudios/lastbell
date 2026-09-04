@@ -53,6 +53,8 @@ def test_site_has_every_page_and_no_root_links(site):
         assert not re.search(r"(href|src|action)='/[^l]", html), page   # only /lastbell/…
         assert "href='/lastbell/static/style.css'" in html
         assert "static demo of the Last Bell dashboard" in html
+        # The submit catcher precedes app.js so it registers first.
+        assert html.index("document.addEventListener('submit'") < html.index("static/app.js")
     home = (out / "index.html").read_text(encoding="utf-8")
     assert "Static demo built Sep 4" in home
     assert "Last checked" not in home
