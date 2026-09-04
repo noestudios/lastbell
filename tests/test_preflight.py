@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
 from lastbell import preflight
 from lastbell.client import LoginError, ParentVueError
@@ -13,7 +12,6 @@ from lastbell.preflight import (
     FAIL,
     PASS,
     SKIP,
-    WARN,
     Report,
     render_json,
     render_markdown,

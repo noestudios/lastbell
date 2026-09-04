@@ -26,7 +26,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable
 
 from . import paths
 
@@ -58,7 +58,7 @@ def _home() -> Path:
     return Path.home()
 
 
-def _run(cmd: List[str]) -> subprocess.CompletedProcess:
+def _run(cmd: list[str]) -> subprocess.CompletedProcess:
     """Run a system command, never raising: a missing binary comes back as a
     failed CompletedProcess so the caller reports it in one line."""
     try:
@@ -83,7 +83,7 @@ def _secret_backend() -> str:
         "LASTBELL_SECRET_BACKEND", "keyring")
 
 
-def _workdir() -> Optional[Path]:
+def _workdir() -> Path | None:
     """A checkout's `.env` only wins from its own directory, so a service
     installed from inside a checkout keeps running from there."""
     return Path.cwd() if Path(".env").is_file() else None
@@ -120,8 +120,8 @@ def plist_path() -> Path:
     return _home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 
 
-def systemd_unit(exe: str, workdir: Optional[Path] = None,
-                 log: Optional[Path] = None) -> str:
+def systemd_unit(exe: str, workdir: Path | None = None,
+                 log: Path | None = None) -> str:
     log = log or log_path()
     lines = [
         "[Unit]",
@@ -150,7 +150,7 @@ def systemd_unit(exe: str, workdir: Optional[Path] = None,
     return "\n".join(lines)
 
 
-def launchd_plist(exe: str, log: Path, workdir: Optional[Path] = None) -> str:
+def launchd_plist(exe: str, log: Path, workdir: Path | None = None) -> str:
     entry = {
         "Label": LABEL,
         "ProgramArguments": [exe, "run", "--loop"],
@@ -166,7 +166,7 @@ def launchd_plist(exe: str, log: Path, workdir: Optional[Path] = None) -> str:
     return plistlib.dumps(entry, sort_keys=False).decode("utf-8")
 
 
-def schtasks_commands(exe: str) -> List[str]:
+def schtasks_commands(exe: str) -> list[str]:
     return [
         f'schtasks /Create /F /SC ONLOGON /TN "{TASK_NAME}" '
         f'/TR "\\"{exe}\\" run --loop"',
@@ -177,7 +177,7 @@ def schtasks_commands(exe: str) -> List[str]:
 # ── install / uninstall ───────────────────────────────────────────────
 
 
-def _warnings(plat: str) -> List[str]:
+def _warnings(plat: str) -> list[str]:
     notes = []
     if _host_is_utc():
         notes.append(

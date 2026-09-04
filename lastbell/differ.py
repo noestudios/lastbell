@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Optional
 
 from .models import (
     SOURCE_CANVAS,
@@ -33,13 +32,51 @@ class Event:
     type: AlertType
     student_agu: str
     course_title: str
-    detail: str            # human-readable, low-PII (no full names)
+    detail: str            # the whole sentence — what plain-text channels carry
+    # The sentence's parts, so HTML renderers lay it out without parsing it
+    # back apart. Empty on an event built from the sentence alone.
+    item: str = ""         # assignment name; "" for course-level and term events
+    what: str = ""         # what happened: "is marked missing", "graded: 9/10", …
+    via: str = ""          # "Canvas" when the row came from Canvas
+
+    def as_dict(self) -> dict:
+        """The stored/queued form: the parts and the sentence."""
+        return {"course": self.course_title, "item": self.item, "what": self.what,
+                "via": self.via, "detail": self.detail}
+
+
+# ── the vocabulary, shared with the daily summary ─────────────────────
+
+MISSING_PHRASE = "is marked missing"
+
+
+def due_phrase(day: str) -> str:
+    return f"due {day}"
+
+
+def past_due_phrase(day: str | None, what: str = "still ungraded") -> str:
+    return (f"(was due {day}) " if day else "") + f"is {what}"
+
+
+def compose(course: str, what: str, item: str = "", via: str = "") -> str:
+    """The one sentence shape every alert line has: ``Course: “Item” what
+    [Canvas]``, with the course or the item absent where there is none."""
+    head = f"{course}: " if course else ""
+    body = f"“{item}” {what}".rstrip() if item else what
+    tail = f" [{via}]" if via else ""
+    return head + body + tail
+
+
+def event(type_: AlertType, student_agu: str, course: str, what: str, *,
+          item: str = "", via: str = "") -> Event:
+    return Event(type=type_, student_agu=student_agu, course_title=course,
+                 detail=compose(course, what, item, via), item=item, what=what, via=via)
 
 
 def apply_time_rules(
     snapshot: Snapshot,
     *,
-    today: Optional[date] = None,
+    today: date | None = None,
     grace_days: int = 3,
     lookahead_days: int = 7,
 ) -> Snapshot:
@@ -67,8 +104,8 @@ def apply_time_rules(
 
 
 def diff(
-    previous: Optional[Snapshot], current: Snapshot, *,
-    today: Optional[date] = None, grade_drop_points: float = 5.0,
+    previous: Snapshot | None, current: Snapshot, *,
+    today: date | None = None, grade_drop_points: float = 5.0,
 ) -> list[Event]:
     """Return the events implied by moving from ``previous`` to ``current``.
 
@@ -101,16 +138,13 @@ def diff(
             # type — one event either way, so a '*' subscriber isn't told twice.
             drop = _percent_drop(p, c)
             if drop is not None and drop >= grade_drop_points:
-                events.append(Event(
-                    type=AlertType.GRADE_DROP, student_agu=agu, course_title=c.title,
-                    detail=(f"{c.title}: overall DROPPED {drop:g} points: "
-                            f"{_overall(p)} → {_overall(c)}"),
-                ))
+                events.append(event(
+                    AlertType.GRADE_DROP, agu, c.title,
+                    f"overall DROPPED {drop:g} points: {_overall(p)} → {_overall(c)}"))
             else:
-                events.append(Event(
-                    type=AlertType.GRADE_CHANGED, student_agu=agu, course_title=c.title,
-                    detail=f"{c.title}: overall {_overall(p)} → {_overall(c)}",
-                ))
+                events.append(event(
+                    AlertType.GRADE_CHANGED, agu, c.title,
+                    f"overall {_overall(p)} → {_overall(c)}"))
 
     titles = {c.edupoint_gu: c.title for c in current.courses}
     prev_assignments = _by_gu(previous.assignments)
@@ -125,58 +159,48 @@ def diff(
             if twin is not None and conflicts(twin, a) and not (
                     p is not None and conflicts(
                         prev_assignments.get(a.superseded_by) or twin, p)):
-                events.append(Event(
-                    type=AlertType.SOURCE_CONFLICT, student_agu=agu, course_title=course,
-                    detail=(f"{course}: “{twin.name}” gradebook shows {_score(twin)} "
-                            f"but Canvas shows {_score(a)} — likely not synced yet; "
-                            f"worth checking with the teacher"),
-                ))
+                events.append(event(
+                    AlertType.SOURCE_CONFLICT, agu, course,
+                    f"gradebook shows {_score(twin)} but Canvas shows {_score(a)} "
+                    f"— likely not synced yet; worth checking with the teacher",
+                    item=twin.name))
             continue
         # Which app to open: a Canvas-sourced line says so, since the same
         # work won't be in the gradebook yet.
-        via = " [Canvas]" if a.source == SOURCE_CANVAS else ""
+        via = "Canvas" if a.source == SOURCE_CANVAS else ""
         if p is None:
             if (a.status is AssignmentStatus.DUE and a.due_date
                     and a.due_date >= today):
-                events.append(Event(
-                    type=AlertType.UPCOMING_DEADLINE, student_agu=agu,
-                    course_title=course,
-                    detail=f"{course}: “{a.name}” due {_day(a.due_date)}{via}",
-                ))
+                events.append(event(
+                    AlertType.UPCOMING_DEADLINE, agu, course,
+                    due_phrase(_day(a.due_date)), item=a.name, via=via))
             continue
         if (a.score, a.points) != (p.score, p.points):
             if p.score is None and a.score is not None:
-                detail = f"{course}: “{a.name}” graded: {_score(a)}{via}"
+                what = f"graded: {_score(a)}"
             else:
-                detail = (f"{course}: “{a.name}” score changed "
-                          f"{_score(p)} → {_score(a)}{via}")
-            events.append(Event(
-                type=AlertType.GRADE_CHANGED, student_agu=agu,
-                course_title=course, detail=detail,
-            ))
+                what = f"score changed {_score(p)} → {_score(a)}"
+            events.append(event(AlertType.GRADE_CHANGED, agu, course, what,
+                                item=a.name, via=via))
         if a.status is AssignmentStatus.MISSING and p.status is not AssignmentStatus.MISSING:
-            events.append(Event(
-                type=AlertType.ASSIGNMENT_MISSING, student_agu=agu, course_title=course,
-                detail=f"{course}: “{a.name}” is marked missing{via}",
-            ))
+            events.append(event(AlertType.ASSIGNMENT_MISSING, agu, course,
+                                MISSING_PHRASE, item=a.name, via=via))
         if (a.status is AssignmentStatus.UNGRADED_PAST_DUE
                 and p.status is not AssignmentStatus.UNGRADED_PAST_DUE):
-            due = f" (was due {_day(a.due_date)})" if a.due_date else ""
             what = "still ungraded"
             if a.source == SOURCE_CANVAS:
                 from .canvas import submits_online  # lazy: canvas imports models only
                 if submits_online(a):
                     what = "still not turned in"
-            events.append(Event(
-                type=AlertType.UNGRADED_PAST_DUE, student_agu=agu, course_title=course,
-                detail=f"{course}: “{a.name}”{due} is {what}{via}",
-            ))
+            events.append(event(
+                AlertType.UNGRADED_PAST_DUE, agu, course,
+                past_due_phrase(_day(a.due_date) if a.due_date else None, what),
+                item=a.name, via=via))
         if (a.status is AssignmentStatus.DUE
                 and p.status is AssignmentStatus.NOT_DUE and a.due_date):
-            events.append(Event(
-                type=AlertType.UPCOMING_DEADLINE, student_agu=agu, course_title=course,
-                detail=f"{course}: “{a.name}” due {_day(a.due_date)}{via}",
-            ))
+            events.append(event(
+                AlertType.UPCOMING_DEADLINE, agu, course,
+                due_phrase(_day(a.due_date)), item=a.name, via=via))
     return events
 
 
@@ -203,7 +227,7 @@ def _pct(a: Assignment) -> float:
     return float(a.score or 0.0)
 
 
-def term_rollover(previous: Optional[Snapshot], current: Snapshot) -> Optional[Event]:
+def term_rollover(previous: Snapshot | None, current: Snapshot) -> Event | None:
     """A one-shot final-grades summary when the marking period changes.
 
     The persisted term is the dedup: it only differs from the collected one on
@@ -222,12 +246,9 @@ def term_rollover(previous: Optional[Snapshot], current: Snapshot) -> Optional[E
                     key=lambda c: c.title)
     listing = "; ".join(f"{c.title} {_overall(c)}" for c in finals) \
         or "no courses recorded"
-    return Event(
-        type=AlertType.TERM_FINAL, student_agu=current.student_agu,
-        course_title="",
-        detail=f"{previous.term} closed — final grades: {listing} "
-               f"(now in {current.term})",
-    )
+    return event(AlertType.TERM_FINAL, current.student_agu, "",
+                 f"{previous.term} closed — final grades: {listing} "
+                 f"(now in {current.term})")
 
 
 def _day(d: date) -> str:
@@ -254,7 +275,7 @@ def _overall(c) -> str:
     return shown or c.mark or "n/a"
 
 
-def _percent_drop(prev, cur) -> Optional[float]:
+def _percent_drop(prev, cur) -> float | None:
     p, c = parse_percent(prev.percent), parse_percent(cur.percent)
     if p is None or c is None or c >= p:
         return None

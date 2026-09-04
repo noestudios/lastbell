@@ -17,7 +17,6 @@ import os
 import secrets as pysecrets
 import sys
 from pathlib import Path
-from typing import Optional
 
 from . import config as cfg
 from . import notify, paths, preflight, service
@@ -216,7 +215,7 @@ def _step_credentials(env_path: Path, env: dict) -> tuple:
         _say("  the settings-file option.")
         return username, ""
 
-    stored: Optional[str] = None
+    stored: str | None = None
     try:
         stored = secretstore.get_password(username, backend)
     except secretstore.SecretError:
@@ -270,7 +269,7 @@ def _step_verify(district: str, username: str, password: str) -> bool:
     return False
 
 
-def _step_notifications(env_path: Path, env: dict) -> Optional[tuple]:
+def _step_notifications(env_path: Path, env: dict) -> tuple | None:
     """Returns the chosen (channel, address-dict) for the default watcher,
     or None for console/dashboard-only."""
     _say("")
@@ -292,7 +291,7 @@ def _step_notifications(env_path: Path, env: dict) -> Optional[tuple]:
     return None
 
 
-def _setup_ntfy(env_path: Path) -> Optional[tuple]:
+def _setup_ntfy(env_path: Path) -> tuple | None:
     # The topic name is the only secret — generate an unguessable one.
     topic = f"lastbell-{pysecrets.token_urlsafe(12)}"
     _say("")
@@ -318,7 +317,7 @@ def _setup_ntfy(env_path: Path) -> Optional[tuple]:
              "then we'll resend.")
 
 
-def _setup_email(env_path: Path, env: dict) -> Optional[tuple]:
+def _setup_email(env_path: Path, env: dict) -> tuple | None:
     """Email over an SMTP account the parent owns. (Text message via the
     carriers' email-to-SMS gateways was withdrawn in 0.1.5: T-Mobile's and
     AT&T's are shut down and Verizon's is being retired, so some people
@@ -434,7 +433,7 @@ def _offer_service(unattended: bool) -> bool:
         return False
 
 
-def _step_first_run(username: str, chosen: Optional[tuple]) -> None:
+def _step_first_run(username: str, chosen: tuple | None) -> None:
     _say("")
     _say("Step 5 of 5 — the first collection.")
     _say("  The first run learns the current state of every gradebook; alerts")
@@ -455,11 +454,11 @@ def _step_first_run(username: str, chosen: Optional[tuple]) -> None:
         elif channel_name == "ntfy":
             # Email needs no fix-up (the first run seeds it from LASTBELL_SMTP_TO),
             # but an ntfy topic lives on the watcher, created by the first run.
-            _say(f"  after your first `lastbell run`, attach your topic with:")
+            _say("  after your first `lastbell run`, attach your topic with:")
             _say(f"      lastbell watcher set-channel {username} ntfy={address_str}")
 
 
-def main(argv: Optional[list] = None) -> int:
+def main(argv: list | None = None) -> int:
     if not _interactive():
         print("lastbell setup is interactive — run it in a terminal.",
               file=sys.stderr)

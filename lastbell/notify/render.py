@@ -20,9 +20,10 @@ Everything stays low-PII: initials, course, assignment — never a name.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Sequence
 from datetime import date
 from html import escape
-from typing import Iterable, Sequence
+from typing import Union
 
 # ── the carrier ───────────────────────────────────────────────────────
 
@@ -33,7 +34,7 @@ class Message(str):
 
     html: str
 
-    def __new__(cls, text: str, html: str = "") -> "Message":
+    def __new__(cls, text: str, html: str = "") -> Message:
         obj = super().__new__(cls, text)
         obj.html = html
         return obj
@@ -96,11 +97,21 @@ def subject(initials: Sequence[str], types: Iterable[str]) -> str:
 
 # ── one event line ────────────────────────────────────────────────────
 
+# A line is either the event's parts (``Event.as_dict()``: course, item,
+# what, via, detail) or just the sentence. Rows written before the parts
+# were stored carry only the sentence; these patterns take it back apart.
+Line = Union[str, dict]
+
 # “{course}: “{name}” {rest}” — the differ's assignment-level shape.
 _ASSIGNMENT = re.compile(r"^(?P<course>.+?): “(?P<name>[^”]*)”\s*(?P<rest>.*)$", re.S)
 # “{course}: overall …” — the course-level shape.
 _COURSE = re.compile(r"^(?P<course>.+?): (?P<rest>overall .*)$", re.S)
 _VIA = re.compile(r"\s*\[(Canvas)\]\s*$")
+
+
+def text_of(line: Line) -> str:
+    """The plain sentence for any line shape."""
+    return line if isinstance(line, str) else str(line.get("detail") or "")
 
 
 def _pill(label: str) -> str:
@@ -109,32 +120,42 @@ def _pill(label: str) -> str:
             f"line-height:18px;color:{_MUTED};vertical-align:1px\">{escape(label)}</span>")
 
 
-def item_html(detail: str) -> str:
+def item_html(line: Line) -> str:
     """One event as two short lines: the course, muted; then the assignment
-    in bold with what happened. A ``[Canvas]`` tail becomes a pill."""
+    in bold with what happened. A Canvas source becomes a pill."""
+    if isinstance(line, dict) and (line.get("item") or line.get("what")):
+        return _parts_html(line.get("course") or "", line.get("item") or "",
+                           line.get("what") or "", line.get("via") or "")
+    detail = text_of(line)
     via = ""
     m = _VIA.search(detail)
     if m:
-        via, detail = _pill(m.group(1)), detail[:m.start()]
+        via, detail = m.group(1), detail[:m.start()]
     m = _ASSIGNMENT.match(detail)
     if m:
-        course, name, rest = m.group("course"), m.group("name"), m.group("rest")
-        return (f"<div style=\"font-size:12px;color:{_MUTED}\">{escape(course)}</div>"
-                f"<div><strong>{escape(name)}</strong> {escape(rest)}{via}</div>")
+        return _parts_html(m.group("course"), m.group("name"), m.group("rest"), via)
     m = _COURSE.match(detail)
     if m:
-        return (f"<div style=\"font-size:12px;color:{_MUTED}\">{escape(m.group('course'))}</div>"
-                f"<div>{escape(m.group('rest'))}{via}</div>")
-    return f"<div>{escape(detail)}{via}</div>"
+        return _parts_html(m.group("course"), "", m.group("rest"), via)
+    return _parts_html("", "", detail, via)
+
+
+def _parts_html(course: str, item: str, what: str, via: str) -> str:
+    pill = _pill(via) if via else ""
+    head = (f"<div style=\"font-size:12px;color:{_MUTED}\">{escape(course)}</div>"
+            if course else "")
+    if item:
+        return f"{head}<div><strong>{escape(item)}</strong> {escape(what)}{pill}</div>"
+    return f"{head}<div>{escape(what)}{pill}</div>"
 
 
 # ── alerts (poll events, digests) ─────────────────────────────────────
 
-Item = tuple[str, str]   # (alert_type, detail)
+Item = tuple[str, Line]   # (alert_type, the line: parts or sentence)
 
 
-def _grouped(items: Iterable[Item]) -> list[tuple[str, list[str]]]:
-    groups: dict[str, list[str]] = {}
+def _grouped(items: Iterable[Item]) -> list[tuple[str, list[Line]]]:
+    groups: dict[str, list[Line]] = {}
     for alert_type, detail in items:
         groups.setdefault(_kind(alert_type)[0], []).append(detail)
     return [(g, groups[g]) for g in _GROUP_ORDER if g in groups]
@@ -153,7 +174,7 @@ def alerts(sections: Sequence[tuple[str, Sequence[Item]]], *, title: str = "") -
                          f"{escape(initials)}</h2>")
         for group, details in _grouped(items):
             lines.append(f"{'  ' if many else ''}{group}")
-            lines.extend(f"{'  ' if many else ''}  • {d}" for d in details)
+            lines.extend(f"{'  ' if many else ''}  • {text_of(d)}" for d in details)
             parts.append(_group_html(group, [item_html(d) for d in details]))
         lines.append("")
     text = "\n".join(lines).rstrip()
@@ -177,11 +198,11 @@ def _group_html(label: str, rows: list[str]) -> str:
 
 
 def summary_html(initials: str, today: date, overall: Sequence[tuple[str, str]],
-                 groups: Sequence[tuple[str, str, Sequence[str]]],
-                 recent: Sequence[str], all_clear: bool) -> str:
+                 groups: Sequence[tuple[str, str, Sequence[Line]]],
+                 recent: Sequence[Line], all_clear: bool) -> str:
     """``overall`` is ``[(course, shown grade)]``; ``groups`` is
-    ``[(label, color-key, [event-style detail lines])]``; ``recent`` are alert
-    details from the past week."""
+    ``[(label, color-key, [event lines])]``; ``recent`` are alert lines from
+    the past week. Lines are event parts or sentences (see ``Line``)."""
     parts = [f"<div style=\"font-size:12px;color:{_MUTED};margin:0 0 12px\">"
              f"{escape(today.strftime('%A, %B ') + str(today.day))}</div>"]
     if overall:

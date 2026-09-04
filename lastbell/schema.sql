@@ -121,7 +121,8 @@ CREATE TABLE IF NOT EXISTS outbox (
     channel    TEXT NOT NULL,
     student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
     alert_type TEXT NOT NULL,
-    detail     TEXT NOT NULL,
+    detail     TEXT NOT NULL,             -- the sentence (dedup key, listings)
+    body       TEXT NOT NULL DEFAULT '',  -- json: the sentence's parts (Event.as_dict)
     queued_at  TEXT NOT NULL DEFAULT (datetime('now')),
     send_after TEXT NOT NULL,             -- local ISO timestamp when eligible
     sent_at    TEXT

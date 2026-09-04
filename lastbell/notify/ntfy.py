@@ -21,7 +21,7 @@ class NtfyChannel:
     token: str = ""
 
     @classmethod
-    def from_env(cls) -> "NtfyChannel":
+    def from_env(cls) -> NtfyChannel:
         return cls(
             server=os.environ.get("LASTBELL_NTFY_SERVER", "https://ntfy.sh").rstrip("/"),
             token=os.environ.get("LASTBELL_NTFY_TOKEN", ""),

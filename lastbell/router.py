@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from . import notify, watchers
 from .differ import Event
 from .models import URGENT_ALERT_TYPES
+from .notify import render
 
 
 @dataclass
@@ -128,13 +129,10 @@ def dispatch(deliveries: list[Delivery], student_initials: str,
 
 
 def subject(student_initials: str, events: list[Event]) -> str:
-    from .notify import render
-
     return render.subject([student_initials], [e.type.value for e in events])
 
 
-def body(student_initials: str, events: list[Event]) -> "render.Message":
-    from .notify import render
-
-    return render.alerts([(student_initials, [(e.type.value, e.detail) for e in events])],
-                         title=f"Updates for {student_initials}")
+def body(student_initials: str, events: list[Event]) -> render.Message:
+    return render.alerts(
+        [(student_initials, [(e.type.value, e.as_dict()) for e in events])],
+        title=f"Updates for {student_initials}")

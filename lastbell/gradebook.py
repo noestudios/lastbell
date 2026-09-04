@@ -27,7 +27,6 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from html import unescape
-from typing import Optional
 
 from .models import Assignment, AssignmentStatus
 
@@ -147,7 +146,7 @@ def parse_school_classes(html: str) -> SchoolClasses:
         tid = re.search(r"data-teacher-id='(\d+)'", seg)
 
         # Secondary-school class rows carry period/title/room/score cells.
-        def cell(cls: str) -> str:
+        def cell(cls: str, seg: str = seg) -> str:
             c = re.search(rf'class="[^"]*\b{cls}\b[^"]*"[^>]*>(.*?)</', seg, re.DOTALL)
             return _text(c.group(1)) if c else ""
 
@@ -222,7 +221,7 @@ def _extract_datasource(html: str) -> list[dict]:
 _NUM = re.compile(r"-?\d+(?:\.\d+)?")
 
 
-def _first_number(raw) -> Optional[float]:
+def _first_number(raw) -> float | None:
     if raw is None:
         return None
     if isinstance(raw, (int, float)):
@@ -231,7 +230,7 @@ def _first_number(raw) -> Optional[float]:
     return float(m.group(0)) if m else None
 
 
-def _parse_date(raw) -> Optional[date]:
+def _parse_date(raw) -> date | None:
     if not raw:
         return None
     s = _text(str(raw))

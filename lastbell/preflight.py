@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from html import escape
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 
 import requests
 
@@ -192,8 +192,8 @@ def run_anonymous(district: str, base_url: str,
 
 
 def run_full(district: str, base_url: str, username: str, password: str,
-             *, client: Optional[ParentVueClient] = None,
-             dump_dir: Optional[Path] = None,
+             *, client: ParentVueClient | None = None,
+             dump_dir: Path | None = None,
              get: Callable = requests.get,
              post: Callable = requests.post) -> Report:
     from .gradebook import ParseError, parse_class_details, parse_school_classes
@@ -325,8 +325,8 @@ def render_markdown(report: Report) -> str:
     lines = [
         "### ParentVUE district compatibility report",
         "",
-        f"| | |",
-        f"|---|---|",
+        "| | |",
+        "|---|---|",
         f"| District host | `{report.district}` |",
         f"| Tool | lastbell preflight v{report.version} |",
         f"| Date | {report.generated} |",
@@ -367,7 +367,7 @@ def _base_url(district: str) -> str:
     return f"https://{host}"
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="lastbell preflight",
         description="ParentVUE district go/no-go check — redacted, shareable output.")

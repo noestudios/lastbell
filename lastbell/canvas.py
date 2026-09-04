@@ -47,9 +47,10 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from html import unescape
-from typing import Callable, Iterable, Optional
+from collections.abc import Iterable
+from typing import Callable
 from urllib.parse import urlparse
 
 import requests
@@ -108,7 +109,7 @@ class CanvasClient:
     """Read-only Canvas REST calls over a session cookie (the SAML hop) or a
     personal access token (``Authorization: Bearer``)."""
 
-    def __init__(self, host: str, *, session: Optional[requests.Session] = None,
+    def __init__(self, host: str, *, session: requests.Session | None = None,
                  token: str = "", delay_s: float = CALL_DELAY_S) -> None:
         self.host = host
         self.base = f"https://{host}"
@@ -159,10 +160,10 @@ _SAML_FORM = re.compile(r"<form[^>]+action=\"([^\"]+)\"[^>]*>(.*?)</form>", re.I
 _INPUT = re.compile(r'<input[^>]+name="([^"]+)"[^>]*value="([^"]*)"', re.I)
 
 
-def discover_launch_url(pv: ParentVueClient) -> Optional[str]:
+def discover_launch_url(pv: ParentVueClient) -> str | None:
     """The Canvas entry link on the portal's Launch Pad, or None when the
     district hasn't put one there."""
-    for title, url in pv.launch_pad_links():
+    for _title, url in pv.launch_pad_links():
         if _CANVAS_HINT.search(url):
             return url
     return None
@@ -187,16 +188,22 @@ def saml_login(session: requests.Session, launch_url: str) -> str:
     return host
 
 
-def connect(pv: Optional[ParentVueClient], *, host: str = "", token: str = "",
+def connect(pv: ParentVueClient | None, *, host: str = "", token: str = "",
             delay_s: float = CALL_DELAY_S) -> CanvasClient:
     """A signed-in client. Token + host → bearer auth, no portal hop.
     Otherwise ride the portal session through the Launch Pad link (``host``
-    optionally pins which link to expect)."""
+    optionally pins which link to expect).
+
+    The hop runs on a *copy* of the portal session: this is called under a
+    wall-clock deadline, and a hand-off that is abandoned mid-flight must
+    not keep using the connection pool the gradebook poll goes on with."""
     if token and host:
         client = CanvasClient(host, token=token, delay_s=delay_s)
     else:
         if pv is None:
             raise CanvasError("no ParentVUE session to hand off from")
+        pv.login()
+        pv = pv.clone()
         launch = discover_launch_url(pv)
         if launch is None:
             raise CanvasError("no Canvas link on the portal's home page "
@@ -204,7 +211,6 @@ def connect(pv: Optional[ParentVueClient], *, host: str = "", token: str = "",
         if host and host not in launch:
             raise CanvasError(f"the portal's Canvas link points at "
                               f"{urlparse(launch).netloc}, not LASTBELL_CANVAS_HOST")
-        pv.login()
         found = saml_login(pv.session, launch)
         client = CanvasClient(host or found, session=pv.session, delay_s=delay_s)
     me = client.get("/api/v1/users/self")
@@ -273,7 +279,7 @@ def norm_title(title: str) -> str:
     return re.sub(r"[^a-z0-9]", "", _PERIOD_PREFIX.sub("", title).lower())
 
 
-def match_course(canvas_name: str, courses: Iterable[Course]) -> Optional[Course]:
+def match_course(canvas_name: str, courses: Iterable[Course]) -> Course | None:
     """The ParentVUE course this Canvas course is: by normalized title, or
     failing that by the teacher's surname when the student has exactly one
     class with that teacher. Teachers who share one Canvas shell across
@@ -302,7 +308,7 @@ def _surname(teacher: str) -> str:
 # ── assignments ───────────────────────────────────────────────────────
 
 
-def _local_date(iso: Optional[str]) -> Optional[date]:
+def _local_date(iso: str | None) -> date | None:
     """Canvas timestamps are UTC ISO-8601; a due date of 03:59:59Z is 11:59pm
     the previous evening in Maryland, so convert to the local calendar."""
     if not iso:
@@ -326,7 +332,7 @@ def keep_assignment(a: dict) -> bool:
     return bool(a.get("due_at")) or points > 0
 
 
-def to_assignment(a: dict, course_gu: str, kinds: Optional[dict] = None) -> Assignment:
+def to_assignment(a: dict, course_gu: str, kinds: dict | None = None) -> Assignment:
     """Normalize one Canvas assignment (+ the observed student's submission)."""
     sub = a.get("submission") or {}
     score = sub.get("score")
@@ -384,20 +390,27 @@ class CanvasCollection:
     errors: list[str] = field(default_factory=list)
 
 
+def fetch_courses(client: CanvasClient) -> list:
+    """Every active course this observer can see, with the observed-user
+    enrollments and the term — fetched once per poll and shared by every
+    student's ``collect``."""
+    return client.get("/api/v1/courses", per_page=100,
+                      **{"enrollment_state": "active",
+                         "include[]": ["observed_users", "term"]})
+
+
 def observees(client: CanvasClient) -> list[Observee]:
     return [Observee(id=int(o["id"]), name=o.get("sortable_name") or o.get("name", ""))
             for o in client.get("/api/v1/users/self/observees", per_page=50)]
 
 
 def collect(client: CanvasClient, observee: Observee, *,
-            courses_cache: Optional[list] = None) -> CanvasCollection:
+            courses_cache: list | None = None) -> CanvasCollection:
     """Every active course this observer watches for ``observee``, with its
     kept assignments. One course failing is reported, not fatal."""
     out = CanvasCollection(observee=observee)
     if courses_cache is None:
-        courses_cache = client.get("/api/v1/courses", per_page=100,
-                                   **{"enrollment_state": "active",
-                                      "include[]": ["observed_users", "term"]})
+        courses_cache = fetch_courses(client)
     for c in courses_cache:
         enrollments = c.get("enrollments") or []
         if not any(e.get("associated_user_id") == observee.id for e in enrollments):
@@ -518,26 +531,39 @@ class CanvasLayer:
         self.warn = warn
         self.skip = list(skip)
         self._by_agu = match_students(children, observees(client))
-        self._courses: Optional[list] = None
+        self._courses: list | None = None
 
     @property
     def matched(self) -> dict[str, Observee]:
         return dict(self._by_agu)
 
-    def apply(self, snapshot: Snapshot) -> Optional[dict]:
-        obs = self._by_agu.get(snapshot.student_agu)
+    def collect_for(self, student_agu: str) -> CanvasCollection | None:
+        """The network half: this student's Canvas courses and work, or None
+        when they have no Canvas match or Canvas failed (warned). Safe to
+        run under a deadline — it touches nothing but Canvas."""
+        obs = self._by_agu.get(student_agu)
         if obs is None:
             return None
         try:
             if self._courses is None:
-                self._courses = self.client.get(
-                    "/api/v1/courses", per_page=100,
-                    **{"enrollment_state": "active",
-                       "include[]": ["observed_users", "term"]})
+                self._courses = fetch_courses(self.client)
             col = collect(self.client, obs, courses_cache=self._courses)
         except CanvasError as e:
             self.warn(f"Canvas: {e} — this poll used the gradebook only")
             return None
         for err in col.errors:
             self.warn(f"Canvas: {err} — that course was skipped this poll")
-        return merge(snapshot, col, skip=self.skip)
+        return col
+
+    def merge(self, snapshot: Snapshot, collection: CanvasCollection) -> dict:
+        """The in-place half. Call it on the thread that owns the snapshot,
+        only after ``collect_for`` has returned — a collection abandoned by
+        its deadline never gets to touch the snapshot the poll persists."""
+        return merge(snapshot, collection, skip=self.skip)
+
+    def apply(self, snapshot: Snapshot) -> dict | None:
+        """``collect_for`` then ``merge``, for callers with no deadline."""
+        col = self.collect_for(snapshot.student_agu)
+        if col is None:
+            return None
+        return self.merge(snapshot, col)

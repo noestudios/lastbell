@@ -10,7 +10,6 @@ a public page.
 from __future__ import annotations
 
 import re
-from typing import Tuple
 
 from . import __version__
 
@@ -22,7 +21,7 @@ class UpdateCheckError(RuntimeError):
     """PyPI couldn't be reached or didn't answer sensibly."""
 
 
-def _parse(version: str) -> Tuple[list, bool]:
+def _parse(version: str) -> tuple[list, bool]:
     """Numeric parts plus whether a pre-release tail (rc1, .dev0) follows."""
     parts = re.match(r"^(\d+(?:\.\d+)*)(.*)$", version.strip())
     if not parts:
@@ -67,7 +66,7 @@ def latest_version(timeout: float = 5.0) -> str:
     return latest
 
 
-def check() -> Tuple[str, str]:
+def check() -> tuple[str, str]:
     """(status, latest) — status from ``compare``. Raises UpdateCheckError."""
     latest = latest_version()
     return compare(__version__, latest), latest

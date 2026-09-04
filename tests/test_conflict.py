@@ -2,7 +2,6 @@
 disagreement is said once (differ) and shown (dashboard)."""
 from __future__ import annotations
 
-import datetime
 
 import pytest
 

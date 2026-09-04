@@ -32,7 +32,6 @@ import re
 import unicodedata
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 _DATA_PATH = Path(__file__).with_name("mcps_schools.json")
 
@@ -126,7 +125,7 @@ def _index() -> tuple[dict[str, str], dict[str, str]]:
     return full, loose
 
 
-def school_url(name: str) -> Optional[str]:
+def school_url(name: str) -> str | None:
     """The school's own website (or the MCPS overview page as a fallback) for a
     ParentVUE school name; ``None`` when unknown, ambiguous, or empty."""
     key = _key(name)

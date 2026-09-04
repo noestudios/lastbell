@@ -21,7 +21,7 @@ delivering over the email transport rather than silently breaking.
 """
 from __future__ import annotations
 
-from typing import Optional, Protocol
+from typing import Protocol
 
 
 class Notifier(Protocol):

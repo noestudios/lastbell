@@ -16,7 +16,6 @@ import json
 import re
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from typing import Optional
 
 import requests
 
@@ -99,7 +98,7 @@ class ParentVueClient:
         username: str,
         password: str,
         *,
-        session: Optional[requests.Session] = None,
+        session: requests.Session | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.username = username
@@ -107,6 +106,19 @@ class ParentVueClient:
         self.session = session or requests.Session()
         self.session.headers["User-Agent"] = USER_AGENT
         self._logged_in = False
+
+    def clone(self) -> ParentVueClient:
+        """A second client on a *copy* of this one's session (cookies and
+        headers) — for work that runs on another thread. ``requests.Session``
+        is not thread-safe, and a Canvas hand-off abandoned by its deadline
+        must not keep sharing a socket pool with the poll that carried on."""
+        session = requests.Session()
+        session.headers.update(self.session.headers)
+        session.cookies.update(self.session.cookies)
+        twin = ParentVueClient(self.base_url, self.username, self._password,
+                               session=session)
+        twin._logged_in = self._logged_in
+        return twin
 
     # ── auth ──────────────────────────────────────────────────────────
     def login(self) -> None:
@@ -207,6 +219,7 @@ class ParentVueClient:
         nested pad whose ``module`` is the child pad's GU, URL = external."""
         self.login()
         r = self.session.get(f"{self.base_url}/PXP2_LaunchPad.aspx", timeout=30)
+        r.raise_for_status()
         m = re.search(r'<launch-pad identity="([^"]+)"', r.text)
         if not m:
             return []

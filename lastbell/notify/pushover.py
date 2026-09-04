@@ -18,7 +18,7 @@ class PushoverChannel:
     token: str
 
     @classmethod
-    def from_env(cls) -> "PushoverChannel":
+    def from_env(cls) -> PushoverChannel:
         token = os.environ.get("LASTBELL_PUSHOVER_TOKEN")
         if not token:
             raise ValueError(
