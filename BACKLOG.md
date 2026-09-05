@@ -56,3 +56,14 @@ override as one optional column on the same card. Decide separately, and
 on purpose, whether a "score fell below the line" alert type is wanted —
 today nothing alerts on it and the digest already carries the grade.
 Interim fix if needed sooner: two README lines in the configuration table.
+
+## `lastbell upgrade`: no newer release, no restart
+`lastbell upgrade` restarts the poller and the dashboard after every pipx
+call, even when pipx answers "lastbell is already at latest version"
+(`upgrade.run` in `lastbell/upgrade.py` only branches on the wording, not
+on whether to restart). A restart with nothing new interrupts a poll for
+no reason. When picked up: restart only when the installed version after
+pipx is newer than before, or when the running copy is older than what's
+installed (the "restart to use it" case `lastbell status` already
+detects); otherwise say "nothing to restart" and stop. `--restart-only`
+stays the explicit way to force one. (Added 2026-09-05.)
