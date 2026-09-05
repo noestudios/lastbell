@@ -283,15 +283,18 @@ code { background: var(--surface-2); padding: 0.1rem 0.35rem; border-radius: 6px
 
 /* Overview: student and course names are links and must read as links —
  * the same soft underline as the strip's filters. Course names deep-link
- * to the student page scoped to that course. */
+ * to the student page scoped to that course. History's assignment and
+ * course names deep-link the same way, and wear the same underline. */
 .card .cardname a,
-table.courses td a {
+table.courses td a,
+table.history td a {
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--accent-strong) 40%, transparent);
   text-underline-offset: 3px;
 }
 .card .cardname a:hover,
-table.courses td a:hover { text-decoration-color: currentColor; }
+table.courses td a:hover,
+table.history td a:hover { text-decoration-color: currentColor; }
 /* Breathing room between the school line and the status badges. */
 .card .cardname + .small { margin-bottom: 0.55rem; }
 /* The school name links out to the school's own site — the app's only outbound

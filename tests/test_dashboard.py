@@ -312,6 +312,7 @@ def test_history_page(populated):
     assert "8/10 → 9/10" in html      # score and points read as one grade
     # the assignment links to the student page scoped to its class
     assert "href='/student/1?view=everything&course=709775'>Fractions Quiz</a>" in html
+    assert "<table class='history' aria-label='Assignments'>" in html   # style.css underlines its links
 
 
 def test_settings_page(populated):
