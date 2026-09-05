@@ -4,6 +4,44 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.2.14 — 2026-09-05
+
+**The student page holds still, the Settings page keeps your edits, and
+a course grade shows wherever the portal put it.**
+
+- **View cards and course filters switch in place.** The four cards
+  (Needs attention, Due soon, Recent grades, Everything) and the All
+  Courses filters were links that loaded a new page, which started at
+  the top. Now a click swaps the strip, cards and panel where they
+  stand; the URL, tab title and back button follow as before, and the
+  strip stays open or closed as you had it. With JavaScript off they
+  are ordinary links, as they were.
+- **The cards tell the filtered course's story.** Under a course filter
+  every number on the cards was the whole student's while the panel
+  below was one course's. Now the counts, the weekly change, the
+  next-due lines and the last ten scores are the course's, with the
+  whole-student figure alongside ("3 of 19 overall"), and the
+  Everything card becomes the course grade with the course's own
+  trajectory.
+- **Settings: one Save / Discard per table.** Each row had its own
+  Update button, and pressing one threw away every other row's unsaved
+  edits. Now a Save changes / Discard bar appears under the Watchers
+  and Subscriptions tables once anything differs; Save writes every
+  changed row in one go and leaves untouched rows alone.
+- **Course grades read the portal's two slots as one.** At interim time
+  MCPS can put a number in the letter-grade slot with no percent, or
+  "N/A" with a 0 percent for nothing graded yet. The first showed as a
+  dash and the second as "0.0 N/A", a failing grade that isn't one. Now
+  a numeric mark is the percent, a placeholder is no grade, and the
+  strip, the overview, the Everything cards, the daily summary and the
+  grade-drop check all read them the same way. A flip back to the
+  placeholder no longer fires a grade drop. Storage is unchanged.
+- **The CLI explains itself.** `lastbell` alone prints the help instead
+  of an error; `--help` groups the commands the way a parent reaches
+  for them; the dashboard line names `--show-key`, and `lastbell
+  status` on a network-bound install says that command prints the
+  phone link.
+
 ## 0.2.13 — 2026-09-05
 
 Two small follow-ups to 0.2.12's History page. Its assignment and course
