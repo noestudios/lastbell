@@ -80,10 +80,25 @@
 
   function trackDirty(e) {
     var form = e.target && e.target.form;
-    if (form && form.classList.contains("rowform")) {
+    if (form && (form.classList.contains("rowform") ||
+                 form.classList.contains("sectionform"))) {
       form.classList.toggle("dirty", isDirty(form));
     }
   }
+
+  /* Discard on a section form is a native reset: every bound field snaps
+   * back to what the server rendered. The reset lands after this event,
+   * so the dirty flag (and the multiselect labels) refresh on the next
+   * tick. */
+  document.addEventListener("reset", function (e) {
+    var form = e.target;
+    if (!form || !form.classList || !form.classList.contains("sectionform")) return;
+    setTimeout(function () {
+      form.classList.remove("dirty");
+      Array.prototype.forEach.call(
+        document.querySelectorAll("details.msel"), refreshTypeLabel);
+    }, 0);
+  });
 
   /* ── row exit (removals) ────────────────────────────────────────────
    * Fade the row on the base tier, then collapse its height on the slow
@@ -384,11 +399,30 @@
    * summary mirrors the selection. Registered before trackDirty so the
    * dirty scan sees the reconciled checkboxes. Open popovers (this
    * multiselect and the nav student menu) close on an outside click. */
+  // The field is 'type' in the add form and 'r<n>-type' in a section form.
+  function isTypeField(el) {
+    return !!el && typeof el.name === "string" && /(^|-)type$/.test(el.name);
+  }
+
+  function typeBoxes(det) {
+    return Array.prototype.filter.call(
+      det.querySelectorAll("input[type='checkbox']"), isTypeField);
+  }
+
+  function refreshTypeLabel(det) {
+    var boxes = typeBoxes(det);
+    var all = boxes.filter(function (b) { return b.value === "*"; })[0];
+    var sel = boxes.filter(function (b) { return b.checked; });
+    det.querySelector("summary").textContent =
+      (all && all.checked) ? "all alerts"
+        : sel.length === 1 ? sel[0].parentNode.textContent.trim()
+          : sel.length + " types";
+  }
+
   function onTypeToggle(cb) {
     var det = cb.closest("details.msel");
     if (!det) return;
-    var boxes = Array.prototype.slice.call(
-      det.querySelectorAll("input[name='type']"));
+    var boxes = typeBoxes(det);
     var all = boxes.filter(function (b) { return b.value === "*"; })[0];
     if (cb === all && cb.checked) {
       boxes.forEach(function (b) { if (b !== all) b.checked = false; });
@@ -398,15 +432,11 @@
     if (!boxes.some(function (b) { return b.checked; }) && all) {
       all.checked = true;
     }
-    var sel = boxes.filter(function (b) { return b.checked; });
-    det.querySelector("summary").textContent =
-      (all && all.checked) ? "all alerts"
-        : sel.length === 1 ? sel[0].parentNode.textContent.trim()
-          : sel.length + " types";
+    refreshTypeLabel(det);
   }
 
   document.addEventListener("change", function (e) {
-    if (e.target && e.target.name === "type") onTypeToggle(e.target);
+    if (isTypeField(e.target)) onTypeToggle(e.target);
   });
   document.addEventListener("click", function (e) {
     Array.prototype.forEach.call(

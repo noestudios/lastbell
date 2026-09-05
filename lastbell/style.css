@@ -406,7 +406,7 @@ form.edit input { max-width: 13rem; }
   color: var(--text-muted);
   min-width: 4.6rem;
 }
-form.edit button, form.rowform button {
+form.edit button, form.rowform button, form.sectionform button {
   font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -423,9 +423,11 @@ form.edit button, form.rowform button {
               transform var(--dur-fast) var(--ease);
 }
 form.edit button:hover,
-form.rowform button:hover { background: var(--accent-strong); }
+form.rowform button:hover,
+form.sectionform button:hover { background: var(--accent-strong); }
 form.edit button:active,
-form.rowform button:active { transform: translateY(1px); }
+form.rowform button:active,
+form.sectionform button:active { transform: translateY(1px); }
 
 /* Update buttons earn their place: absent until the row's fields differ
  * from what the server rendered — app.js toggles .dirty on the row form.
@@ -437,6 +439,19 @@ form.rowform button:active { transform: translateY(1px); }
 form.rowform button.upd { display: none; }
 form.rowform.dirty button.upd {
   display: inline-block;
+  animation: upd-in var(--dur-fast) var(--ease);
+}
+
+/* A manage table's one Save / Discard bar: the same rule at section
+ * scale — absent until any bound field differs, then it fades in under
+ * the table, hugging the right edge with the row action buttons. */
+form.sectionform { display: none; }
+form.sectionform.dirty {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.7rem;
   animation: upd-in var(--dur-fast) var(--ease);
 }
 

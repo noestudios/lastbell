@@ -5,6 +5,7 @@ import hmac
 import ipaddress
 import os
 import socket
+import re
 import sqlite3
 from html import escape
 from http.cookies import SimpleCookie
@@ -136,6 +137,14 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
         "<p>That address doesn't go anywhere. "
         "<a href='/'>Back to the overview</a>.</p>",
         nav_students=students)
+
+
+def _row_prefixes(form: dict) -> list[str]:
+    """The per-row field prefixes a section form posted (r0, r1, …), in row
+    order: a manage table's rows bind to one form with prefixed names."""
+    seen = sorted({int(m.group(1)) for k in form
+                   for m in [re.match(r"r(\d+)-", k)] if m})
+    return [f"r{n}" for n in seen]
 
 
 def _handle_settings_post(conn: sqlite3.Connection, action: str,
@@ -278,6 +287,64 @@ def _handle_settings_post(conn: sqlite3.Connection, action: str,
             return done(f"Subscribed {w.name} to {target_desc}"
                         + (f" — {n} subscriptions" if n > 1 else ""),
                         tuple(f"row-sub-{i}" for i in added))
+        if action == "channels-save":
+            # Every address row of the Watchers table in one post; only the
+            # rows whose address differs from what's saved are written, so
+            # an untouched row can't fail validation or churn.
+            changed = []
+            for r in _row_prefixes(form):
+                w = watchermod.require_watcher(conn, val(f"{r}-watcher"))
+                cname = val(f"{r}-channel")
+                key = notify.ADDRESS_KEY.get(cname)
+                if key is None:
+                    continue
+                saved = (w.channels.get(cname) or {}).get(key, "")
+                to = val(f"{r}-to")
+                if to == saved:
+                    continue
+                if not to:
+                    raise watchermod.WatcherError(
+                        f"{w.name}'s {chlabel.get(cname, cname)} channel needs an address")
+                to = notify.validate_address(cname, to)
+                watchermod.set_channels(conn, w.name, {cname: {key: to}})
+                changed.append(f"{w.name}'s {chlabel.get(cname, cname)}: {to}")
+            if not changed:
+                return done("No changes to save")
+            if len(changed) == 1:
+                return done(f"Updated {changed[0]}")
+            return done(f"Updated {len(changed)} addresses")
+        if action == "subscriptions-save":
+            # Every row of the Subscriptions table in one post; a row is
+            # rewritten only when its posted values differ from what's saved
+            # (rewriting churns ids, and the daily-summary sent-marker hangs
+            # off the id).
+            current = {s.id: s for s in watchermod.list_subscriptions(conn)}
+            changed = []
+            for r in _row_prefixes(form):
+                ids = [i for i in val(f"{r}-ids").split(",") if i]
+                subs = [current[i] for i in ids if i in current]
+                if not subs:
+                    continue                      # removed since the page loaded
+                types = vals(f"{r}-type") or ["*"]
+                if "*" in types:
+                    types = ["*"]
+                channel = val(f"{r}-channel") or "*"
+                at = val(f"{r}-at") or None
+                urgent = bool(val(f"{r}-urgent"))
+                first = subs[0]
+                if (sorted(set(types)) == sorted({s.alert_type for s in subs})
+                        and channel == first.channel and at == first.send_at
+                        and urgent == bool(first.urgent_now)):
+                    continue
+                watchermod.set_subscription_group(
+                    conn, [s.id for s in subs], types, channel, at, urgent_now=urgent)
+                changed.append(f"{first.watcher_name}'s subscription for "
+                               f"{first.student_name}")
+            if not changed:
+                return done("No changes to save")
+            if len(changed) == 1:
+                return done(f"Updated {changed[0]}")
+            return done(f"Updated {len(changed)} subscriptions")
         if action == "subscription-update":
             ids = [i for i in val("ids").split(",") if i]
             named = next((s for s in watchermod.list_subscriptions(conn)
