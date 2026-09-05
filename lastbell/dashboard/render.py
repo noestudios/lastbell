@@ -71,15 +71,6 @@ _STATUS_ROWS = {
 }
 
 
-def _score_cutoff() -> float | None:
-    """The global display threshold (decision 4): graded scores below it tint
-    bad. Display-only — nothing alerts on it. 0 or empty disables."""
-    try:
-        value = float(os.environ.get("LASTBELL_SCORE_CUTOFF", "70"))
-    except ValueError:
-        return None
-    return value if value > 0 else None
-
 # The theme lives in style.css next to this module (design tokens extracted
 # from the Purity UI Dashboard template) and is served at /static/style.css.
 # app.js is the page's one script: settings-form niceties (dirty tracking,
@@ -381,9 +372,9 @@ def _grade(course) -> tuple[str, str]:
     return ("" if value is None else f"{value:.1f}"), mark
 
 
-def _score(row) -> str:
+def _score(row, cutoff: int) -> str:
     """Assignment score as a percentage (one decimal), raw points in a styled
-    tooltip. A score below the global cutoff tints bad (Phase C signal).
+    tooltip. A score below the household cutoff tints bad (Phase C signal).
 
     No points value (or zero, e.g. extra credit) means no denominator to
     percent against — those show the raw score.
@@ -394,11 +385,14 @@ def _score(row) -> str:
         return escape(f"{row['score']:g}")
     raw = f"{row['score']:g}/{row['points']:g}"
     pct = row["score"] / row["points"] * 100
-    return _tip(f"{pct:.1f}%", raw, extra_class=_low_class(pct))
+    return _tip(f"{pct:.1f}%", raw, extra_class=_low_class(pct, cutoff))
 
 
-def _low_class(pct: float | None) -> str:
-    cutoff = _score_cutoff()
+def _low_class(pct: float | None, cutoff: int) -> str:
+    """The tint class for a graded percent. ``cutoff`` is the household
+    setting (Settings → Display), read once per request into the page
+    context as ``ctx["display"]["score_cutoff"]``; 0 means no tint. Display
+    only — nothing alerts on it."""
     return "low" if pct is not None and cutoff and pct < cutoff else ""
 
 
@@ -883,6 +877,7 @@ def _view_recent(student, ctx) -> str:
                 + ("<col class='c-course'>" if with_course else "")
                 + "<col class='c-score'><col class='c-raw'></colgroup>")
     out, last = [], None
+    cutoff = ctx["display"]["score_cutoff"]
     for r in rows[:20]:
         d = date.fromisoformat(r["graded_on"][:10])
         if d != last:
@@ -893,7 +888,7 @@ def _view_recent(student, ctx) -> str:
         if r["points"] and r["score"] is not None:
             pval = r["score"] / r["points"] * 100
             pct, raw = f"{pval:.1f}%", f"{r['score']:g}/{r['points']:g}"
-            low = _low_class(pval)
+            low = _low_class(pval, cutoff)
         else:
             pct = f"{r['score']:g}" if r["score"] is not None else "—"
             raw = "—"
@@ -950,12 +945,14 @@ def _course_card(course, rows, ctx) -> str:
                     key=lambda r: r["graded_on"] or r["due_date"] or "",
                     reverse=True)
 
+    cutoff = ctx["display"]["score_cutoff"]
+
     def tr(a) -> str:
         attrs, lead = _row_mark(a["status"])
         return (f"<tr{attrs}><td>{lead}{escape(a['name'])}{_src(a)}{_twin(a)}</td>"
                 f"<td data-label='Type'>{escape(a['kind'] or '—')}</td>"
                 f"<td data-label='Due'>{escape(a['due_date'] or '—')}</td>"
-                f"<td class='num' data-label='Score'>{_score(a)}</td>"
+                f"<td class='num' data-label='Score'>{_score(a, cutoff)}</td>"
                 f"<td data-label='Status'>{_badge(a['status'])}</td></tr>")
 
     visible = upcoming + missing + late + graded[:5]

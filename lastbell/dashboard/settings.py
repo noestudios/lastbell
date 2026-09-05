@@ -1,10 +1,12 @@
-"""The Settings page: watcher and subscription CRUD as plain HTML forms
-(the dashboard's only write paths — see ``server`` for the handlers)."""
+"""The Settings page: the Display card (household settings the app keeps
+itself) and watcher/subscription CRUD, all plain HTML forms (the dashboard's
+only write paths — see ``server`` for the handlers)."""
 from __future__ import annotations
 
 from html import escape
 
 from .. import __version__, updates
+from ..settings import SCORE_CUTOFF_DEFAULT, SCORE_CUTOFF_MAX
 
 from .render import (
     _REPO_URL,
@@ -52,6 +54,29 @@ def _section_save(fid: str, action: str, label: str) -> str:
             f"<button type='reset' class='ghost'>Discard</button></form>")
 
 
+def _display_card(display: dict) -> str:
+    """The Display card: how the pages look — the first setting the app
+    keeps itself (0.3.0). One field, the score-tint cutoff, bound to its own
+    section Save/Discard bar like every other table on the page. Household-
+    wide for now; nothing alerts on it."""
+    cutoff = int(display.get("score_cutoff") or 0)
+    return (
+        "<div class='card tablecard' id='display'><h2>Display</h2>"
+        "<div class='field'>"
+        "<label for='score-cutoff'>Tint scores below</label>"
+        "<input id='score-cutoff' type='number' name='score_cutoff' "
+        f"min='0' max='{SCORE_CUTOFF_MAX}' step='1' inputmode='numeric' "
+        f"value='{cutoff}' form='display-save' autocomplete='off' "
+        "aria-describedby='score-cutoff-help'>"
+        "<span class='unit'>%</span></div>"
+        "<p class='small' id='score-cutoff-help'>Graded assignments under this "
+        "percent are tinted on the student pages. 70 is a C on the MCPS "
+        "scale. Nothing alerts on it. 0 (or blank) turns the tint off.</p>"
+        + _section_save("display-save", "/settings/display-save",
+                        "Save the display settings")
+        + "</div>")
+
+
 def _options(pairs, selected="") -> str:
     """``<option>`` list from (value, label) pairs."""
     return "".join(
@@ -61,14 +86,18 @@ def _options(pairs, selected="") -> str:
 
 
 def render_settings(watcher_list, subscriptions, students=(),
-                    error="", notice="", installed: str | None = None) -> str:
-    """The Settings page: full watcher/subscription CRUD as plain HTML forms.
-    These are the dashboard's only write paths; they carry no auth of their
-    own — the bind address is the access control. Env-owned config (poll
-    cadence, thresholds) is deliberately absent: if it can't be changed from
-    here, it isn't shown here.
+                    error="", notice="", installed: str | None = None,
+                    display: dict | None = None) -> str:
+    """The Settings page: the Display card, then full watcher/subscription
+    CRUD, all as plain HTML forms. These are the dashboard's only write
+    paths; they carry no auth of their own — the bind address is the access
+    control. Env-owned config (poll cadence, thresholds) is deliberately
+    absent: if it can't be changed from here, it isn't shown here.
+    ``display`` is the household display settings dict (``settings.display``).
     """
     from .. import notify
+
+    d_card = _display_card(display or {"score_cutoff": SCORE_CUTOFF_DEFAULT})
 
     watcher_opts = [(w.name, w.name) for w in watcher_list]
     # The web UI offers email only (owner's call 2026-09-02: text message via
@@ -298,7 +327,7 @@ def render_settings(watcher_list, subscriptions, students=(),
     # settings-main is the region app.js swaps in place after a fetch-based
     # form post — banner, cards, and toast all live inside it.
     return _page("Settings", "<h1>Settings</h1><div id='settings-main'>"
-                 + banner + w_card + s_card + toast + "</div>" + credit,
+                 + banner + d_card + w_card + s_card + toast + "</div>" + credit,
                  nav_students=students, path="/settings")
 
 

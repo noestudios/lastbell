@@ -398,6 +398,27 @@ td input {
   padding: 0.28rem 0.5rem;
 }
 form.edit input { max-width: 13rem; }
+/* A settings field that is a value, not a row to add: label, control, unit
+ * on one line, in the same inset panel as the add forms. */
+.field {
+  display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center;
+  margin: 0.15rem 0 0.6rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+}
+.field label { font-size: 0.78rem; font-weight: 600; }
+.field input {
+  font: inherit;
+  font-size: 0.78rem;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.28rem 0.5rem;
+  width: 5rem;
+}
+.field .unit { font-size: 0.78rem; color: var(--text-muted); }
 .formtitle {
   font-size: 0.65rem;
   font-weight: 700;
@@ -989,7 +1010,7 @@ tr.st-due     > td { background: color-mix(in srgb, var(--warn) 4%, transparent)
        color: var(--text-muted); vertical-align: 1px; }
 .src.twin { border-color: var(--warn); color: var(--warn-ink); }
 
-/* A graded score below the global cutoff (LASTBELL_SCORE_CUTOFF). */
+/* A graded score below the household cutoff (Settings → Display). */
 .low { color: var(--bad-ink); font-weight: 700; }
 
 /* Badge click-through (?status=…#hit): matching rows pulse accent and decay

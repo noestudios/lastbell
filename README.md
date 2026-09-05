@@ -602,9 +602,17 @@ exception, and the wizard states the trade-off before taking it:
 | Docker         | `LASTBELL_PASSWORD_FILE` naming a Docker secret (`/run/secrets/…`); likewise `LASTBELL_PASSWORD_SMTP_FILE` and `LASTBELL_CANVAS_TOKEN_FILE` |
 | CI             | `LASTBELL_PASSWORD` from the CI secret store |
 
-The tunables that shape alerts: `LASTBELL_POLL_MINUTES` (180),
-`LASTBELL_LOOKAHEAD_DAYS` (7), `LASTBELL_UNGRADED_GRACE_DAYS` (3),
-`LASTBELL_GRADE_DROP_POINTS` (5). Each is documented in `.env.example`.
+The tunables, and where each one is set:
+
+| Setting | Default | Where it lives |
+|---------|---------|----------------|
+| `LASTBELL_POLL_MINUTES` | 180 | the settings file |
+| `LASTBELL_LOOKAHEAD_DAYS` | 7 | the settings file |
+| `LASTBELL_UNGRADED_GRACE_DAYS` | 3 | the settings file |
+| `LASTBELL_GRADE_DROP_POINTS` | 5 | the settings file |
+| Score tint cutoff — graded work under this percent is tinted on the student pages; display only, nothing alerts on it | 70 (`0` = off) | **Settings page → Display.** `LASTBELL_SCORE_CUTOFF` only seeds it: once a value is saved on the page, the variable is ignored. |
+
+Each of the file-based ones is documented in `.env.example`.
 
 Cross-platform by construction: plain Python (Windows/macOS/Linux), no OS-native
 hooks. SQLite by default; ship it as a container to run identically on a Pi, NAS,

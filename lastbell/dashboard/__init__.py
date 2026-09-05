@@ -3,9 +3,9 @@
 The dashboard is for *looking things up on demand* — alerts are always pushed
 out, so nobody has to open this to find out something changed. It's stdlib
 ``http.server`` over the same SQLite file the watch loop writes: no framework,
-no build step. Pages are SELECTs; the only write paths are the
-watcher/subscription forms on /settings (``POST /settings/<action>``) —
-household bookkeeping only, never grade data.
+no build step. Pages are SELECTs; the only write paths are the forms on
+/settings (``POST /settings/<action>``): watchers, subscriptions, and the
+Display card's household settings — bookkeeping only, never grade data.
 
 It binds 127.0.0.1 by default. To share it on your LAN set
 LASTBELL_DASHBOARD_HOST=0.0.0.0 — and know that unlike alert payloads it

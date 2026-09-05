@@ -214,6 +214,7 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
     ``hl`` is the ?status= highlight from an overview badge click-through;
     ``strip_open`` (?strip=open) keeps All Courses expanded on a page that
     would otherwise collapse it — the clear-filter link carries it."""
+    from .. import settings
     from ..models import course_grade
 
     today = today or date.today()
@@ -298,6 +299,9 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
     ctx = {
         "view": view, "course_gu": course_gu, "hl": hl,
         "strip_open": strip_open, "today": today, "term": term,
+        # Display settings, read once here: the cell renderers below take
+        # the cutoff from the context rather than opening a connection.
+        "display": settings.display(conn),
         "strip": strip, "deltas": deltas,
         "problems": scoped(problems), "due": scoped(due),
         "recent": scoped(graded),

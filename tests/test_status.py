@@ -283,3 +283,23 @@ def test_cli_status_prints_the_report(world, capsys):
     import argparse
     assert cli._cmd_status(argparse.Namespace()) == 0
     assert "Paste this when reporting a problem" in capsys.readouterr().out
+
+
+def test_report_says_where_the_score_tint_comes_from(world, monkeypatch):
+    from lastbell import settings as household
+
+    conn = _db(world["home"])
+    monkeypatch.delenv("LASTBELL_SCORE_CUTOFF", raising=False)
+    text = "\n".join(status.report(NOW))
+    assert ("Score tint: below 70% — the default; change it on the Settings page "
+            "(Display)") in text
+    monkeypatch.setenv("LASTBELL_SCORE_CUTOFF", "85")
+    text = "\n".join(status.report(NOW))
+    assert ("Score tint: below 85% — seeded from LASTBELL_SCORE_CUTOFF until it is "
+            "saved on the Settings page (Display)") in text
+    household.set_score_cutoff(conn, 0)                 # saved on the page
+    conn.close()
+    text = "\n".join(status.report(NOW))
+    assert ("Score tint: off — saved on the Settings page (Display); "
+            "LASTBELL_SCORE_CUTOFF in the environment is ignored — it only seeds "
+            "the setting") in text

@@ -202,6 +202,27 @@ def _alerts_line(conf: cfg.Config) -> str:
     return chan
 
 
+def _score_tint_lines(conn: sqlite3.Connection) -> list[str]:
+    """The one setting the app keeps itself, and where its value came from:
+    the Settings page owns it, and LASTBELL_SCORE_CUTOFF only seeds it."""
+    from . import settings
+
+    try:
+        value, source = settings.score_cutoff_with_source(conn)
+    except sqlite3.OperationalError:          # a database from before 0.1.5
+        return []
+    what = f"below {value}%" if value else "off"
+    if source == settings.FROM_DATABASE:
+        how = ("saved on the Settings page (Display); LASTBELL_SCORE_CUTOFF in "
+               "the environment is ignored — it only seeds the setting")
+    elif source == settings.FROM_ENVIRONMENT:
+        how = ("seeded from LASTBELL_SCORE_CUTOFF until it is saved on the "
+               "Settings page (Display)")
+    else:
+        how = "the default; change it on the Settings page (Display)"
+    return [f"Score tint: {what} — {how}"]
+
+
 def _db_section(conf: cfg.Config, now: datetime) -> list[str]:
     from . import health, outbox, store, watchers
     from .collector import initials_of
@@ -258,6 +279,7 @@ def _db_section(conf: cfg.Config, now: datetime) -> list[str]:
         n = len(rows)
         lines.append(f"Students: {n} ({', '.join(initials.values())})" if n
                      else "Students: none yet (they appear after the first check)")
+        lines += _score_tint_lines(conn)
 
         subs: dict = {}
         for s in watchers.list_subscriptions(conn):
