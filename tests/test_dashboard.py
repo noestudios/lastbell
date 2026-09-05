@@ -1602,6 +1602,18 @@ def test_display_save_zero_or_blank_turns_the_tint_off(populated, monkeypatch):
     assert target == "/settings?ok=" + quote("No changes to save")
 
 
+def test_display_save_of_the_seed_value_pins_it_in_the_database(populated, monkeypatch):
+    # Saving the same number the env var seeds still writes the database:
+    # the person wants the page in charge, so a later env change is ignored.
+    monkeypatch.setenv("LASTBELL_SCORE_CUTOFF", "85")
+    assert store.get_meta(populated, "setting.score_cutoff") is None
+    status, target = _display_post(populated, "85")
+    assert target == "/settings?ok=" + quote("Scores below 85% are tinted")
+    assert store.get_meta(populated, "setting.score_cutoff") == "85"
+    monkeypatch.setenv("LASTBELL_SCORE_CUTOFF", "0")
+    assert household.score_cutoff(populated) == 85
+
+
 def test_display_save_out_of_range_is_a_banner_and_writes_nothing(populated):
     for bad in ("101", "-5", "abc", "70.5"):
         status, target = _display_post(populated, bad)

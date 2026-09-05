@@ -200,7 +200,8 @@ def _handle_settings_post(conn: sqlite3.Connection, action: str,
             # database, and from then on the LASTBELL_SCORE_CUTOFF seed is
             # ignored. A bad value is a SettingError (a ValueError) → banner.
             new = settings.parse_score_cutoff(val("score_cutoff"))
-            if new == settings.score_cutoff(conn):
+            current, source = settings.score_cutoff_with_source(conn)
+            if new == current and source == settings.FROM_DATABASE:
                 return done("No changes to save")
             settings.set_score_cutoff(conn, new)
             return done(settings.describe_score_cutoff(new))
