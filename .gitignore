@@ -39,3 +39,6 @@ dist/
 .idea/
 .vscode/
 _site/
+
+# Handoff briefs stay local
+.claude/HANDOFF*.md
