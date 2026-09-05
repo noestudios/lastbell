@@ -4,6 +4,13 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.2.13 — 2026-09-05
+
+Two small follow-ups to 0.2.12's History page. Its assignment and course
+links now wear the same soft underline as every other in-app link, and
+the Course grades rows link to the student's Everything view, as the
+assignment rows already did.
+
 ## 0.2.12 — 2026-09-05
 
 **History reads one line per event.** A grade used to land on the
