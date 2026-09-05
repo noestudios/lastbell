@@ -469,6 +469,7 @@ def test_history_filters_by_class_and_change(conn):
     # Filter to percent (course) changes: the reverse.
     _, html = _get(conn, "/history?field=percent")
     assert "85.00% → 92.00%" in html and "Assignments" not in html
+    assert "href='/student/1?view=everything&course=c1'>Algebra</a>" in html
 
     # Class + change compose, preserving each other in the links.
     _, html = _get(conn, "/history?course=" + quote("Algebra") + "&field=score")
