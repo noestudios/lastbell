@@ -103,3 +103,19 @@ def test_send_due_wildcard_channel_uses_all_addresses(conn):
     assert sent == 2
     assert {tuple(c[0].items()) for c in ch.calls} == \
         {(("to", "m@x.com"),), (("topic", "t"),)}
+
+
+def test_summary_reads_a_number_in_the_mark_slot_as_a_percent(conn):
+    """The portal parks the number in the mark slot for some courses; the
+    overall line must read it as the percent it is."""
+    store.persist_snapshot(
+        conn, Student(agu="1", name="Jasper P. Hays", school="Example ES",
+                      initials="J.P.H."),
+        Snapshot(student_agu="1", courses=[
+            Course(edupoint_gu="c1", title="Math", term="MP1",
+                   mark="B+", percent="87.20%"),
+            Course(edupoint_gu="c2", title="Chemistry", term="MP1",
+                   mark="81", percent="")]))
+    body = summary.build(conn, "1", "J.P.H.", today=TODAY)
+    assert "Chemistry 81.0%" in body
+    assert "Chemistry 81.0% (81)" not in body    # the number is not also a mark

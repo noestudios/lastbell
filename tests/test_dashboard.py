@@ -1335,3 +1335,103 @@ def test_alerts_type_filter_is_never_reflected_as_html(conn):
     assert status == 200 and payload not in html and "&lt;img" not in html
     status, html = _get(conn, "/alerts?type=assignment_missing")
     assert status == 200 and "assignment missing alerts" in html
+
+
+# ── the portal's two grade slots, filled unevenly ─────────────────────
+
+
+def _strip_row(html: str, title: str) -> str:
+    """The course strip's row for one course, isolated from the page."""
+    rows = [r for r in html.split("<tr") if f">{title}" in r
+            and "data-label='Grade'" in r]
+    assert len(rows) == 1, f"expected one strip row for {title}, got {len(rows)}"
+    return rows[0]
+
+
+def _overview_row(html: str, title: str) -> str:
+    rows = [r for r in html.split("<tr") if f">{title}<" in r
+            and "data-label='Teacher'" in r]
+    assert len(rows) == 1, f"expected one overview row for {title}"
+    return rows[0]
+
+
+@pytest.fixture
+def uneven(conn):
+    """The two shapes MCPS shows at interim time, plus an ordinary course:
+    a number parked in the MARK slot with no percent, and "N/A" with a 0
+    percent for a course nothing has been graded in yet."""
+    _persist(conn, "1",
+             [Course(edupoint_gu="g1", title="Chemistry", term="MP1",
+                     mark="81", percent=""),
+              Course(edupoint_gu="g2", title="Band", term="MP1",
+                     mark="N/A", percent="0.0"),
+              Course(edupoint_gu="g3", title="Latin", term="MP1",
+                     mark="A", percent="90.00%")],
+             [], term="MP1")
+    return conn
+
+
+def test_course_strip_reads_both_grade_slots(uneven):
+    _, html = _get(uneven, "/student/1")
+    chem = _strip_row(html, "Chemistry")
+    assert "<td data-label='Grade'><span><strong>81.0</strong></span></td>" in chem
+    assert chem.count("81") == 1        # the number is the grade, not also a mark
+
+    band = _strip_row(html, "Band")
+    assert "<td data-label='Grade'><span class='small'>—</span></td>" in band
+    assert "N/A" not in band and "0.0" not in band   # never a failing-looking 0
+
+    latin = _strip_row(html, "Latin")
+    assert ("<td data-label='Grade'><span><strong>90.0</strong> "
+            "<span class='small'>A</span></span></td>") in latin
+
+
+def test_overview_reads_both_grade_slots(uneven):
+    _, html = _get(uneven, "/")
+    chem = _overview_row(html, "Chemistry")
+    assert "data-label='%'>81.0</td>" in chem
+    assert "data-label='Mark'>—</td>" in chem
+    band = _overview_row(html, "Band")
+    assert "data-label='%'>—</td>" in band and "data-label='Mark'>—</td>" in band
+    assert "N/A" not in band and "0.0" not in band
+    latin = _overview_row(html, "Latin")
+    assert "data-label='%'>90.0</td>" in latin and "data-label='Mark'>A</td>" in latin
+
+
+def test_scoped_card_reads_a_number_in_the_mark_slot(uneven):
+    """The Everything card's course grade comes from the same helper, so a
+    mark-slot number is the card's big figure — with no mark beside it."""
+    _, html = _get(uneven, "/student/1?course=g1")
+    cards = html[html.index("class='stats'"):html.index("</div>", html.index("class='stats'"))]
+    assert "81.0<span class='unit'>%" in cards
+    assert "course grade" in cards and "course grade ·" not in cards
+    # …and the ungraded course's card is a dash, not a zero
+    _, html = _get(uneven, "/student/1?course=g2")
+    cards = html[html.index("class='stats'"):html.index("</div>", html.index("class='stats'"))]
+    assert "course grade" in cards and "0.0<span class='unit'>%" not in cards
+
+
+def test_everything_view_headers_read_both_grade_slots(uneven):
+    _, html = _get(uneven, "/student/1?view=everything")
+    cards = {t: c for c in html.split("<div class='card tablecard'>")
+             for t in ("Chemistry", "Band", "Latin") if f"<h2>{t}" in c}
+    assert "badge muted'>81.0%</span>" in cards["Chemistry"]
+    assert "badge muted'>90.0% · A</span>" in cards["Latin"]
+    # Nothing graded yet: no grade badge at all, rather than "0.0% · N/A"
+    assert "badge muted" not in cards["Band"]
+
+
+def test_two_week_delta_follows_the_mark_slot_history(conn):
+    """A course whose number lives in the mark slot leaves its trail in
+    course_history's 'mark' rows, not 'percent' — the strip's 2-week delta
+    has to read that trail or the column stays blank forever."""
+    other = Course(edupoint_gu="g2", title="Latin", term="MP1",
+                   mark="A", percent="90.00%")      # the strip needs 2 courses
+    for mark in ("99", "87"):
+        _persist(conn, "1", [Course(edupoint_gu="g1", title="Chemistry",
+                                    term="MP1", mark=mark, percent=""), other],
+                 [], term="MP1")
+    _, html = _get(conn, "/student/1")
+    chem = _strip_row(html, "Chemistry")
+    assert "<strong>87.0</strong>" in chem
+    assert "delta down" in chem and "-12.0" in chem

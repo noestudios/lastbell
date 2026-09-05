@@ -128,6 +128,15 @@ def fetch_percent_history(conn, student_id: str, term: str = "") -> dict[str, li
         "JOIN courses c ON c.id = h.course_id", student_id, term, "percent")
 
 
+def fetch_mark_history(conn, student_id: str, term: str = "") -> dict[str, list]:
+    """course_id -> the course's *mark* changes, ascending. The portal
+    sometimes puts the number in the mark slot and leaves percent empty; for
+    those courses this, not the percent history, is the grade trajectory."""
+    return _fetch_change_rows(
+        conn, "course_history", "course_id",
+        "JOIN courses c ON c.id = h.course_id", student_id, term, "mark")
+
+
 def fetch_status_history(conn, student_id: str, term: str = "") -> dict[str, list]:
     """assignment_id -> the assignment's status transitions, ascending."""
     return _fetch_change_rows(
@@ -150,6 +159,30 @@ def _value_at(rows: list, day: str):
                 value = old
             break
     return value
+
+
+def _grade_history(course, phist: dict[str, list],
+                   mhist: dict[str, list]) -> tuple[list, bool]:
+    """The history rows that carry this course's grade, and which slot they
+    came from. Normally the percent rows; for a course whose number sits in
+    the mark slot (percent empty), the mark rows."""
+    from ..models import parse_percent
+
+    if (parse_percent(course["percent"]) is None
+            and parse_percent(course["mark"]) is not None):
+        return mhist.get(course["id"], []), True
+    return phist.get(course["id"], []), False
+
+
+def _historic_grade(raw, from_mark: bool) -> float | None:
+    """One historic value read the way ``course_grade`` reads a live course:
+    a bare 0 in the percent slot with no mark is the portal's "nothing graded
+    yet", not a zero."""
+    from ..models import course_grade
+
+    if raw is None:
+        return None
+    return course_grade(raw, "")[0] if from_mark else course_grade("", raw)[0]
 
 
 def _problem_series(rows, transitions: dict[str, list],
@@ -181,7 +214,7 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
     ``hl`` is the ?status= highlight from an overview badge click-through;
     ``strip_open`` (?strip=open) keeps All Courses expanded on a page that
     would otherwise collapse it — the clear-filter link carries it."""
-    from ..models import parse_percent
+    from ..models import course_grade
 
     today = today or date.today()
     view = view if view in _VIEWS else "problems"
@@ -206,15 +239,18 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
         (r for r in rows if r["status"] == "graded" and r["graded_on"]),
         key=lambda r: r["graded_on"], reverse=True)
 
-    # Course strip: 2-week percent deltas from course_history.
+    # Course strip: 2-week percent deltas from course_history — from the
+    # mark rows for a course whose number lives in the mark slot.
     phist = fetch_percent_history(conn, sid, term)
+    mhist = fetch_mark_history(conn, sid, term)
     cutoff = (today - timedelta(days=14)).isoformat()
     deltas: dict[str, tuple] = {}
     percents = []
     for c in strip:
-        cur = parse_percent(c["percent"])
-        hrows = phist.get(c["id"], [])
-        base = parse_percent(_value_at(hrows, cutoff)) if hrows else cur
+        cur = course_grade(c["mark"], c["percent"])[0]
+        hrows, from_mark = _grade_history(c, phist, mhist)
+        base = (_historic_grade(_value_at(hrows, cutoff), from_mark)
+                if hrows else cur)
         deltas[c["id"]] = (cur, base if base is not None else cur)
         if cur is not None:
             percents.append(cur)
@@ -244,14 +280,16 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
                 for i in range(7, -1, -1)]:
         vals = []
         for c in card_courses:
-            hrows = phist.get(c["id"], [])
-            v = (parse_percent(_value_at(hrows, day)) if hrows
-                 else parse_percent(c["percent"]))
+            hrows, from_mark = _grade_history(c, phist, mhist)
+            v = (_historic_grade(_value_at(hrows, day), from_mark) if hrows
+                 else course_grade(c["mark"], c["percent"])[0])
             if v is not None:
                 vals.append(v)
         if vals:
             tseries.append(sum(vals) / len(vals))
-    course_pct = parse_percent(scoped_course["percent"]) if scoped_course else None
+    course_pct, course_mark = (
+        course_grade(scoped_course["mark"], scoped_course["percent"])
+        if scoped_course else (None, ""))
 
     # Recent card: the last 10 graded scores — the leading indicator.
     pcts10 = [r["score"] / r["points"] * 100
@@ -274,6 +312,7 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
             "term_series": tseries, "courses": len(strip),
             # Scoped only: the course's grade as the Everything card's story.
             "course": scoped_course, "course_pct": course_pct,
+            "course_mark": course_mark,
         },
     }
     if view == "everything":

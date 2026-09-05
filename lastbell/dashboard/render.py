@@ -367,12 +367,18 @@ def _when_html(utc_iso: str, today: date | None = None) -> str:
     return _tip(escape(words), dt.strftime("%Y-%m-%d %H:%M %Z").strip())
 
 
-def _pct(raw: str) -> str:
-    """Course percent for display: one decimal place, or a dash."""
-    from ..models import format_percent
+def _grade(course) -> tuple[str, str]:
+    """A course's overall grade for display: (percent text, mark). The portal
+    fills the two slots unevenly (a number in the mark slot with no percent;
+    "N/A"/0 for nothing graded yet) — ``course_grade`` is the one place that
+    decides what a pair means, and every grade cell on the page reads it
+    through here. Either half may be "": the caller decides how to lay out
+    percent-only, mark-only, and neither."""
+    from ..models import course_grade
 
-    formatted = format_percent(raw)
-    return formatted if formatted is not None else (raw or "—")
+    value, mark = course_grade(course["mark"], course["percent"])
+    # One decimal, the same display rule ``format_percent`` states.
+    return ("" if value is None else f"{value:.1f}"), mark
 
 
 def _score(row) -> str:
@@ -456,9 +462,9 @@ def render_overview(students, courses_by_student, counts_by_student,
             f"<tr><td><a href='/student/{escape(s['agu'])}"
             f"?course={quote(c['edupoint_gu'])}'>{escape(c['title'])}</a></td>"
             f"<td data-label='Teacher'>{escape(c['teacher'])}</td>"
-            f"<td class='num' data-label='%'>{escape(_pct(c['percent']))}</td>"
-            f"<td data-label='Mark'>{escape(c['mark'] or '—')}</td></tr>"
-            for c in courses)
+            f"<td class='num' data-label='%'>{escape(pct or '—')}</td>"
+            f"<td data-label='Mark'>{escape(mark or '—')}</td></tr>"
+            for c, (pct, mark) in ((c, _grade(c)) for c in courses))
         # Badges deep-link into the student page's views: one mechanism,
         # several doors ("1 missing" → the Problems view).
         base = f"/student/{escape(s['agu'])}"
@@ -683,7 +689,8 @@ def _stat_cards(student, ctx) -> str:
         # of the per-course trend chart in BACKLOG's "Grade trends").
         big = (f"{c['course_pct']:.1f}<span class='unit'>%</span>"
                if c["course_pct"] is not None else "—")
-        e_ctx = "course grade" + (f" · {escape(course['mark'])}" if course["mark"] else "")
+        e_ctx = "course grade" + (f" · {escape(c['course_mark'])}"
+                                  if c["course_mark"] else "")
         e_extra = (_spark_line(ts, "var(--edge)",
                                label=f"{course['title']} grade trend: {ts[0]:.1f} "
                                      f"to {ts[-1]:.1f} percent")
@@ -716,12 +723,19 @@ def _course_strip(student, ctx) -> str:
             "&strip=open" if active else f"&course={quote(gu)}")
         tip = ("show all courses" if active
                else f"show only {c['title']} in this view")
-        pct = _pct(c["percent"]) if c["percent"] else ""
+        pct, mark = _grade(c)
         # One wrapping span per cell: the stacked (phone) layout flexes a
         # labeled cell's children apart, and grade + mark must stay together.
-        grade = (f"<span><strong>{escape(pct)}</strong> "
-                 f"<span class='small'>{escape(c['mark'] or '')}</span></span>"
-                 if pct else "<span class='small'>—</span>")
+        # A course whose number sits in the mark slot has no mark left to
+        # show, and one the portal hasn't graded yet gets a dash — never a
+        # "0.0 N/A" that reads as failing.
+        if pct and mark:
+            grade = (f"<span><strong>{escape(pct)}</strong> "
+                     f"<span class='small'>{escape(mark)}</span></span>")
+        elif pct or mark:
+            grade = f"<span><strong>{escape(pct or mark)}</strong></span>"
+        else:
+            grade = "<span class='small'>—</span>"
         chips = []
         if c["missing"]:
             chips.append(f"<span class='badge bad'>{c['missing']} missing</span>")
@@ -916,8 +930,8 @@ def _course_card(course, rows, ctx) -> str:
     toggle after it (history's pattern) — so expanding continues the list
     and the toggle reads "Show less" at the table's end, never mid-table."""
     head = escape(course["title"])
-    pct = _pct(course["percent"]) if course["percent"] else ""
-    overall = " · ".join(x for x in (pct and f"{pct}%", course["mark"]) if x)
+    pct, mark = _grade(course)
+    overall = " · ".join(x for x in (pct and f"{pct}%", mark) if x)
     teacher = f" — {escape(course['teacher'])}" if course["teacher"] else ""
     header = (
         f"<h2>{head}{teacher}"
@@ -971,10 +985,10 @@ def _closed_term(term, courses, ctx) -> str:
     """A closed marking period collapses to its finals line; the full course
     cards sit behind the <details>."""
     finals = " · ".join(
-        " ".join(x for x in (escape(_short_title(c["title"])),
-                             escape(_pct(c["percent"])) if c["percent"] else "",
-                             escape(c["mark"] or "")) if x)
-        for c, _rows in courses if c["percent"] or c["mark"])
+        " ".join(x for x in (escape(_short_title(c["title"])), escape(pct),
+                             escape(mark)) if x)
+        for c, _rows in courses
+        for pct, mark in (_grade(c),) if pct or mark)
     inner = "".join(_course_card(c, rows, ctx) for c, rows in courses)
     return (f"<h2 class='vh'>{escape(term or '(no term)')}</h2>"
             f"<details class='closedterm'><summary>{_CHEVRON}"

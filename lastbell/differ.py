@@ -22,8 +22,7 @@ from .models import (
     Assignment,
     AssignmentStatus,
     Snapshot,
-    format_percent,
-    parse_percent,
+    course_grade,
 )
 
 
@@ -268,15 +267,23 @@ def _score(a: Assignment) -> str:
 
 
 def _overall(c) -> str:
-    pct = format_percent(c.percent)
-    shown = f"{pct}%" if pct is not None else c.percent
-    if shown and c.mark:
-        return f"{shown} ({c.mark})"
-    return shown or c.mark or "n/a"
+    """The course's overall grade as a sentence fragment. Read through
+    ``course_grade`` so an "N/A"/0 placeholder says "n/a" rather than
+    announcing a zero, and a number parked in the mark slot reads as the
+    percent it is."""
+    value, mark = course_grade(c.mark, c.percent)
+    shown = f"{value:.1f}%" if value is not None else ""
+    if shown and mark:
+        return f"{shown} ({mark})"
+    return shown or mark or "n/a"
 
 
 def _percent_drop(prev, cur) -> float | None:
-    p, c = parse_percent(prev.percent), parse_percent(cur.percent)
+    """Points lost, or None when the two aren't comparable. Either side
+    without a real grade — the "N/A"/0 placeholder included — is not a drop:
+    a course flipping to or from "nothing graded yet" hasn't fallen."""
+    p, _ = course_grade(prev.mark, prev.percent)
+    c, _ = course_grade(cur.mark, cur.percent)
     if p is None or c is None or c >= p:
         return None
     return p - c
