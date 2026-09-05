@@ -4,4 +4,4 @@ Not affiliated with Edupoint. Talks to the PXP2 web portal on your behalf,
 using your own credentials, to watch your own students' gradebooks.
 """
 
-__version__ = "0.2.11"
+__version__ = "0.2.12"

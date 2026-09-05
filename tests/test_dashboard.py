@@ -309,7 +309,9 @@ def test_history_page(populated):
     store.persist_snapshot(populated, Student(agu="1", name="Jasper P. Hays"), snap)
     status, html = _get(populated, "/history")
     assert status == 200
-    assert "8.0 → 9.0" in html
+    assert "8/10 → 9/10" in html      # score and points read as one grade
+    # the assignment links to the student page scoped to its class
+    assert "href='/student/1?view=everything&course=709775'>Fractions Quiz</a>" in html
 
 
 def test_settings_page(populated):
@@ -460,7 +462,7 @@ def test_history_filters_by_class_and_change(conn):
 
     # Filter to score changes: Assignments shows, Course grades drops out.
     _, html = _get(conn, "/history?field=score")
-    assert "7.0 → 9.0" in html and "Course grades" not in html
+    assert "7/10 → 9/10" in html and "Course grades" not in html
     assert "class='chip active' aria-current='true' href='/history?field=score'" in html
 
     # Filter to percent (course) changes: the reverse.
@@ -469,12 +471,49 @@ def test_history_filters_by_class_and_change(conn):
 
     # Class + change compose, preserving each other in the links.
     _, html = _get(conn, "/history?course=" + quote("Algebra") + "&field=score")
-    assert "7.0 → 9.0" in html
+    assert "7/10 → 9/10" in html
 
     # An active filter that matches nothing keeps the chips and says so.
     _, html = _get(conn, "/history?course=" + quote("Nonexistent"))
     assert "No changes match this filter." in html
     assert "filterlabel'>Class" in html
+
+
+def test_history_groups_one_poll_into_one_row(conn):
+    """A grade lands as three audit rows (status, score, points); the page
+    shows one line. A status change on its own reads as badge words, and a
+    due-date change stays its own row."""
+    who = Student(agu="1", name="Kid")
+    course = [Course(edupoint_gu="c1", title="Algebra", term="MP1")]
+
+    def snap(**kw):
+        return Snapshot(student_agu="1", courses=course, assignments=[
+            Assignment(edupoint_gu="a1", course_gu="c1", name="Quiz 1", **kw)])
+
+    store.persist_snapshot(conn, who, snap(status=AssignmentStatus.DUE,
+                                           due_date=datetime.date(2026, 9, 6)))
+    store.persist_snapshot(conn, who, snap(status=AssignmentStatus.UNGRADED_PAST_DUE,
+                                           due_date=datetime.date(2026, 9, 8)))
+    store.persist_snapshot(conn, who, snap(status=AssignmentStatus.GRADED,
+                                           score=8.0, points=10.0,
+                                           graded_at=datetime.date(2026, 9, 9),
+                                           due_date=datetime.date(2026, 9, 8)))
+    _, html = _get(conn, "/history")
+    section = html[html.index("Assignments <span"):]
+    assert "Assignments <span class='small'>3</span>" in html    # 6 audit rows
+    assert "graded on" not in section   # the graded-on date rides the grade row
+    assert section.count("<tr>") == 3
+    assert "<td data-label='Change'>graded</td><td data-label='From → To'>— → 8/10</td>" in html
+    assert "due → ungraded past due" in html and "ungraded_past_due" not in html
+    assert "2026-09-06 → 2026-09-08" in html
+    assert "<td data-label='Change'>points</td>" not in html
+    assert "due → graded" not in html
+    # the chips still count audit rows, and a field filter shows its rows
+    # with the denominator filled in
+    _, html = _get(conn, "/history?field=score")
+    assert "— → 8/10" in html and "<td data-label='Change'>graded</td>" in html
+    _, html = _get(conn, "/history?field=points")
+    assert "<td data-label='Change'>points</td><td data-label='From → To'>— → 10</td>" in html
 
 
 def test_history_caps_section_with_expander(conn):

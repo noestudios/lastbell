@@ -1108,7 +1108,7 @@ _HISTORY_PREVIEW = 8   # recent rows shown per section; the rest go behind "Show
 # The `field` column is a raw column name; humanize the ones that read as jargon.
 _FIELD_LABELS = {
     "due_date": "due date",
-    "graded_at": "graded",
+    "graded_at": "graded on",
     "kind": "assignment type",
     "percent": "grade %",
     "mark": "letter grade",
@@ -1120,9 +1120,108 @@ def _field_label(field: str) -> str:
 
 
 def _history_transition(r) -> str:
+    """A field's old → new for the history tables. Status values read as
+    the badge words ("due → ungraded past due"), not the enum names."""
+    words = _STATUS_LABELS if r["field"] == "status" else {}
     old = r["old_value"] if r["old_value"] is not None else "—"
     new = r["new_value"] if r["new_value"] is not None else "—"
-    return f"{escape(old)} → {escape(new)}"
+    return f"{escape(words.get(old, (old,))[0])} → {escape(words.get(new, (new,))[0])}"
+
+
+def _num(value) -> str:
+    """A stored float ("10.0") as people write it ("10"); anything else verbatim."""
+    try:
+        return f"{float(value):g}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _score_words(score, points) -> str:
+    if score is None:
+        return "—"
+    return f"{_num(score)}/{_num(points)}" if points is not None else _num(score)
+
+
+# Rows one poll writes about one assignment land within this many seconds
+# of each other (grade_history has no poll id; seen_at is per statement).
+_HISTORY_GROUP_WINDOW = timedelta(seconds=5)
+
+
+def _group_history(rows) -> list[dict]:
+    """One display row per event, not per audited field. The store writes a
+    grade as three rows (status → graded, score, points); a reader wants
+    one line saying "graded — → 8/10". Grouping is render-time only: the
+    audit trail stays field-level, and the chips still count fields.
+
+    Rows are newest first. Each item: r (the newest row of the group, for
+    the name/student/course cells), seen_at, id, label, transition."""
+    by_assignment: dict[str, list] = {}
+    for r in rows:
+        by_assignment.setdefault(r["assignment_id"], []).append(r)
+
+    def when(r):
+        try:
+            return datetime.fromisoformat(r["seen_at"])
+        except (TypeError, ValueError):
+            return None
+
+    out: list[dict] = []
+    for arows in by_assignment.values():
+        # The denominator in force at each group: the old side of the next
+        # later points row, else the assignment's points today. Lets a
+        # score-only change (or a ?field=score view) still read as 8/10.
+        points_after = arows[0]["cur_points"]
+        i = 0
+        while i < len(arows):
+            t0 = when(arows[i])
+            j = i + 1
+            while (j < len(arows) and t0 is not None and (t1 := when(arows[j]))
+                   is not None and t0 - t1 <= _HISTORY_GROUP_WINDOW):
+                j += 1
+            group = arows[i:j]
+            i = j
+            out.extend(_compose_history_group(group, points_after))
+            for g in group:
+                if g["field"] == "points":
+                    points_after = g["old_value"]
+    out.sort(key=lambda d: (d["seen_at"], d["id"]), reverse=True)
+    return out
+
+
+def _compose_history_group(group, points_after) -> list[dict]:
+    def item(r, label, transition):
+        return {"r": r, "seen_at": r["seen_at"], "id": max(g["id"] for g in group),
+                "label": label, "transition": transition}
+
+    fields = {g["field"]: g for g in group}    # one row per field per poll
+    score, points, status = (fields.get(k) for k in ("score", "points", "status"))
+    # A graded-on date arriving with the score is the same event (its When
+    # column says when); the date changing by itself stays its own row.
+    folded = {"score", "points", "status"}
+    if score is not None and fields.get("graded_at") is not None:
+        folded.add("graded_at")
+    out = [item(g, _field_label(g["field"]), _history_transition(g))
+           for g in group if g["field"] not in folded]
+    if score is not None:
+        old_pts = points["old_value"] if points else points_after
+        new_pts = points["new_value"] if points else points_after
+        label = ("graded" if score["old_value"] is None and score["new_value"] is not None
+                 else "score")
+        out.append(item(score, label,
+                        f"{escape(_score_words(score['old_value'], old_pts))} → "
+                        f"{escape(_score_words(score['new_value'], new_pts))}"))
+        # The status flip to graded is the same event; any other status
+        # change alongside a score (say, to missing) is its own news.
+        if status is not None and status["new_value"] != "graded":
+            out.append(item(status, "status", _history_transition(status)))
+    else:
+        if points is not None:
+            out.append(item(points, "points",
+                            f"{escape(_num(points['old_value']) if points['old_value'] is not None else '—')} → "
+                            f"{escape(_num(points['new_value']) if points['new_value'] is not None else '—')}"))
+        if status is not None:
+            out.append(item(status, "status", _history_transition(status)))
+    return out
 
 
 def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
@@ -1142,6 +1241,12 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
              + ([f"field={quote(f)}"] if f else [])
              + (["all=1"] if all_rows else []))
         return "/history" + ("?" + "&".join(q) if q else "")
+
+    def class_href(r, view: str = "") -> str:
+        """The student page scoped to the row's class — as deep as a link
+        can safely land today (owner's call 2026-09-05: no per-row anchors)."""
+        q = ([f"view={view}"] if view else []) + [f"course={quote(r['course_gu'])}"]
+        return f"/student/{escape(r['student_agu'])}?" + "&".join(q)
 
     def chip_row(label, items, selected, href_of):
         """One filter dimension. items: (key, display, count); href_of(key)
@@ -1191,8 +1296,8 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
                     f"above</span></summary></details>")
         table += "</table>"
         if total > n:
-            more += (f"<p class='small' style='margin:0.8rem 0 0'>Newest {n:,} of "
-                     f"{total:,} — <a href='{href(course, field, True)}'>"
+            more += (f"<p class='small' style='margin:0.8rem 0 0'>Newest {n:,} rows of "
+                     f"{total:,} changes — <a href='{href(course, field, True)}'>"
                      f"show all {total:,}</a></p>")
         return (f"<div class='card tablecard'><h2>{escape(title)} "
                 f"<span class='small'>{total}</span></h2>" + table + more + "</div>")
@@ -1203,7 +1308,7 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
         head = ("<tr class='head'><th scope='col'>Course</th><th scope='col'>When</th><th scope='col'>Student</th>"
                 "<th scope='col'>Change</th><th scope='col'>From → To</th></tr>")
         body = [
-            f"<tr><td>{escape(r['course_title'])} "
+            f"<tr><td><a href='{class_href(r)}'>{escape(r['course_title'])}</a> "
             f"<span class='small'>{escape(r['term'])}</span></td>"
             f"<td class='small' data-label='When'>{_when_html(r['seen_at'], today)}</td>"
             f"<td data-label='Student'>{escape(r['student_name'])}</td>"
@@ -1214,14 +1319,21 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
     if rows:
         head = ("<tr class='head'><th scope='col'>Assignment</th><th scope='col'>When</th><th scope='col'>Student</th>"
                 "<th scope='col'>Course</th><th scope='col'>Change</th><th scope='col'>From → To</th></tr>")
+        grouped = _group_history(rows)
         body = [
-            f"<tr><td>{escape(r['assignment_name'])}</td>"
-            f"<td class='small' data-label='When'>{_when_html(r['seen_at'], today)}</td>"
-            f"<td data-label='Student'>{escape(r['student_name'])}</td>"
-            f"<td data-label='Course'>{escape(r['course_title'])}</td>"
-            f"<td data-label='Change'>{escape(_field_label(r['field']))}</td>"
-            f"<td data-label='From → To'>{_history_transition(r)}</td></tr>"
-            for r in rows]
+            f"<tr><td><a href='{class_href(d['r'], 'everything')}'>"
+            f"{escape(d['r']['assignment_name'])}</a></td>"
+            f"<td class='small' data-label='When'>{_when_html(d['seen_at'], today)}</td>"
+            f"<td data-label='Student'>{escape(d['r']['student_name'])}</td>"
+            f"<td data-label='Course'>{escape(d['r']['course_title'])}</td>"
+            f"<td data-label='Change'>{escape(d['label'])}</td>"
+            f"<td data-label='From → To'>{d['transition']}</td></tr>"
+            for d in grouped]
+        # The heading counts what the reader sees. Uncapped, that is the
+        # grouped rows; capped, the true total is still field rows, and
+        # the "show all" line says so.
+        if t_assign is not None and t_assign <= len(rows):
+            t_assign = len(grouped)
         sections.append(section("Assignments", head, body, t_assign))
 
     body_html = f"<div class='histfilters'>{filters}</div>"

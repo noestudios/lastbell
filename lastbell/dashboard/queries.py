@@ -345,7 +345,8 @@ def fetch_course_history(conn: sqlite3.Connection, limit: int = _HISTORY_LIMIT, 
                          course: str = "", field: str = "") -> list[sqlite3.Row]:
     clause, params = _history_filter(course, field)
     return conn.execute(
-        "SELECT h.*, c.title AS course_title, c.term, st.name AS student_name "
+        "SELECT h.*, c.title AS course_title, c.term, c.edupoint_gu AS course_gu, "
+        "       st.name AS student_name, st.agu AS student_agu "
         "FROM course_history h "
         "JOIN courses c ON c.id = h.course_id "
         "JOIN students st ON st.id = c.student_id " + clause
@@ -357,8 +358,9 @@ def fetch_history(conn: sqlite3.Connection, limit: int = _HISTORY_LIMIT, *,
                   course: str = "", field: str = "") -> list[sqlite3.Row]:
     clause, params = _history_filter(course, field)
     return conn.execute(
-        "SELECT h.*, a.name AS assignment_name, c.title AS course_title, "
-        "       st.name AS student_name "
+        "SELECT h.*, a.name AS assignment_name, a.points AS cur_points, "
+        "       c.title AS course_title, c.edupoint_gu AS course_gu, "
+        "       st.name AS student_name, st.agu AS student_agu "
         "FROM grade_history h "
         "JOIN assignments a ON a.id = h.assignment_id "
         "JOIN courses c ON c.id = a.course_id "

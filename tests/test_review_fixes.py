@@ -137,7 +137,7 @@ def test_history_is_capped_with_a_link_to_the_full_list(conn, monkeypatch):
 
     _, html = dashboard._handle(conn, "/history")
     assert "Assignments <span class='small'>12</span>" in html   # the true total
-    assert "Newest 5 of 12" in html
+    assert "Newest 5 rows of 12 changes" in html
     assert "href='/history?all=1'>show all 12</a>" in html
     _, html = dashboard._handle(conn, "/history?all=1")
     assert "Newest" not in html and html.count("Quiz ") == 12

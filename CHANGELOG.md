@@ -4,6 +4,22 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.2.12 — 2026-09-05
+
+**History reads one line per event.** A grade used to land on the
+History page as three rows — status due → graded, score — → 8.0, points
+— → 10.0 — and the status row said nothing about the grade. Now the rows
+one check writes about one assignment fold into a single line: "graded,
+— → 8/10", or "score, 8/10 → 9/10" on a regrade. A status change on its
+own reads in the badge's words ("due → ungraded past due"), and a due
+date or name change stays its own row. The audit trail underneath is
+unchanged; only the page groups. The Change chips still count what was
+recorded, so "score 12" and "points 12" can both sit above a table that
+shows twelve grades.
+
+Every assignment and course on the page now links to the student's page
+scoped to that class — as far as a link can land today.
+
 ## 0.2.11 — 2026-09-04
 
 **0.2.10's self-restart is removed.** For one release the poller and the
