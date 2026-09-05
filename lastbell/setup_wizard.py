@@ -544,6 +544,18 @@ def main(argv: list | None = None) -> int:
               file=sys.stderr)
         return 2
 
+    if service.in_container():
+        # The likeliest first-run failure: Docker created the bind-mounted
+        # folder as root, and the image's user can't write to it. Say the
+        # one-line fix instead of failing on the first write.
+        volume = paths.data_dir()
+        if volume.is_dir() and not os.access(volume, os.W_OK):
+            print(f"the volume mounted at {volume} isn't writable by the container's "
+                  "user (uid 1000). On the machine running Docker, in the folder with "
+                  "docker-compose.yml: sudo chown -R 1000:1000 data — then run setup again.",
+                  file=sys.stderr)
+            return 2
+
     env_path = paths.active_env_file() or paths.default_env_file()
     env = read_env(env_path)
     _say("Last Bell setup — five quick steps; re-run any time, answers are")

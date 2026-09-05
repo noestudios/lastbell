@@ -139,7 +139,8 @@ are on the watcher list.
 
 - A computer that stays on: Raspberry Pi, NAS, Mac, Linux box, or Windows
   machine. It becomes a background service with one command.
-- Python 3.9 or newer and [pipx](https://pipx.pypa.io/stable/how-to/install-pipx.html).
+- Python 3.9 or newer and [pipx](https://pipx.pypa.io/stable/how-to/install-pipx.html)
+  — or Docker, if the box already runs it (see *Run it as a container*).
 - An email account it can send from (any SMTP account you own). The wizard
   asks for it and sends a test.
 
@@ -242,9 +243,12 @@ when a newer release exists. Then, on the machine running it:
 lastbell upgrade
 ```
 
-That runs `pipx upgrade lastbell` and then restarts **both** long-running
-copies, the poller and the dashboard, which each keep the old version in
-memory until restarted. On Linux that is the two user units; on macOS the
+That runs `pipx upgrade lastbell` and, when it installed something newer
+(or an earlier upgrade was never followed by a restart), restarts **both**
+long-running copies, the poller and the dashboard, which each keep the old
+version in memory until restarted. When nothing changed it says "nothing to
+restart" and leaves them alone; `lastbell upgrade --restart-only` restarts
+them regardless. On Linux the restart is the two user units; on macOS the
 launchd agent, with a reminder about the dashboard. By hand, the same thing
 is `pipx upgrade lastbell`, then `systemctl --user restart lastbell` (plus
 `lastbell-dashboard` if you set that up) on Linux, or `lastbell
@@ -267,6 +271,68 @@ the old one beside it), merges settings without touching the secrets already
 there, and reminds you to store the password again with `lastbell setup` or
 `lastbell set-password`.
 
+### Run it as a container
+
+Already running Docker — on a NAS, a home server, a Pi with Portainer? Then
+Python and pipx aren't needed: every release is also a container image,
+`ghcr.io/noestudios/lastbell`, built by the same tag from the same wheel,
+for `linux/amd64` and `linux/arm64` (a 64-bit Raspberry Pi). Put
+[`docker-compose.yml`](docker-compose.yml) in an empty folder (on Linux,
+`mkdir -p data` there too, so the folder is yours and not root's) and run
+three commands:
+
+```bash
+docker compose run --rm lastbell setup
+```
+
+```bash
+docker compose up -d
+```
+
+```bash
+docker compose exec dashboard lastbell dashboard --show-key
+```
+
+The first is the same wizard as above, in a throwaway container: it takes
+the settings-file path without asking about keyrings (an image has none),
+runs the preflight and the first collection, and skips the service step —
+Docker is the service. The second starts the poller and the dashboard and
+keeps them running across reboots. The third prints the link to open once:
+inside a container even your own browser arrives over the Docker bridge, so
+the dashboard asks for its key one time and then remembers the browser.
+
+**The volume.** `./data` is mounted as `/data`, and that is everything: the
+database, the snapshots, and the settings file the wizard wrote (`data/env`,
+owner-only — the password is in it, in plain text, the same trade-off an
+always-on Pi makes, because the image has no keyring). Back it up by backing
+up the folder, or `docker compose exec lastbell lastbell backup` writes the
+usual zip into it. The image runs as an unprivileged user with id 1000; if
+the containers can't write to `data/` — the usual NAS symptom, and the
+wizard says so — hand the folder over once: `sudo chown -R 1000:1000 data`.
+
+**Upgrading.** Two commands, in the folder with `docker-compose.yml`:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Compose restarts only the containers whose image changed. `lastbell
+upgrade`, `lastbell status`, and `lastbell install-service` know when they
+run in a container and say this instead of looking for pipx or systemd, and
+the footer's "restart to use it" badge never appears there, because the
+image is the only copy. To pin a release instead of following `latest`,
+change the two `image:` lines to `ghcr.io/noestudios/lastbell:X.Y.Z`.
+
+**Reaching it by name.** The compose file publishes the dashboard on the
+host's loopback only (`127.0.0.1:8321`). To open it from other devices,
+widen that line to `8321:8321`; and if you reach the host by a name (a NAS
+name, home DNS) list it in the one line under the dashboard service —
+`LASTBELL_DASHBOARD_HOSTNAMES: nas.home.arpa` — because the dashboard
+refuses names it doesn't recognize (see *The dashboard*, below). Set `TZ`
+in the compose file to your own time zone: digests and quiet hours follow
+it. Packaged apps for Umbrel, Home Assistant, and NAS app stores come later;
+this image is what they will wrap.
+
 <details>
 <summary>Running from a source checkout instead</summary>
 
@@ -285,10 +351,12 @@ lastbell collect            # read-only JSON dump of what a run would persist
 
 A checkout's `.env` (in the working directory) takes precedence over the
 installed settings file, and typically pins `LASTBELL_DB_PATH=data/lastbell.db`
-to keep state inside the repo tree. A `Dockerfile` and `docker-compose.yml`
-are included for container installs: the password is a Docker secret named
-by `LASTBELL_PASSWORD_FILE`, never written to `.env`, and the compose file
-runs the poller and a loopback-only dashboard.
+to keep state inside the repo tree. The `Dockerfile` is the one each release
+builds the published image from (*Run it as a container*, above); to build it
+from the working tree instead, uncomment the `build: .` lines in
+`docker-compose.yml` and `docker compose build`. `LASTBELL_PASSWORD_FILE` (a
+Docker secret) is still honored for anyone who would rather not keep the
+password in `data/env`.
 </details>
 
 ## The dashboard
