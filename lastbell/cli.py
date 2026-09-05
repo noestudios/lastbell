@@ -757,9 +757,18 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
     host = args.host or conf.dashboard_host
     port = args.port or conf.dashboard_port
     if args.show_key:
+        from . import service
+
         key, where = secretstore.dashboard_key()
         print(f"dashboard key: {key}   (kept in {where})")
-        print(f"open once on another device: {key_link(host, port, key)}")
+        if service.in_container():
+            # Even the host's own browser reaches a container over the Docker
+            # bridge, so it needs the key once too.
+            print(f"open once in a browser on the Docker host: {key_link(host, port, key)}")
+            print("  (from another device, put the host's name in place of 127.0.0.1 "
+                  "and list that name in LASTBELL_DASHBOARD_HOSTNAMES)")
+        else:
+            print(f"open once on another device: {key_link(host, port, key)}")
         return 0
     key = ""
     if host not in ("127.0.0.1", "localhost", "::1"):

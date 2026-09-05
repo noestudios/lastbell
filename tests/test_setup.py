@@ -11,6 +11,7 @@ from lastbell import secrets as secretstore
 from lastbell import setup_wizard as wiz
 
 _real_get_password = secretstore.get_password
+_real_offer_service = wiz._offer_service
 
 
 # ── env-file bookkeeping ──────────────────────────────────────────────
@@ -402,6 +403,50 @@ def test_offer_service_survives_installer_error(monkeypatch):
     monkeypatch.setattr(service, "install", boom)
     assert wiz._offer_service(unattended=False) is False
     assert "no launcher" in "\n".join(said)
+
+
+def test_offer_service_in_a_container_skips_with_one_line(monkeypatch):
+    from lastbell import service
+    said = []
+    monkeypatch.setenv("LASTBELL_CONTAINER", "1")
+    monkeypatch.setattr(wiz, "_say", said.append)
+    monkeypatch.setattr(wiz, "_ask_yn", lambda p, default=True: pytest.fail("no prompt"))
+    monkeypatch.setattr(service, "install", lambda say: pytest.fail("no install"))
+    assert wiz._offer_service(unattended=True) is False
+    assert "Docker keeps the container" in "\n".join(said)
+
+
+def test_container_setup_writes_everything_to_the_volume(wizard_world, monkeypatch):
+    """0.3.0 first run: `docker compose run --rm lastbell setup`. The image
+    sets LASTBELL_HOME=/data and LASTBELL_CONTAINER=1; the wizard must take
+    the settings-file path without asking about keyrings, land the file on
+    the volume, skip the service step, and end with the compose commands."""
+    monkeypatch.setenv("LASTBELL_CONTAINER", "1")
+    monkeypatch.setattr(wiz, "_offer_service", _real_offer_service)   # the real one
+    monkeypatch.setattr(wiz, "_keyring_available", lambda: pytest.fail("keyring probed"))
+    script = Script(
+        asks=[None, "parent1", "2"],
+        yns=[True, True,  # ntfy test push, arrived
+             True],       # baseline
+        passwords=["hunter2"])
+    script.install(monkeypatch)
+
+    assert wiz.main() == 0
+    volume = wiz.paths.data_dir()
+    env_file = wiz.paths.default_env_file()
+    assert env_file == volume / "env"                      # settings beside the data
+    saved = wiz.read_env(env_file)
+    assert saved["LASTBELL_SECRET_BACKEND"] == "env"
+    assert saved["LASTBELL_PASSWORD"] == "hunter2"
+    assert (env_file.stat().st_mode & 0o777) == 0o600
+    assert wizard_world["keyring"] == {}
+    assert wizard_world["baseline_runs"] == 1
+    out = script.output
+    assert "mounted volume" in out and "no OS keyring" in out
+    assert "Docker keeps the container" in out            # the service step, explained
+    assert "docker compose up -d" in out
+    assert "docker compose exec dashboard lastbell dashboard --show-key" in out
+    assert "lastbell run --loop" not in out               # not a command anyone types here
 
 
 def test_email_is_first_and_gateway_addresses_are_refused(wizard_world, monkeypatch):

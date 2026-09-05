@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 from .. import store
+from ..service import in_container
 
 from .queries import (
     _HISTORY_ALL,
@@ -488,12 +489,17 @@ def check_bind(host: str) -> None:
 
 def key_link(host: str, port: int, key: str) -> str:
     """The one-time link, on a name other devices can use: the bound address
-    when it is a real one, else this machine's name."""
+    when it is a real one, else this machine's name. In a container the
+    machine's name is the container ID, meaningless outside it; compose
+    publishes the port on the Docker host's loopback, so that is the link."""
     if host in _LOOPBACK_BINDS or host in _ANY_ADDRESS:
-        name = socket.gethostname()
-        if "." not in name:
-            name += ".local"
-        host = name
+        if in_container():
+            host = "127.0.0.1"
+        else:
+            name = socket.gethostname()
+            if "." not in name:
+                name += ".local"
+            host = name
     elif ":" in host:                      # bare IPv6 literal
         host = f"[{host}]"
     return f"http://{host}:{port}/?key={key}"

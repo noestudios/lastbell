@@ -5,6 +5,13 @@ every long-running copy, because the poller and the dashboard each keep
 the old code in memory until restarted; the second half was forgotten
 often enough to earn a footer badge in 0.2.5. This does both and says
 which version was running, which is installed now, and what it restarted.
+
+Since 0.3.0 the restart is conditional: only when pipx actually installed
+something newer, or when the files on disk are already newer than the
+running copy (the case ``lastbell status`` reports). "Already at latest"
+with nothing pending restarts nothing; ``--restart-only`` stays the
+explicit override. In a container none of this applies — the image is the
+install — so the command just prints the two compose commands.
 """
 from __future__ import annotations
 
@@ -27,10 +34,23 @@ def _pipx_summary(proc) -> str:
     return ""
 
 
+def _say_compose(say: Say) -> None:
+    say("Upgrade from the machine running Docker, in the folder that holds "
+        "docker-compose.yml:")
+    for cmd in service.COMPOSE_UPGRADE:
+        say(f"    {cmd}")
+    say("  (Compose restarts only the containers whose image changed; "
+        "`docker compose restart` restarts them as they are.)")
+
+
 def restart(say: Say = print, plat: str | None = None) -> int:
     """Restart what `install-service` (or the owner) set up. On Linux both
     known user units, when their files exist; on macOS the launchd agent;
     elsewhere a note. Returns the number of things restarted."""
+    if service.in_container():
+        say("  a container has no service to restart from inside; on the Docker "
+            "host: docker compose restart")
+        return 0
     plat = plat or service.platform_name()
     if plat == "linux":
         restarted = 0
@@ -69,6 +89,11 @@ def restart(say: Say = print, plat: str | None = None) -> int:
 
 
 def run(say: Say = print, no_restart: bool = False) -> int:
+    if service.in_container():
+        say(f"Last Bell {__version__} is running from a container image; pipx and "
+            "system services don't apply here.")
+        _say_compose(say)
+        return 0
     before = updates.installed_version()
     if shutil.which("pipx") is None:
         raise ServiceError(
@@ -85,13 +110,23 @@ def run(say: Say = print, no_restart: bool = False) -> int:
         say(f"  ✗ pipx upgrade lastbell failed: {detail}")
         return 1
     after = updates.installed_version() or before
-    if before and after and updates.compare(before, after) == "newer":
+    upgraded = bool(before and after and updates.compare(before, after) == "newer")
+    if upgraded:
         say(f"  ✓ upgraded {before} → {after}")
     else:
         say("  ✓ " + (_pipx_summary(proc) or f"already the latest release ({after})"))
     if no_restart:
         say("  not restarting anything (--no-restart); the running copies keep "
             f"{__version__} until they are")
+        return 0
+    # Restart only when there is something to pick up: pipx installed a
+    # newer release just now, or the files on disk were already newer than
+    # this running copy (an earlier upgrade whose restart never happened).
+    if not upgraded and not updates.restart_pending(after):
+        say(f"  nothing to restart — the installed files didn't change, and this "
+            f"copy is already {__version__}. (If the poller or dashboard were "
+            "started before an earlier upgrade, `lastbell upgrade --restart-only` "
+            "restarts them.)")
         return 0
     say("Restarting so the running copies pick it up:")
     restart(say)

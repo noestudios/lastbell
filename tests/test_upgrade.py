@@ -16,6 +16,7 @@ def world(monkeypatch, tmp_path):
     home.mkdir()
     monkeypatch.setattr(service, "_home", lambda: home)
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("LASTBELL_CONTAINER", raising=False)
     monkeypatch.setattr(service, "platform_name", lambda: "linux")
     monkeypatch.setattr(service.os, "getuid", lambda: 501, raising=False)
     monkeypatch.setattr(upgrade.shutil, "which", lambda name: "/usr/bin/pipx")
@@ -64,15 +65,57 @@ def test_upgrade_then_restart_both_units(world):
     assert "/home/pi" not in out
 
 
-def test_already_latest_still_restarts_the_poller_only(world, monkeypatch):
-    _units(world["home"], "lastbell.service")
-    monkeypatch.setattr(updates, "installed_version", lambda: "0.2.8")
-    world["stdout"]["pipx"] = "lastbell is already at latest version 0.2.8 (location: /x)\n"
+def test_already_latest_with_nothing_pending_restarts_nothing(world, monkeypatch):
+    """0.3.0: pipx changed nothing and this copy is what is on disk, so a
+    restart would only interrupt the poller for no reason."""
+    _units(world["home"], "lastbell.service", "lastbell-dashboard.service")
+    monkeypatch.setattr(updates, "installed_version", lambda: upgrade.__version__)
+    world["stdout"]["pipx"] = (f"lastbell is already at latest version "
+                               f"{upgrade.__version__} (location: /x)\n")
     assert upgrade.run(say=world["say"]) == 0
     out = world["output"]()
-    assert "✓ lastbell is already at latest version 0.2.8" in out
+    assert f"✓ lastbell is already at latest version {upgrade.__version__}" in out
     assert "(location" not in out
-    assert world["commands"][1:] == [["systemctl", "--user", "restart", "lastbell.service"]]
+    assert "nothing to restart" in out
+    assert "--restart-only" in out                        # the override, named
+    assert world["commands"] == [["pipx", "upgrade", "lastbell"]]
+
+
+def test_already_latest_but_disk_newer_than_this_copy_restarts(world, monkeypatch):
+    """An earlier upgrade whose restart never happened: pipx has nothing to
+    do, yet the files on disk are newer than the running copy — the case
+    `lastbell status` reports — so the restart is still owed."""
+    _units(world["home"], "lastbell.service")
+    monkeypatch.setattr(updates, "installed_version", lambda: "99.0.0")
+    world["stdout"]["pipx"] = "lastbell is already at latest version 99.0.0 (location: /x)\n"
+    assert upgrade.run(say=world["say"]) == 0
+    out = world["output"]()
+    assert "99.0.0 is installed" in out                   # said up front
+    assert "nothing to restart" not in out
+    assert world["commands"] == [
+        ["pipx", "upgrade", "lastbell"],
+        ["systemctl", "--user", "restart", "lastbell.service"],
+    ]
+
+
+def test_container_prints_the_compose_commands_and_touches_nothing(world, monkeypatch):
+    """Inside the image there is no pipx and no systemd: the answer is the
+    two compose commands, exit 0, before the pipx-on-PATH check can fire."""
+    monkeypatch.setenv("LASTBELL_CONTAINER", "1")
+    monkeypatch.setattr(upgrade.shutil, "which", lambda name: None)
+    _units(world["home"], "lastbell.service")             # would be restarted outside
+    assert upgrade.run(say=world["say"]) == 0
+    out = world["output"]()
+    assert "container image" in out
+    assert "docker compose pull" in out and "docker compose up -d" in out
+    assert out.index("docker compose pull") < out.index("docker compose up -d")
+    assert "pipx" not in out.split("\n", 1)[1]            # the how-to names no pipx
+    assert world["commands"] == []
+
+    world["said"].clear()
+    assert upgrade.restart(say=world["say"]) == 0          # --restart-only, too
+    assert "docker compose restart" in world["output"]()
+    assert world["commands"] == []
 
 
 def test_pipx_failure_stops_before_any_restart(world):
