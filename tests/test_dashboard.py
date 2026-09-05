@@ -481,6 +481,38 @@ def test_history_filters_by_class_and_change(conn):
     assert "filterlabel'>Class" in html
 
 
+def test_stat_cards_scope_to_the_course_filter(conn):
+    """Under ?course= every card tells that course's story, with the
+    whole-student figure as context; the Everything card becomes the
+    course grade (owner's call 2026-09-05)."""
+    _persist(conn, "1",
+             [Course(edupoint_gu="g1", title="Art", term="MP1", percent="90.00%",
+                     mark="A"),
+              Course(edupoint_gu="g2", title="Math", term="MP1", percent="72.00%",
+                     mark="C")],
+             [Assignment(edupoint_gu="a1", course_gu="g1", name="Collage",
+                         status=AssignmentStatus.MISSING),
+              Assignment(edupoint_gu="a2", course_gu="g2", name="Worksheet",
+                         status=AssignmentStatus.MISSING),
+              Assignment(edupoint_gu="a3", course_gu="g2", name="Drill",
+                         status=AssignmentStatus.MISSING)],
+             term="MP1")
+    _, html = _get(conn, "/student/1")
+    cards = html[html.index("class='stats'"):html.index("</div>", html.index("class='stats'"))]
+    assert "<span class='big'>3</span>" in cards          # all problems
+    assert "term average · 2 courses" in cards and "81.0<span class='unit'>%" in cards
+    assert "overall" not in cards
+
+    _, html = _get(conn, "/student/1?course=g2")
+    cards = html[html.index("class='stats'"):html.index("</div>", html.index("class='stats'"))]
+    assert "<span class='big'>2</span>" in cards          # Math's problems only
+    assert "2 of 3 overall" in cards
+    assert "72.0<span class='unit'>%" in cards and "course grade · C" in cards
+    assert "term average" not in cards
+    # the cards still link within the scope
+    assert "href='/student/1?view=due&course=g2'" in cards
+
+
 def test_history_groups_one_poll_into_one_row(conn):
     """A grade lands as three audit rows (status, score, points); the page
     shows one line. A status change on its own reads as badge words, and a

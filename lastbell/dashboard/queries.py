@@ -220,18 +220,30 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
             percents.append(cur)
     term_avg = sum(percents) / len(percents) if percents else None
 
+    def scoped(items):
+        return [r for r in items
+                if not course_gu or r["course_gu"] == course_gu]
+
+    # The cards tell the SCOPED story (owner's call 2026-09-05): under a
+    # course filter every number on them is that course's, so a card's
+    # count is a promise about the panel it opens. The whole-student
+    # figure rides along as context ("1 of 5 overall").
+    scoped_course = next((c for c in strip if c["edupoint_gu"] == course_gu), None)
+    card_courses = [scoped_course] if scoped_course else strip
+
     # Problems card: 6-week open-problem trend (weekly samples).
     sample = [(today - timedelta(days=7 * i)).isoformat()
               for i in range(5, -1, -1)]
-    pseries = _problem_series(rows, fetch_status_history(conn, sid, term),
+    pseries = _problem_series(scoped(rows), fetch_status_history(conn, sid, term),
                               sample)
 
-    # Everything card: the term-average trajectory (8 weekly samples).
+    # Everything card: the term-average trajectory (8 weekly samples) —
+    # or, scoped, the one course's own percent trajectory.
     tseries = []
     for day in [(today - timedelta(days=7 * i)).isoformat()
                 for i in range(7, -1, -1)]:
         vals = []
-        for c in strip:
+        for c in card_courses:
             hrows = phist.get(c["id"], [])
             v = (parse_percent(_value_at(hrows, day)) if hrows
                  else parse_percent(c["percent"]))
@@ -239,14 +251,11 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
                 vals.append(v)
         if vals:
             tseries.append(sum(vals) / len(vals))
+    course_pct = parse_percent(scoped_course["percent"]) if scoped_course else None
 
     # Recent card: the last 10 graded scores — the leading indicator.
     pcts10 = [r["score"] / r["points"] * 100
-              for r in graded if r["points"] and r["score"] is not None][:10]
-
-    def scoped(items):
-        return [r for r in items
-                if not course_gu or r["course_gu"] == course_gu]
+              for r in scoped(graded) if r["points"] and r["score"] is not None][:10]
 
     ctx = {
         "view": view, "course_gu": course_gu, "hl": hl,
@@ -255,12 +264,16 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
         "problems": scoped(problems), "due": scoped(due),
         "recent": scoped(graded),
         "cards": {
-            "problems_count": len(problems),
+            "problems_count": len(scoped(problems)),
+            "problems_total": len(problems),
             "problems_week": pseries[-1] - pseries[-2],
             "problems_series": pseries,
-            "due_count": len(due), "due_next": due[:2],
+            "due_count": len(scoped(due)), "due_total": len(due),
+            "due_next": scoped(due)[:2],
             "recent_pcts": pcts10, "term_avg": term_avg,
             "term_series": tseries, "courses": len(strip),
+            # Scoped only: the course's grade as the Everything card's story.
+            "course": scoped_course, "course_pct": course_pct,
         },
     }
     if view == "everything":

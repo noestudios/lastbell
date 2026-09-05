@@ -623,6 +623,13 @@ def _stat_cards(student, ctx) -> str:
                 f"<span class='big'>{big}</span>"
                 f"<span class='ctx'>{ctxline}</span>{extra}</a>")
 
+    # Under a course filter every card is that course's story; the
+    # whole-student figure stays as context ("1 of 5 overall").
+    course = c["course"]
+
+    def overall(n: int, total: int) -> str:
+        return f" · {n} of {total} overall" if course and total != n else ""
+
     wk = c["problems_week"]
     if wk > 0:
         p_ctx = f"<b style='color:var(--bad-ink)'>+{wk}</b> this week"
@@ -630,6 +637,7 @@ def _stat_cards(student, ctx) -> str:
         p_ctx = f"<b style='color:var(--ok-ink)'>−{-wk}</b> this week"
     else:
         p_ctx = "no change this week"
+    p_ctx += overall(c["problems_count"], c["problems_total"])
     ps = c["problems_series"]
     p_spark = (_spark_line(ps, "var(--bad-ink)", lo=0,
                            label=f"items needing attention over 6 weeks: "
@@ -642,20 +650,24 @@ def _stat_cards(student, ctx) -> str:
 
     lookahead = os.environ.get("LASTBELL_LOOKAHEAD_DAYS", "7")
     nextlines = "".join(
-        f"<div class='nextline'>{escape(r['name'])} <span class='small'>· "
-        f"{escape(_short_title(r['course_title']))}"
+        f"<div class='nextline'>{escape(r['name'])} <span class='small'>"
+        + ("" if course else f"· {escape(_short_title(r['course_title']))}")
         + (f" · {_due_word(r['due_date'], ctx['today'])}"
            if r["due_date"] else "")
         + "</span></div>"
         for r in c["due_next"])
     parts.append(card("due", "Due soon", str(c["due_count"]),
-                      f"next {escape(lookahead)} days", nextlines))
+                      f"next {escape(lookahead)} days"
+                      + overall(c["due_count"], c["due_total"]), nextlines))
 
     pcts = c["recent_pcts"]
     if pcts:
         big = f"{sum(pcts) / len(pcts):.1f}<span class='unit'>%</span>"
         r_ctx = f"last {len(pcts)}"
-        if c["term_avg"] is not None:
+        if course:
+            if c["course_pct"] is not None:
+                r_ctx += f" · course grade {c['course_pct']:.1f}"
+        elif c["term_avg"] is not None:
             r_ctx += f" · term avg {c['term_avg']:.1f}"
         extra = _spark_bars(
             list(reversed(pcts)),
@@ -665,15 +677,26 @@ def _stat_cards(student, ctx) -> str:
         big, r_ctx, extra = "—", "no grades yet", ""
     parts.append(card("recent", "Recent grades", big, r_ctx, extra))
 
-    big = (f"{c['term_avg']:.1f}<span class='unit'>%</span>"
-           if c["term_avg"] is not None else "—")
-    n = c["courses"]
-    e_ctx = f"term average · {n} course{'s' if n != 1 else ''}"
     ts = c["term_series"]
-    e_extra = (_spark_line(ts, "var(--edge)",
-                           label=f"term average trend: {ts[0]:.1f} "
-                                 f"to {ts[-1]:.1f} percent")
-               if len(ts) >= 2 else "")
+    if course:
+        # Scoped: the course's own grade and trajectory (the first slice
+        # of the per-course trend chart in BACKLOG's "Grade trends").
+        big = (f"{c['course_pct']:.1f}<span class='unit'>%</span>"
+               if c["course_pct"] is not None else "—")
+        e_ctx = "course grade" + (f" · {escape(course['mark'])}" if course["mark"] else "")
+        e_extra = (_spark_line(ts, "var(--edge)",
+                               label=f"{course['title']} grade trend: {ts[0]:.1f} "
+                                     f"to {ts[-1]:.1f} percent")
+                   if len(ts) >= 2 else "")
+    else:
+        big = (f"{c['term_avg']:.1f}<span class='unit'>%</span>"
+               if c["term_avg"] is not None else "—")
+        n = c["courses"]
+        e_ctx = f"term average · {n} course{'s' if n != 1 else ''}"
+        e_extra = (_spark_line(ts, "var(--edge)",
+                               label=f"term average trend: {ts[0]:.1f} "
+                                     f"to {ts[-1]:.1f} percent")
+                   if len(ts) >= 2 else "")
     parts.append(card("everything", "Everything", big, e_ctx, e_extra))
     return "<div class='stats'>" + "".join(parts) + "</div>"
 
