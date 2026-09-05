@@ -1308,7 +1308,7 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
         head = ("<tr class='head'><th scope='col'>Course</th><th scope='col'>When</th><th scope='col'>Student</th>"
                 "<th scope='col'>Change</th><th scope='col'>From → To</th></tr>")
         body = [
-            f"<tr><td><a href='{class_href(r)}'>{escape(r['course_title'])}</a> "
+            f"<tr><td><a href='{class_href(r, 'everything')}'>{escape(r['course_title'])}</a> "
             f"<span class='small'>{escape(r['term'])}</span></td>"
             f"<td class='small' data-label='When'>{_when_html(r['seen_at'], today)}</td>"
             f"<td data-label='Student'>{escape(r['student_name'])}</td>"
