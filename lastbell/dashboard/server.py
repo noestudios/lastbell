@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 
-from .. import store
+from .. import settings, store
 
 from .queries import (
     _HISTORY_ALL,
@@ -128,7 +128,8 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
                                     students,
                                     error=(query.get("err") or [""])[0],
                                     notice=(query.get("ok") or [""])[0],
-                                    installed=updates.installed_version())
+                                    installed=updates.installed_version(),
+                                    display=settings.display(conn))
     if path == "/watchers":   # pre-Settings URL; keep old bookmarks working
         return 301, "/settings"
     return 404, _page(
@@ -194,6 +195,15 @@ def _handle_settings_post(conn: sqlite3.Connection, action: str,
         return next(iter((update.get(cname) or {}).values()), "")
 
     try:
+        if action == "display-save":
+            # The Display card: one household value. Saving writes the
+            # database, and from then on the LASTBELL_SCORE_CUTOFF seed is
+            # ignored. A bad value is a SettingError (a ValueError) → banner.
+            new = settings.parse_score_cutoff(val("score_cutoff"))
+            if new == settings.score_cutoff(conn):
+                return done("No changes to save")
+            settings.set_score_cutoff(conn, new)
+            return done(settings.describe_score_cutoff(new))
         if action == "watcher-add":
             name = val("name")
             if not name:

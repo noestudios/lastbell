@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import datetime
+from urllib.parse import quote, unquote
 
 import pytest
 
 from lastbell import dashboard, store, watchers
+from lastbell import settings as household
 from lastbell.differ import Event
 from lastbell.models import (
     AlertType,
@@ -805,7 +807,8 @@ def test_settings_rows_carry_ids_and_gated_update_buttons(populated):
     assert "id='subs-save'" in html and "id='chan-save'" in html
     assert "name='r0-urgent' form='subs-save'" in html
     assert "name='r0-to' form='chan-save'" in html
-    assert html.count("Save changes") == 2 and html.count(">Discard<") == 2
+    # …now three sections: Display, Watchers, Subscriptions
+    assert html.count("Save changes") == 3 and html.count(">Discard<") == 3
 
 
 def test_settings_subscriptions_save_writes_only_changed_rows(populated):
@@ -1504,3 +1507,123 @@ def test_two_week_delta_follows_the_mark_slot_history(conn):
     chem = _strip_row(html, "Chemistry")
     assert "<strong>87.0</strong>" in chem
     assert "delta down" in chem and "-12.0" in chem
+
+
+# ── 0.3.0: the score cutoff is a household setting (Settings → Display) ──
+
+
+def _display_post(conn, value: str):
+    return dashboard._handle_settings_post(conn, "display-save", {"score_cutoff": [value]})
+
+
+def test_score_cutoff_precedence_is_database_then_environment_then_default(conn, monkeypatch):
+    monkeypatch.delenv("LASTBELL_SCORE_CUTOFF", raising=False)
+    assert household.score_cutoff_with_source(conn) == (70, household.FROM_DEFAULT)
+    monkeypatch.setenv("LASTBELL_SCORE_CUTOFF", "85")          # the seed
+    assert household.score_cutoff_with_source(conn) == (85, household.FROM_ENVIRONMENT)
+    household.set_score_cutoff(conn, 60)                        # saved on the page
+    assert household.score_cutoff_with_source(conn) == (60, household.FROM_DATABASE)
+    assert store.get_meta(conn, "setting.score_cutoff") == "60"
+    monkeypatch.setenv("LASTBELL_SCORE_CUTOFF", "95")          # a later env change
+    assert household.score_cutoff(conn) == 60                   # …is ignored
+    household.set_score_cutoff(conn, 0)
+    assert household.score_cutoff(conn) == 0                    # 0 = off, and stays saved
+    assert household.display(conn) == {"score_cutoff": 0}
+
+
+def test_score_cutoff_env_seed_that_is_garbage_falls_back_to_the_default(conn, monkeypatch):
+    monkeypatch.setenv("LASTBELL_SCORE_CUTOFF", "seventy")
+    assert household.score_cutoff_with_source(conn) == (70, household.FROM_DEFAULT)
+    monkeypatch.setenv("LASTBELL_SCORE_CUTOFF", "0")
+    assert household.score_cutoff(conn) == 0
+
+
+def test_parse_score_cutoff_takes_blank_zero_and_whole_percents_only():
+    assert household.parse_score_cutoff("") == 0
+    assert household.parse_score_cutoff(None) == 0
+    assert household.parse_score_cutoff(" 65 ") == 65
+    assert household.parse_score_cutoff("65%") == 65
+    assert household.parse_score_cutoff("100") == 100
+    for bad in ("101", "-1", "70.5", "abc"):
+        with pytest.raises(household.SettingError):
+            household.parse_score_cutoff(bad)
+
+
+def test_display_save_changes_the_tint_and_a_later_env_change_is_ignored(
+        populated, tmp_path, monkeypatch):
+    monkeypatch.delenv("LASTBELL_SCORE_CUTOFF", raising=False)
+    _, html = _get(populated, "/student/1?view=everything")
+    assert "tip low" not in html                      # 8/10 = 80%, above the default 70
+    status, target = _display_post(populated, "85")
+    assert status == 303
+    assert target == "/settings?ok=" + quote("Scores below 85% are tinted")
+    _, html = _get(populated, "/student/1?view=everything")
+    assert "class='tip low' tabindex='0' data-tip='8/10'" in html
+    monkeypatch.setenv("LASTBELL_SCORE_CUTOFF", "0")   # the env var no longer decides
+    _, html = _get(populated, "/student/1?view=everything")
+    assert "tip low" in html
+    # A fresh connection to the same file (a dashboard restart) sees it too.
+    again = store.connect(tmp_path / "test.db")
+    try:
+        _, html = _get(again, "/student/1?view=everything")
+        assert "tip low" in html
+    finally:
+        again.close()
+    # …and the Recent view's cell reads the same setting (a changed score
+    # gives the grade a history row, which lands it in Recent; 82% is above
+    # the old default and below the saved 85).
+    snap = Snapshot(
+        student_agu="1",
+        courses=[Course(edupoint_gu="709775", title="Math <Adv>", term="MP1")],
+        assignments=[Assignment(edupoint_gu="a1", course_gu="709775",
+                                name="Fractions Quiz", score=8.2, points=10.0,
+                                kind="Assessment", status=AssignmentStatus.GRADED)],
+    )
+    store.persist_snapshot(populated, Student(agu="1", name="Jasper P. Hays"), snap)
+    _, html = _get(populated, "/student/1?view=recent")
+    assert "class='num low'" in html
+
+
+def test_display_save_zero_or_blank_turns_the_tint_off(populated, monkeypatch):
+    monkeypatch.delenv("LASTBELL_SCORE_CUTOFF", raising=False)
+    _display_post(populated, "85")
+    _, html = _get(populated, "/student/1?view=everything")
+    assert "tip low" in html
+    status, target = _display_post(populated, "")
+    assert (status, target) == (303, "/settings?ok=" + quote("Score tint is off"))
+    assert household.score_cutoff(populated) == 0
+    _, html = _get(populated, "/student/1?view=everything")
+    assert "tip low" not in html
+    _display_post(populated, "85")
+    status, target = _display_post(populated, "0")
+    assert target == "/settings?ok=" + quote("Score tint is off")
+    # Saving the value that is already saved is not a change.
+    status, target = _display_post(populated, "0")
+    assert target == "/settings?ok=" + quote("No changes to save")
+
+
+def test_display_save_out_of_range_is_a_banner_and_writes_nothing(populated):
+    for bad in ("101", "-5", "abc", "70.5"):
+        status, target = _display_post(populated, bad)
+        assert status == 303 and target.startswith("/settings?err="), bad
+        assert "whole number from 0 to 100" in unquote(target), bad
+    assert store.get_meta(populated, "setting.score_cutoff") is None
+    _, html = _get(populated, target)
+    assert "class='banner bad'" in html and "whole number from 0 to 100" in html
+
+
+def test_settings_display_card_sits_first_and_binds_to_its_section_form(populated, monkeypatch):
+    monkeypatch.setenv("LASTBELL_SCORE_CUTOFF", "65")       # the seed shows on first render
+    _, html = _get(populated, "/settings")
+    assert "<h2>Display</h2>" in html
+    assert html.index("<h2>Display</h2>") < html.index("<h2>Watchers</h2>")
+    assert ("<input id='score-cutoff' type='number' name='score_cutoff' min='0' "
+            "max='100' step='1' inputmode='numeric' value='65' form='display-save'") in html
+    assert ("<form id='display-save' method='post' action='/settings/display-save' "
+            "class='sectionform'>") in html
+    assert "Tint scores below" in html and "Nothing alerts on it" in html
+    # Looking never writes: the seed stays a seed until Save.
+    assert store.get_meta(populated, "setting.score_cutoff") is None
+    household.set_score_cutoff(populated, 0)
+    _, html = _get(populated, "/settings")
+    assert "inputmode='numeric' value='0' form='display-save'" in html
