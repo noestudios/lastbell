@@ -985,14 +985,14 @@ def render_student(student, ctx, nav_students=()) -> str:
         f"<h1>{escape(student['name'])}</h1>",
         f"<p class='small'>{_school_link(student['school'])}</p>",
     ]
+    # The strip, the cards and the panel live in one region: app.js swaps
+    # it in place on a view switch or a course filter (no navigation, the
+    # page doesn't move), carrying the strip's open/closed state across.
+    # With JS off, every card and filter is an ordinary link.
+    region = [_stat_cards(student, ctx), view_body[ctx["view"]](student, ctx)]
     if len(ctx["strip"]) > 1:            # the collapsed All Courses strip
-        parts.append(_course_strip(student, ctx))
-    # The cards and the panel they switch live in one region: app.js swaps
-    # it in place on a view switch (no navigation, the page doesn't move);
-    # the strip above keeps its toggle state and just gets its ?view=
-    # links rewritten. With JS off, the cards are ordinary links.
-    parts.append("<div id='student-view'>" + _stat_cards(student, ctx)
-                 + view_body[ctx["view"]](student, ctx) + "</div>")
+        region.insert(0, _course_strip(student, ctx))
+    parts.append("<div id='student-main'>" + "".join(region) + "</div>")
     view_titles = {"problems": "Needs attention", "due": "Due soon",
                    "recent": "Recent grades", "everything": "Everything"}
     return _page(f"{student['name']} — {view_titles[ctx['view']]}",

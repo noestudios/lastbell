@@ -431,18 +431,24 @@
   document.addEventListener("input", trackDirty);
   document.addEventListener("change", trackDirty);
   document.addEventListener("submit", onSubmit);
-  /* ── student page: view switching in place ──────────────────────────
-   * The four stat cards are links to ?view=…; followed as links they load
-   * a new document, which starts at the top. Here a click fetches the
-   * target page and swaps #student-view (the cards + the panel) so the
-   * scroll position never moves; the URL and title follow via pushState
-   * so bookmarks, refresh and the back button behave as before. Only a
-   * pure view switch is intercepted — same path, same ?course= scope, no
-   * #fragment — anything else (a course-scoped link, a #hit deep link) is
-   * left to navigate. The course strip sits outside the region: its
-   * toggle state survives, and its ?view= links are rewritten to match. */
-  function viewSwitchTarget(link) {
-    var region = document.getElementById("student-view");
+  /* ── student page: view switching and course filtering in place ──────
+   * The stat cards and the All Courses filters are links to ?view=… /
+   * ?course=…; followed as links they load a new document, which starts
+   * at the top. Here a click fetches the target page and swaps
+   * #student-main (strip + cards + panel) where it stands, so the scroll
+   * position never moves; the URL and title follow via pushState so
+   * bookmarks, refresh and the back button behave as before. Only a link
+   * inside the region to the same student, without a #fragment, is
+   * intercepted — a #hit deep link needs the scroll, and anything else
+   * navigates as it always did.
+   *
+   * The strip's open/closed state is the reader's alone (see the inline
+   * script the server renders with it): it is carried across the swap
+   * verbatim, and the toggle listener is delegated here so it survives. */
+  var STRIP_KEY = "lastbell-courses";
+
+  function inPlaceTarget(link) {
+    var region = document.getElementById("student-main");
     if (!region || !region.contains(link)) return null;
     var to, here;
     try {
@@ -452,45 +458,42 @@
       return null;
     }
     if (to.origin !== here.origin || to.pathname !== here.pathname) return null;
-    if (to.hash || !to.searchParams.get("view")) return null;
-    if ((to.searchParams.get("course") || "") !== (here.searchParams.get("course") || "")) {
-      return null;
-    }
+    if (to.hash) return null;
     return to;
   }
 
-  function rewriteStripViews(view) {
-    Array.prototype.forEach.call(
-      document.querySelectorAll("#allcourses a[href]"),
-      function (a) {
-        var u;
-        try { u = new URL(a.getAttribute("href"), window.location.href); }
-        catch (e) { return; }
-        if (!u.searchParams.has("view")) return;
-        u.searchParams.set("view", view);
-        a.setAttribute("href", u.pathname + u.search + u.hash);
-      });
-  }
-
-  function swapView(url, push) {
+  function swapStudent(url, push, focusStrip) {
     return fetch(url.href, { credentials: "same-origin" }).then(function (resp) {
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       return resp.text();
     }).then(function (html) {
       var doc = new DOMParser().parseFromString(html, "text/html");
-      var next = doc.getElementById("student-view");
-      var cur = document.getElementById("student-view");
+      var next = doc.getElementById("student-main");
+      var cur = document.getElementById("student-main");
       if (!next || !cur) throw new Error("no region");
+      var strip = document.getElementById("allcourses");
+      var stripOpen = strip ? strip.open : null;
       var y = window.scrollY;
       cur.replaceWith(document.importNode(next, true));
+      strip = document.getElementById("allcourses");
+      if (strip && stripOpen !== null) strip.open = stripOpen;
       if (doc.title) document.title = doc.title;
-      if (push) history.pushState({ lastbellView: 1 }, "", url.pathname + url.search);
-      rewriteStripViews(url.searchParams.get("view"));
+      if (push) history.pushState({ lastbell: 1 }, "", url.pathname + url.search);
       window.scrollTo(0, y);            // belt and braces: the swap must not move the page
-      var active = document.querySelector("#student-view a.stat.active");
-      if (active) active.focus({ preventScroll: true });
-      var label = active && active.querySelector(".lbl");
-      if (label) announce(label.textContent + " view");
+      // A filter click keeps focus in the strip: the scoped row when the
+      // strip is open, else the summary's filter tag (rows in a closed
+      // details can't take focus), else the summary itself.
+      var focus = document.querySelector("#student-main a.stat.active");
+      if (focusStrip) {
+        focus = (strip && strip.open && document.querySelector("#allcourses tr.scoped a")) ||
+          document.querySelector("#allcourses summary .striptag") ||
+          document.querySelector("#allcourses summary");
+      }
+      if (focus) focus.focus({ preventScroll: true });
+      var active = document.querySelector("#student-main a.stat.active .lbl");
+      var scoped = document.querySelector("#allcourses .striptag");
+      announce((active ? active.textContent + " view" : "view changed") +
+        (scoped ? ", " + scoped.textContent.trim() + " only" : ", all courses"));
     });
   }
 
@@ -499,19 +502,28 @@
     if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
     var link = ev.target.closest && ev.target.closest("a[href]");
     if (!link || link.target) return;
-    var to = viewSwitchTarget(link);
+    var to = inPlaceTarget(link);
     if (!to) return;
     ev.preventDefault();
-    swapView(to, true).catch(function () { window.location.href = to.href; });
+    var fromStrip = !!link.closest("#allcourses");
+    swapStudent(to, true, fromStrip).catch(function () { window.location.href = to.href; });
   });
 
   window.addEventListener("popstate", function () {
-    if (!document.getElementById("student-view")) return;
+    if (!document.getElementById("student-main")) return;
     var here;
     try { here = new URL(window.location.href); } catch (e) { return; }
-    if (!here.searchParams.get("view")) here.searchParams.set("view", "problems");
-    swapView(here, false).catch(function () { window.location.reload(); });
+    swapStudent(here, false, false).catch(function () { window.location.reload(); });
   });
+
+  // toggle doesn't bubble; capture sees it. Saves the reader's choice after
+  // a swap has replaced the strip (and its inline listener) — same key,
+  // same value, so the two never disagree on the first page.
+  document.addEventListener("toggle", function (ev) {
+    var d = ev.target;
+    if (!d || d.id !== "allcourses") return;
+    try { localStorage.setItem(STRIP_KEY, d.open ? "open" : "closed"); } catch (e) {}
+  }, true);
 
   window.addEventListener("DOMContentLoaded", function () {
     initEntrances();
