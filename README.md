@@ -667,7 +667,7 @@ exception, and the wizard states the trade-off before taking it:
 |----------------|---------------------------------------------------------------------|
 | Bare-metal     | OS keyring: macOS Keychain / Windows Credential Manager / Secret Service (`lastbell set-password`) |
 | Always-on box (headless Pi, Linux boot-time service) | `LASTBELL_SECRET_BACKEND=env` + `LASTBELL_PASSWORD` in the settings file, created mode 0600. **Trade-off:** the password is on disk in plain text, readable by your user (and root). `lastbell setup` offers this only when there is no usable keyring or you say the service runs unattended, states the trade-off first, and reads the value back through the same parser the service uses before calling it saved. |
-| Docker         | `LASTBELL_PASSWORD_FILE` naming a Docker secret (`/run/secrets/…`); likewise `LASTBELL_PASSWORD_SMTP_FILE` and `LASTBELL_CANVAS_TOKEN_FILE` |
+| Docker         | the wizard writes it to the settings file on the volume (`data/env`, owner-only; the image has no keyring); `LASTBELL_PASSWORD_FILE` naming a Docker secret (`/run/secrets/…`) also works, likewise `LASTBELL_PASSWORD_SMTP_FILE` and `LASTBELL_CANVAS_TOKEN_FILE` |
 | CI             | `LASTBELL_PASSWORD` from the CI secret store |
 
 The tunables, and where each one is set:
