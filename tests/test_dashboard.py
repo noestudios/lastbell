@@ -779,6 +779,13 @@ def test_app_js_exists_and_is_linked(populated):
     assert ">Cancel<" in js and ">Remove<" in js and "last subscription" in js
     _, html = _get(populated, "/")
     assert "/static/app.js" in html
+    # the student page's view cards switch in place: the cards and the
+    # panel share one region the script swaps, and history follows
+    assert "student-view" in js and "pushState" in js and "popstate" in js
+    _, html = _get(populated, "/student/1?view=due")
+    region = html[html.index("<div id='student-view'>"):]
+    assert region.index("class='stats'") < region.index("</main>")
+    assert "<div id='student-view'><div class='stats'>" in html
 
 
 def test_settings_subscribe_form_defaults_to_4pm_digest_with_urgent(populated):
