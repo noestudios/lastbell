@@ -431,6 +431,88 @@
   document.addEventListener("input", trackDirty);
   document.addEventListener("change", trackDirty);
   document.addEventListener("submit", onSubmit);
+  /* ── student page: view switching in place ──────────────────────────
+   * The four stat cards are links to ?view=…; followed as links they load
+   * a new document, which starts at the top. Here a click fetches the
+   * target page and swaps #student-view (the cards + the panel) so the
+   * scroll position never moves; the URL and title follow via pushState
+   * so bookmarks, refresh and the back button behave as before. Only a
+   * pure view switch is intercepted — same path, same ?course= scope, no
+   * #fragment — anything else (a course-scoped link, a #hit deep link) is
+   * left to navigate. The course strip sits outside the region: its
+   * toggle state survives, and its ?view= links are rewritten to match. */
+  function viewSwitchTarget(link) {
+    var region = document.getElementById("student-view");
+    if (!region || !region.contains(link)) return null;
+    var to, here;
+    try {
+      to = new URL(link.getAttribute("href"), window.location.href);
+      here = new URL(window.location.href);
+    } catch (e) {
+      return null;
+    }
+    if (to.origin !== here.origin || to.pathname !== here.pathname) return null;
+    if (to.hash || !to.searchParams.get("view")) return null;
+    if ((to.searchParams.get("course") || "") !== (here.searchParams.get("course") || "")) {
+      return null;
+    }
+    return to;
+  }
+
+  function rewriteStripViews(view) {
+    Array.prototype.forEach.call(
+      document.querySelectorAll("#allcourses a[href]"),
+      function (a) {
+        var u;
+        try { u = new URL(a.getAttribute("href"), window.location.href); }
+        catch (e) { return; }
+        if (!u.searchParams.has("view")) return;
+        u.searchParams.set("view", view);
+        a.setAttribute("href", u.pathname + u.search + u.hash);
+      });
+  }
+
+  function swapView(url, push) {
+    return fetch(url.href, { credentials: "same-origin" }).then(function (resp) {
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      return resp.text();
+    }).then(function (html) {
+      var doc = new DOMParser().parseFromString(html, "text/html");
+      var next = doc.getElementById("student-view");
+      var cur = document.getElementById("student-view");
+      if (!next || !cur) throw new Error("no region");
+      var y = window.scrollY;
+      cur.replaceWith(document.importNode(next, true));
+      if (doc.title) document.title = doc.title;
+      if (push) history.pushState({ lastbellView: 1 }, "", url.pathname + url.search);
+      rewriteStripViews(url.searchParams.get("view"));
+      window.scrollTo(0, y);            // belt and braces: the swap must not move the page
+      var active = document.querySelector("#student-view a.stat.active");
+      if (active) active.focus({ preventScroll: true });
+      var label = active && active.querySelector(".lbl");
+      if (label) announce(label.textContent + " view");
+    });
+  }
+
+  document.addEventListener("click", function (ev) {
+    if (ev.defaultPrevented || ev.button !== 0) return;
+    if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+    var link = ev.target.closest && ev.target.closest("a[href]");
+    if (!link || link.target) return;
+    var to = viewSwitchTarget(link);
+    if (!to) return;
+    ev.preventDefault();
+    swapView(to, true).catch(function () { window.location.href = to.href; });
+  });
+
+  window.addEventListener("popstate", function () {
+    if (!document.getElementById("student-view")) return;
+    var here;
+    try { here = new URL(window.location.href); } catch (e) { return; }
+    if (!here.searchParams.get("view")) here.searchParams.set("view", "problems");
+    swapView(here, false).catch(function () { window.location.reload(); });
+  });
+
   window.addEventListener("DOMContentLoaded", function () {
     initEntrances();
     armToast();
