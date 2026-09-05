@@ -115,3 +115,31 @@ def test_canvas_lines_say_which_app_and_finals_skip_canvas_only_courses():
     roll = [e for e in diff(prev, curr) if e.type is AlertType.TERM_FINAL]
     assert len(roll) == 1
     assert "Art" not in roll[0].detail and "Algebra 2" in roll[0].detail
+
+
+# ── the portal's two grade slots, filled unevenly ─────────────────────
+
+
+def test_placeholder_grade_is_a_change_but_never_a_drop():
+    """"N/A" with a 0 percent means nothing is graded yet. Landing a real
+    grade on top of it is worth an event; so is the reverse. Neither is an
+    85-point fall — there was never an 85 to fall from, or to."""
+    placeholder = _course(mark="N/A", percent="0.0")
+    graded = _course(mark="B", percent="85.00%")
+
+    events = diff(_snap(courses=[placeholder]), _snap(courses=[graded]))
+    assert [e.type for e in events] == [AlertType.GRADE_CHANGED]
+    assert "n/a → 85.0% (B)" in events[0].detail
+
+    events = diff(_snap(courses=[graded]), _snap(courses=[placeholder]))
+    assert [e.type for e in events] == [AlertType.GRADE_CHANGED]
+
+
+def test_a_number_in_the_mark_slot_still_drops():
+    """Some courses carry the number in the mark slot with no percent at
+    all; a fall there is as real as any other."""
+    events = diff(_snap(courses=[_course(mark="99", percent="")]),
+                  _snap(courses=[_course(mark="87", percent="")]))
+    assert [e.type for e in events] == [AlertType.GRADE_DROP]
+    assert "DROPPED 12 points" in events[0].detail
+    assert "99.0% → 87.0%" in events[0].detail

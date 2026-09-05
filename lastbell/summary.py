@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta
 
 from . import notify, store, watchers
 from .differ import MISSING_PHRASE, compose, due_phrase, past_due_phrase
-from .models import format_percent
+from .models import course_grade
 from .notify import render
 
 
@@ -48,9 +48,12 @@ def build(conn: sqlite3.Connection, student_id: str, initials: str,
         (student_id,) + term_args).fetchall()
 
     def one_course(c) -> str:
-        pct = format_percent(c["percent"])
-        shown = f"{pct}%" if pct is not None else (c["percent"] or c["mark"] or "—")
-        suffix = f" ({c['mark']})" if shown != c["mark"] and c["mark"] else ""
+        # The portal fills the mark and percent slots unevenly; course_grade
+        # says what a pair means (a number in the mark slot is the percent;
+        # "N/A" with 0 is nothing graded yet, not a zero).
+        value, mark = course_grade(c["mark"], c["percent"])
+        shown = f"{value:.1f}%" if value is not None else (mark or "—")
+        suffix = f" ({mark})" if value is not None and mark else ""
         return f"{c['title']} {shown}{suffix}"
 
     overall = "; ".join(one_course(c) for c in courses)

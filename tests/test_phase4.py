@@ -56,7 +56,9 @@ def test_rise_is_never_a_drop():
 def test_unparseable_percent_falls_back_to_grade_changed():
     events = differ.diff(_course_snap("N/A", mark="B"), _course_snap("", mark="C"))
     assert [e.type for e in events] == [AlertType.GRADE_CHANGED]
-    assert "N/A (B)" in events[0].detail   # unparseable text passes through raw
+    # An unparseable percent is no percent: the sentence shows the mark
+    # alone rather than parroting "N/A" where a grade belongs.
+    assert "overall B → C" in events[0].detail
 
 
 def test_percent_display_rule():

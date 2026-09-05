@@ -70,6 +70,45 @@ def format_percent(raw: str) -> str | None:
     return None if value is None else f"{value:.1f}"
 
 
+# The strings the portal puts in the mark slot that mean "no mark", not a
+# grade. MCPS sends "N/A" for a course nothing has been graded in yet.
+_NO_MARK = {"", "n/a", "na", "—", "-"}
+
+
+def course_grade(mark: str, percent: str) -> tuple[float | None, str]:
+    """(percent as a float, the mark to show) from the two slots the portal
+    fills unevenly.
+
+    The portal stores an overall ``mark`` (a letter, "B+") and a ``percent``
+    ("87.20%"), but fills them inconsistently, and both are stored verbatim so
+    the audit trail stays raw. This is the one place that says what a pair of
+    slots *means*:
+
+    * percent parses -> that's the grade, and the mark rides along
+    * except a no-mark ("N/A") with a 0 percent, which is MCPS for "nothing
+      graded yet" -> no grade, no mark (never a 0 that reads as failing)
+    * percent doesn't parse but the *mark* is a number ("81", percent "") ->
+      the number sat in the mark slot; it's the percent, and there is no mark
+      to also show
+    * otherwise no percent, and the mark (if it is one) stands alone
+
+    A numeric mark of "0" with an empty percent stays 0.0: a course with
+    nothing but zeros really is at 0.
+    """
+    mark = (mark or "").strip()
+    percent = (percent or "").strip()
+    shown = "" if mark.lower() in _NO_MARK else mark
+    value = parse_percent(percent)
+    if value is not None:
+        if not shown and value == 0:
+            return None, ""
+        return value, shown
+    from_mark = parse_percent(mark)
+    if from_mark is not None:
+        return from_mark, ""
+    return None, shown
+
+
 @dataclass
 class Student:
     agu: str               # dedupe / natural key across credentials
