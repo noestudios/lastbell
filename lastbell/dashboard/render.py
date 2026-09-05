@@ -1281,7 +1281,7 @@ def render_history(rows, course_rows=(), class_counts=(), field_counts=(),
         n = len(body_rows)
         total = n if total is None else max(total, n)
         slug = title.lower().replace(" ", "-")
-        table = (f"<table aria-label='{escape(title)}'>" + head_html
+        table = (f"<table class='history' aria-label='{escape(title)}'>" + head_html
                  + "".join(body_rows[:_HISTORY_PREVIEW]))
         more = ""
         if n > _HISTORY_PREVIEW:
