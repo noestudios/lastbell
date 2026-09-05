@@ -448,12 +448,13 @@ seen, filterable by class and by kind of change.
 <img src="assets/screenshots/history.png" width="49%" alt="Grade history with class and change-kind filters">
 </p>
 
-**Settings.** Watchers (guardians *and* students) with their channels,
-and subscriptions: who hears about which student, over which channel,
+**Settings.** Display (the percent below which graded scores are tinted),
+watchers (guardians *and* students) with their channels, and
+subscriptions: who hears about which student, over which channel,
 immediately or in a daily digest, with the urgent types allowed through
 right away.
 
-![Settings: watchers, channels, and subscriptions](assets/screenshots/settings.png)
+![Settings: display, watchers, channels, and subscriptions](assets/screenshots/settings.png)
 </details>
 
 ## How alerts reach people

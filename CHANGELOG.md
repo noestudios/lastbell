@@ -4,6 +4,48 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.3.0 — 2026-09-05
+
+**Last Bell runs without Python now, keeps its first household setting
+inside the app, and only restarts what an upgrade actually changed.**
+
+- **Runs anywhere.** Every release is also a container image,
+  `ghcr.io/noestudios/lastbell` (tagged `X.Y.Z` and `latest`), for
+  64-bit Intel/AMD machines and 64-bit Raspberry Pis, built from the
+  same wheel the release sends to PyPI. No Python, no pipx: put
+  `docker-compose.yml` in an empty folder and run three commands —
+  `docker compose run --rm lastbell setup`, `docker compose up -d`,
+  `docker compose exec dashboard lastbell dashboard --show-key`. One
+  folder, `data/`, holds everything: the database, the snapshots, and
+  the settings file the wizard writes. The README's new "Run it as a
+  container" section walks through it; packaged apps for Umbrel, Home
+  Assistant and NAS app stores come later and will wrap this image.
+- **The CLI knows when it's in a container.** There `lastbell upgrade`
+  prints `docker compose pull` and `docker compose up -d` instead of
+  looking for pipx; `lastbell status` says "container image";
+  `install-service` says Docker already keeps it running; and the
+  footer's "restart to use it" badge never appears, because the image
+  is the only copy.
+- **The score tint is a setting inside the app.** Settings has a new
+  **Display** card: "Tint scores below" decides which graded
+  assignments are tinted on the student pages (70 by default, a C on
+  the MCPS scale; 0 turns it off). Save it there and it stays across
+  restarts. `LASTBELL_SCORE_CUTOFF` only seeds it now: an existing
+  install picks up its shell value the first time Settings opens, and
+  once you save on the page the variable is ignored. `lastbell status`
+  says which one is in charge. The tint is household-wide for now (no
+  per-student value), and nothing alerts on it.
+- **`lastbell upgrade` restarts only when there is something to
+  restart.** When pipx says the installed release is already the latest
+  and nothing newer is waiting on disk, the poller and dashboard are
+  left alone ("nothing to restart"). `--restart-only` still restarts
+  them on request.
+
+For existing installs nothing changes on disk: upgrade as usual with
+`lastbell upgrade`. Contributors: `docker compose build` still builds
+from the working tree (uncomment `build: .`), and CI now builds the
+image without pushing on every change.
+
 ## 0.2.14 — 2026-09-05
 
 **The student page holds still, the Settings page keeps your edits, and
