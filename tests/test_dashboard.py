@@ -326,8 +326,8 @@ def test_settings_page(populated):
     # a real web UI: forms for every write path, not CLI listings
     assert "lastbell watcher" not in html
     assert "lastbell subscribe" not in html
-    for action in ("watcher-add", "watcher-remove", "channel", "channel-remove",
-                   "subscribe", "subscription-update", "unsubscribe"):
+    for action in ("watcher-add", "watcher-remove", "channel-test", "channel-remove",
+                   "channels-save", "subscribe", "subscriptions-save", "unsubscribe"):
         assert f"action='/settings/{action}'" in html
     # env-owned config is absent: if it can't be changed here, don't show it
     assert "LASTBELL_POLL_MINUTES" not in html
@@ -360,10 +360,12 @@ def test_settings_channels_are_rows_under_their_watcher(populated):
     w = watchers.add_watcher(populated, "Mom", WatcherKind.GUARDIAN,
                              {"email": {"to": "mom@example.com"}})
     _, html = _get(populated, "/settings")
-    # the channel row: name cell, address input preloaded, bound to a row form
+    # the channel row: name cell, address input preloaded, bound to the
+    # table's one section form with a per-row name
     assert "<td class='chname'>email</td>" in html
     assert "value='mom@example.com'" in html
-    assert f"form='ch-{w.id}-email'" in html
+    assert "name='r0-to' form='chan-save'" in html
+    assert f"id='ch-{w.id}-email'" in html          # the row's test/remove form
     # the add-channel row offers only channels the watcher doesn't have yet —
     # and email is the only channel the web UI offers at all (text message
     # was withdrawn in 0.1.5)
@@ -797,8 +799,74 @@ def test_settings_rows_carry_ids_and_gated_update_buttons(populated):
     assert f"id='row-sub-{sub.id}'" in html
     # watcher-remove form names its row group so channels animate out with it
     assert f"data-group='{w.id}'" in html
-    # Update buttons are class 'upd' (hidden until app.js marks the form dirty)
-    assert "<button class='upd'>Update</button>" in html
+    # One Save/Discard per table (hidden until app.js marks the form dirty);
+    # every row's fields bind to it with per-row names
+    assert "<button class='upd'>Update</button>" not in html
+    assert "id='subs-save'" in html and "id='chan-save'" in html
+    assert "name='r0-urgent' form='subs-save'" in html
+    assert "name='r0-to' form='chan-save'" in html
+    assert html.count("Save changes") == 2 and html.count(">Discard<") == 2
+
+
+def test_settings_subscriptions_save_writes_only_changed_rows(populated):
+    """Turning "urgent now" off on several rows and saving keeps them all
+    (owner's report 2026-09-05: per-row Update reset the other rows), and
+    an untouched row is left alone — its id survives."""
+    conn = populated
+    store.persist_snapshot(
+        conn, Student(agu="2", name="Lilou Hays", school="Example ES",
+                      initials="L.H."), Snapshot(student_agu="2"))
+    watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN)
+    _ok(_post(conn, "subscribe", watcher="Mom", student="*",
+              type="*", channel="*", at="16:00", urgent="on"))
+    subs = sorted(watchers.list_subscriptions(conn), key=lambda s: s.student_name)
+    assert len(subs) == 2 and all(s.urgent_now for s in subs)
+
+    def row(n, s, **over):
+        fields = {f"r{n}-ids": s.id, f"r{n}-type": "*", f"r{n}-channel": "*",
+                  f"r{n}-at": "16:00", f"r{n}-urgent": "on"}
+        fields.update({f"r{n}-{k}": v for k, v in over.items()})
+        return fields
+
+    # Only row 1 changes (urgent off): row 0 keeps its id, the toast names one.
+    fields = {**row(0, subs[0]), **row(1, subs[1])}
+    del fields["r1-urgent"]
+    target = _ok(_post(conn, "subscriptions-save", **fields))
+    assert f"Updated%20Mom%27s%20subscription%20for%20{subs[1].student_name.split()[0]}" in target
+    after = {s.student_name: s for s in watchers.list_subscriptions(conn)}
+    assert after[subs[0].student_name].id == subs[0].id and after[subs[0].student_name].urgent_now
+    assert not after[subs[1].student_name].urgent_now
+
+    # Both change → one post, both written, the toast counts.
+    fields = {**row(0, subs[0], at="17:00"), **row(1, subs[1], at="17:00")}
+    del fields["r0-urgent"]
+    del fields["r1-urgent"]
+    target = _ok(_post(conn, "subscriptions-save", **fields))
+    assert "Updated%202%20subscriptions" in target
+    assert all(s.send_at == "17:00" and not s.urgent_now
+               for s in watchers.list_subscriptions(conn))
+
+    # Nothing differs → nothing written, and it says so.
+    subs = sorted(watchers.list_subscriptions(conn), key=lambda s: s.student_name)
+    fields = {**row(0, subs[0], at="17:00"), **row(1, subs[1], at="17:00")}
+    del fields["r0-urgent"]
+    del fields["r1-urgent"]
+    assert "No%20changes%20to%20save" in _ok(_post(conn, "subscriptions-save", **fields))
+
+
+def test_settings_channels_save_writes_only_changed_rows(populated):
+    conn = populated
+    watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
+                         {"email": {"to": "m@x.com"}})
+    same = {"r0-watcher": "Mom", "r0-channel": "email", "r0-to": "m@x.com"}
+    assert "No%20changes%20to%20save" in _ok(_post(conn, "channels-save", **same))
+    target = _ok(_post(conn, "channels-save", **{**same, "r0-to": "mom@x.com"}))
+    assert "Updated%20Mom%27s%20email%3A%20mom%40x.com" in target
+    assert watchers.get_watcher(conn, "Mom").channels["email"]["to"] == "mom@x.com"
+    # a cleared address on a changed row is refused; the saved one stands
+    status, redirect = _post(conn, "channels-save", **{**same, "r0-to": ""})
+    assert status == 303 and "err=" in redirect and "needs%20an%20address" in redirect
+    assert watchers.get_watcher(conn, "Mom").channels["email"]["to"] == "mom@x.com"
 
 
 def test_app_js_exists_and_is_linked(populated):
@@ -808,6 +876,7 @@ def test_app_js_exists_and_is_linked(populated):
     assert "toast" in js and "dirty" in js and "prefers-reduced-motion" in js
     # fetch-and-swap (no page reload) and the removal confirmation dialog
     assert "settings-main" in js and "fetch(" in js
+    assert "sectionform" in js and '"reset"' in js   # section Save/Discard
     assert ">Cancel<" in js and ">Remove<" in js and "last subscription" in js
     _, html = _get(populated, "/")
     assert "/static/app.js" in html
@@ -1206,7 +1275,7 @@ def test_settings_channel_rows_offer_a_test_button(populated):
     watchers.add_watcher(populated, "Mom", WatcherKind.GUARDIAN,
                          {"email": {"to": "mom@example.com"}})
     _, html = _get(populated, "/settings")
-    assert "formaction='/settings/channel-test'" in html
+    assert "action='/settings/channel-test'" in html
     assert "Send a test email to mom@example.com" in html
 
 

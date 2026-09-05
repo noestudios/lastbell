@@ -11,11 +11,12 @@ from .render import (
     _page,
 )
 
-def _type_multiselect(fid, selected) -> str:
+def _type_multiselect(fid, selected, name: str = "type") -> str:
     """The alert-types control: a checkbox dropdown (<details> popover — the
     browser handles open/close; app.js keeps the summary label fresh and
-    makes 'all alerts' exclusive). ``fid`` binds row-form controls; None
-    means the checkboxes sit inside their form already."""
+    makes 'all alerts' exclusive). ``fid`` binds the controls to a form
+    elsewhere; None means the checkboxes sit inside their form already.
+    ``name`` is the field name — a section form prefixes it per row."""
     from ..models import AlertType
 
     sel = set(selected)
@@ -31,7 +32,7 @@ def _type_multiselect(fid, selected) -> str:
         label = f"{len(sel)} types"
     form_attr = f" form='{escape(fid)}'" if fid else ""
     boxes = "".join(
-        f"<label><input type='checkbox' name='type' value='{escape(v)}'"
+        f"<label><input type='checkbox' name='{escape(name)}' value='{escape(v)}'"
         f"{form_attr}{' checked' if v in sel else ''}> {escape(lab)}</label>"
         for v, lab in opts)
     return (f"<details class='msel'>"
@@ -39,6 +40,16 @@ def _type_multiselect(fid, selected) -> str:
             f"{escape(label)}</summary>"
             f"<div class='msel-list' role='group' "
             f"aria-label='Alert types'>{boxes}</div></details>")
+
+
+def _section_save(fid: str, action: str, label: str) -> str:
+    """One Save / Discard pair for a whole manage table. Hidden until app.js
+    marks the form dirty (a field differs from what the server rendered);
+    Discard is a native reset, so every bound field snaps back at once."""
+    return (f"<form id='{fid}' method='post' action='{action}' class='sectionform'>"
+            f"<span class='small'>Unsaved changes</span>"
+            f"<button aria-label='{escape(label)}'>Save changes</button>"
+            f"<button type='reset' class='ghost'>Discard</button></form>")
 
 
 def _options(pairs, selected="") -> str:
@@ -69,9 +80,14 @@ def render_settings(watcher_list, subscriptions, students=(),
     if watcher_list:
         # One row per watcher, then one row per channel under it (each
         # editable/removable in place), then an add-channel row for whatever
-        # channels the watcher doesn't have yet. Row forms live in the
-        # actions cell; the other cells' controls bind via form=.
+        # channels the watcher doesn't have yet. Every address field binds
+        # (via form=) to ONE section form after the table — one Save for
+        # the whole table, so editing three rows and saving keeps all
+        # three (owner's call 2026-09-05: per-row Update lost the others).
+        # Test/remove keep tiny row forms of their own: they read only the
+        # hidden ids.
         w_rows = []
+        ch_n = 0                     # section-form row index (r0-…, r1-…)
         for w in watcher_list:
             w_rows.append(
                 f"<tr id='row-w-{escape(w.id)}' data-w='{escape(w.id)}'>"
@@ -100,22 +116,27 @@ def render_settings(watcher_list, subscriptions, students=(),
                             f"{hidden}{buttons}</form>")
                 else:
                     address = next(iter(addr.values()), "")
-                    # name='to' (never 'address' — browsers autofill that as
-                    # a street address). Email rows opt into email autofill;
-                    # sms rows hold a carrier gateway, so no suggestions.
+                    # name='…-to' (never 'address' — browsers autofill that
+                    # as a street address). Email rows opt into email
+                    # autofill; sms rows hold a carrier gateway, so no
+                    # suggestions.
                     autofill = "email" if cname == "email" else "off"
-                    addr_cell = (f"<input name='to' form='{fid}' "
+                    r = f"r{ch_n}"
+                    ch_n += 1
+                    addr_cell = (f"<input type='hidden' name='{r}-watcher' "
+                                 f"value='{escape(w.name)}' form='chan-save'>"
+                                 f"<input type='hidden' name='{r}-channel' "
+                                 f"value='{escape(cname)}' form='chan-save'>"
+                                 f"<input name='{r}-to' form='chan-save' "
                                  f"aria-label='{escape(channel_label.get(cname, cname))} address' "
                                  f"value='{escape(address)}' "
                                  f"autocomplete='{autofill}'>")
                     form = (f"<form id='{fid}' method='post' "
-                            f"action='/settings/channel' class='rowform'>{hidden}"
-                            f"<button class='upd'>Update</button> "
+                            f"action='/settings/channel-test' class='rowform'>{hidden}"
                             f"<button class='ghost' "
                             f"aria-label='Send a test "
                             f"{escape(channel_label.get(cname, cname))} to "
-                            f"{escape(address)}' "
-                            f"formaction='/settings/channel-test'>"
+                            f"{escape(address)}'>"
                             f"test</button> "
                             f"<button class='ghost' "
                             f"aria-label='Remove "
@@ -146,7 +167,9 @@ def render_settings(watcher_list, subscriptions, students=(),
                     f"<input type='hidden' name='watcher' value='{escape(w.name)}'>"
                     f"<button>Add channel</button></form></td></tr>")
         w_body = ("<table class='manage' aria-label='Watchers'><tr class='head'><th scope='col'>Watcher</th>"
-                  "<th scope='col'>Address</th><th scope='col'><span class='vh'>Actions</span></th></tr>" + "".join(w_rows) + "</table>")
+                  "<th scope='col'>Address</th><th scope='col'><span class='vh'>Actions</span></th></tr>" + "".join(w_rows) + "</table>"
+                  + _section_save("chan-save", "/settings/channels-save",
+                                  "Save the edited addresses"))
     else:
         w_body = "<p class='small'>None yet — add the first watcher above.</p>"
 
@@ -167,9 +190,11 @@ def render_settings(watcher_list, subscriptions, students=(),
         # A displayed row is a GROUP of single-type subscription rows sharing
         # (watcher, student, channel, delivery, urgent); the Alerts cell is a
         # multiselect over the group's types. A <form> can't span table
-        # cells, so each row's form lives in its actions cell and the cells'
-        # controls point at it via form=. Remove shares the form (formaction)
-        # — it only reads the hidden ids.
+        # cells, so every row's controls bind (via form=) to ONE section
+        # form after the table, with per-row field names (r0-type, r0-at…):
+        # one Save for the whole table, so turning "urgent now" off on five
+        # rows and saving keeps all five (owner's call 2026-09-05). Remove
+        # keeps a tiny row form of its own — it only reads the hidden ids.
         groups: dict = {}
         for s in subscriptions:
             key = (s.watcher_id, s.student_id, s.channel, s.send_at, s.urgent_now)
@@ -177,38 +202,42 @@ def render_settings(watcher_list, subscriptions, students=(),
         s_rows = []
         urgent_tip = ("Send urgent alerts (missing, due soon, grade drop) "
                       "immediately instead of waiting for the digest")
-        for group in groups.values():
+        for n, group in enumerate(groups.values()):
             first = group[0]
             fid = f"sub-{escape(first.id)}"
             ids = ",".join(s.id for s in group)
+            r = f"r{n}"
             s_rows.append(
                 f"<tr id='row-{fid}'>"
-                f"<td>{escape(first.watcher_name)} ⇒ {escape(first.student_name)}</td>"
+                f"<td>{escape(first.watcher_name)} ⇒ {escape(first.student_name)}"
+                f"<input type='hidden' name='{r}-ids' value='{escape(ids)}' "
+                f"form='subs-save'></td>"
                 f"<td data-label='Alerts'>"
-                f"{_type_multiselect(fid, [s.alert_type for s in group])}</td>"
-                f"<td data-label='Via'><select name='channel' form='{fid}' "
+                f"{_type_multiselect('subs-save', [s.alert_type for s in group], name=f'{r}-type')}</td>"
+                f"<td data-label='Via'><select name='{r}-channel' form='subs-save' "
                 f"aria-label='Delivery channel'>"
                 f"{_options([('*', 'all configured')] + channel_opts, selected=first.channel)}"
                 f"</select></td>"
-                f"<td data-label='Delivery'><input type='time' name='at' form='{fid}' "
+                f"<td data-label='Delivery'><input type='time' name='{r}-at' form='subs-save' "
                 f"aria-label='Daily digest time' "
                 f"value='{escape(first.send_at or '')}' "
                 f"data-tip='Daily digest time — blank for immediate delivery'> "
                 f"<label class='urgent' data-tip='{escape(urgent_tip)}'>"
-                f"<input type='checkbox' name='urgent' form='{fid}'"
+                f"<input type='checkbox' name='{r}-urgent' form='subs-save'"
                 f"{' checked' if first.urgent_now else ''}> urgent now</label></td>"
                 f"<td data-label='Actions'>"
-                f"<form id='{fid}' method='post' action='/settings/subscription-update' "
+                f"<form id='{fid}' method='post' action='/settings/unsubscribe' "
                 f"class='rowform'>"
                 f"<input type='hidden' name='ids' value='{escape(ids)}'>"
-                f"<button class='upd'>Update</button> "
-                f"<button class='ghost' formaction='/settings/unsubscribe' "
+                f"<button class='ghost' "
                 f"aria-label='Unsubscribe {escape(first.watcher_name)} "
                 f"from {escape(first.student_name)}'>"
                 f"remove</button></form></td></tr>")
         s_body = ("<table class='manage' aria-label='Subscriptions'><tr class='head'><th scope='col'>Watcher ⇒ Student</th>"
                   "<th scope='col'>Alerts</th><th scope='col'>Via</th><th scope='col'>Delivery</th><th scope='col'><span class='vh'>Actions</span></th></tr>"
-                  + "".join(s_rows) + "</table>")
+                  + "".join(s_rows) + "</table>"
+                  + _section_save("subs-save", "/settings/subscriptions-save",
+                                  "Save the edited subscriptions"))
     else:
         s_body = "<p class='small'>No subscriptions yet.</p>"
     if watcher_list and students:
