@@ -1,6 +1,8 @@
 # Install plan — from "clone and venv" to "paste one line, answer questions"
 
-> **Status (2026-09-01): Phases 1–3 implemented; 0.1.2 tagged.** Phase 3:
+> **Status (2026-09-05): Phase 4 — the published container image — ships in
+> 0.3.0; see the end of this file.** Earlier status (2026-09-01): Phases 1–3
+> implemented; 0.1.2 tagged. Phase 3:
 > `secrets.keyring_available()` probe, wizard env-file fallback (no keyring, or
 > unattended Linux) with the trade-off stated first and the file scrubbed on
 > a switch back to the keyring, SMTP password follows the same backend;
@@ -171,3 +173,18 @@ and `--uninstall`:
 Bump `pyproject.toml` and `lastbell/__init__.py` to 0.1.1, tag `v0.1.1`,
 push the tag — `release.yml` publishes. The 0.1.1 README on PyPI will also
 pick up the screenshot tour (0.1.0's predates it).
+
+## Phase 4 — runs anywhere: the published container image (0.3.0)
+
+The one install path that needs no Python at all. Every tag now also builds
+`ghcr.io/noestudios/lastbell` (`X.Y.Z` and `latest`, `linux/amd64` and
+`linux/arm64`) from the same wheel the tag sent to PyPI — `release.yml`, job
+`image` — and `ci.yml` builds the `Dockerfile` both ways without pushing on
+every push, so a broken image fails before a tag does. One volume
+(`LASTBELL_HOME=/data`) holds the database, the snapshots, and the wizard's
+settings file; the image runs unprivileged (uid 1000) and sets
+`LASTBELL_CONTAINER=1`, which `lastbell upgrade` / `status` /
+`install-service`, the wizard's service step, and the footer's restart badge
+honor. The user-facing story is the README's **Run it as a container**: three
+commands from a folder holding only `docker-compose.yml`. Umbrel, Home
+Assistant, and NAS app-store packaging come after, wrapping this image.

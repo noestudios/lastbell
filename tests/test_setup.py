@@ -449,6 +449,17 @@ def test_container_setup_writes_everything_to_the_volume(wizard_world, monkeypat
     assert "lastbell run --loop" not in out               # not a command anyone types here
 
 
+def test_container_setup_names_the_fix_for_an_unwritable_volume(wizard_world, monkeypatch, capsys):
+    """Docker made ./data as root: say the chown line, don't traceback."""
+    monkeypatch.setenv("LASTBELL_CONTAINER", "1")
+    monkeypatch.setattr(wiz, "_interactive", lambda: True)
+    monkeypatch.setattr(wiz, "_say", lambda t="": pytest.fail("the wizard must stop first"))
+    wiz.paths.data_dir().mkdir(parents=True)
+    monkeypatch.setattr(wiz.os, "access", lambda path, mode: False)
+    assert wiz.main() == 2
+    assert "sudo chown -R 1000:1000 data" in capsys.readouterr().err
+
+
 def test_email_is_first_and_gateway_addresses_are_refused(wizard_world, monkeypatch):
     """Menu option 1 is email (text message was withdrawn in 0.1.5); a
     carrier gateway address is refused with the reason and re-asked."""
