@@ -242,6 +242,13 @@ def _choose_backend(env: dict) -> str:
     started at boot runs outside the login session and can't unlock the
     desktop keyring, so there the settings file is the honest choice."""
     current = env.get("LASTBELL_SECRET_BACKEND", "keyring")
+    if service.in_container():
+        # No keyring exists in the image; the settings file on the mounted
+        # volume is the only place, and it is owner-only there as everywhere.
+        _say("  In a container the password lives in the settings file on the")
+        _say(f"  mounted volume ({paths.active_env_file() or paths.default_env_file()},")
+        _say("  owner-only, plain text) — there is no OS keyring to use.")
+        return "env"
     if not _keyring_available():
         _say("  This machine has no usable OS keyring (no Secret Service —")
         _say("  typical for a headless Pi or server). The alternative is the")
@@ -482,6 +489,10 @@ def _attach_channel(username: str, chosen: tuple) -> bool:
 
 def _offer_service(unattended: bool) -> bool:
     """Offer `lastbell install-service` from the wizard; True when installed."""
+    if service.in_container():
+        _say("  No background service to install here: Docker keeps the container")
+        _say("  running (`docker compose up -d`, next, on the host).")
+        return False
     if service.platform_name() not in ("linux", "darwin"):
         if service.platform_name() == "windows":
             _say("  To keep it running on Windows, `lastbell install-service`")
@@ -552,13 +563,20 @@ def main(argv: list | None = None) -> int:
 
     conf = cfg.load()
     _say("")
-    if installed:
+    if service.in_container():
+        _say("Done. Back on the machine running Docker, in the folder with")
+        _say("docker-compose.yml, two commands:")
+        _say("    docker compose up -d      # start the poller and the dashboard")
+        _say("    docker compose exec dashboard lastbell dashboard --show-key")
+        _say("                              # the link to open once at http://127.0.0.1:8321")
+    elif installed:
         _say("Done. Last Bell is running as a background service; the command")
         _say("that matters:")
     else:
         _say("Done. The two commands that matter:")
         _say("    lastbell run --loop     # keep watching and alerting")
-    _say("    lastbell dashboard      # browse everything at http://127.0.0.1:8321")
+    if not service.in_container():
+        _say("    lastbell dashboard      # browse everything at http://127.0.0.1:8321")
     _say(f"Your data lives in {conf.db_path.parent}; settings in {env_path}.")
     if chosen is not None and chosen[0] == "ntfy":
         _say(f"Your ntfy topic (treat it like a password): {chosen[1]['topic']}")

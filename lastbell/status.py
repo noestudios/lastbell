@@ -110,6 +110,9 @@ def keyring_name() -> str:
 
 def service_state(plat: str) -> list[str]:
     """One line per managed process: installed or not, running or not."""
+    if service.in_container():
+        return ["kept running by Docker — `docker compose ps` on the host shows "
+                "the poller and the dashboard"]
     if plat == "linux":
         lines = []
         for unit, what in ((service.UNIT, "poller"), (service.DASHBOARD_UNIT, "dashboard")):
@@ -296,11 +299,16 @@ def report(now: datetime | None = None) -> list[str]:
     plat = service.platform_name()
     installed = updates.installed_version()
     head = f"Last Bell {__version__}"
-    if updates.restart_pending(installed):
+    if service.in_container():
+        # The image is the install: no pipx, no separate copy on disk.
+        head = f"Last Bell container image {__version__}"
+    elif updates.restart_pending(installed):
         head += f" running; {installed} installed — restart to use it"
-    lines = [head,
-             f"Python {platform.python_version()} on {platform.system()} "
-             f"{platform.release()}"]
+    lines = [head]
+    if service.in_container():
+        lines.append(f"Upgrade: {updates.COMPOSE_HINT}")
+    lines.append(f"Python {platform.python_version()} on {platform.system()} "
+                 f"{platform.release()}")
     tz = f"{time.tzname[0] or 'unknown'} (UTC{time.strftime('%z')})"
     lines.append(f"Clock: {tz}" + (" — UTC! due dates, digests, and quiet hours "
                                    "will run hours early; set the timezone"
@@ -347,10 +355,15 @@ def report(now: datetime | None = None) -> list[str]:
         # this screen gets pasted into issues — so say where to get it, never
         # what it is.
         if conf.dashboard_host not in ("127.0.0.1", "localhost", "::1"):
+            # In a container even the host's own browser arrives over the
+            # Docker bridge, so the key is needed once there too.
             lines.append("           other devices need the key once: "
-                         "lastbell dashboard --show-key prints the link")
+                         + ("docker compose exec dashboard " if service.in_container() else "")
+                         + "lastbell dashboard --show-key prints the link")
     log = service.log_path()
-    if log.is_file():
+    if service.in_container():
+        lines.append("Log: the container's output — `docker compose logs -f` on the host")
+    elif log.is_file():
         st = log.stat()
         written = datetime.fromtimestamp(st.st_mtime, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         lines.append(f"Log: {tilde(log)} ({_size(st.st_size)}, last written {ago(written, now)})")

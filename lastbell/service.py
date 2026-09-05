@@ -57,6 +57,21 @@ def platform_name() -> str:
     return sys.platform
 
 
+def in_container() -> bool:
+    """Running from the published image? The Dockerfile sets
+    LASTBELL_CONTAINER=1. There, nothing here applies: Docker keeps the
+    processes running, ``docker compose pull`` upgrades them, and the image
+    is the only copy of the code — no pipx, no systemd, no pending restart."""
+    return os.environ.get("LASTBELL_CONTAINER", "").strip().lower() in ("1", "true", "yes")
+
+
+# What "upgrade" means in a container: two commands, on the machine running
+# Docker, in the folder that holds docker-compose.yml. Compose restarts only
+# the containers whose image changed.
+COMPOSE_UPGRADE = ("docker compose pull", "docker compose up -d")
+COMPOSE_NOTE = "not applicable in a container — Docker keeps Last Bell running"
+
+
 def _home() -> Path:
     return Path.home()
 
@@ -203,6 +218,10 @@ def _fail(say: Say, what: str, proc: subprocess.CompletedProcess) -> int:
 
 
 def install(print_only: bool = False, say: Say = print) -> int:
+    if in_container():
+        say(f"install-service: {COMPOSE_NOTE} (`docker compose up -d`, "
+            "restart: unless-stopped). Nothing to install.")
+        return 0
     plat = platform_name()
     exe = executable()
     if plat == "windows":
@@ -276,6 +295,10 @@ def install(print_only: bool = False, say: Say = print) -> int:
 
 
 def uninstall(print_only: bool = False, say: Say = print) -> int:
+    if in_container():
+        say(f"install-service: {COMPOSE_NOTE}; `docker compose down` stops it. "
+            "Nothing to remove.")
+        return 0
     plat = platform_name()
     if plat == "windows":
         say("Windows: remove the scheduled task with:")

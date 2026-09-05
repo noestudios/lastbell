@@ -12,10 +12,21 @@ from __future__ import annotations
 import re
 
 from . import __version__
-from .service import platform_name
+from .service import COMPOSE_UPGRADE, in_container, platform_name
 
 PYPI_JSON = "https://pypi.org/pypi/lastbell/json"
 UPGRADE_HINT = "on the machine running Last Bell: pipx upgrade lastbell, then"
+COMPOSE_HINT = ("on the machine running Docker, in the folder with "
+                f"docker-compose.yml: {COMPOSE_UPGRADE[0]}, then {COMPOSE_UPGRADE[1]}")
+
+
+def upgrade_hint(plat: str | None = None) -> str:
+    """The whole "get the newer release running" instruction for this host:
+    pipx plus a restart on a bare-metal install, the two compose commands in
+    a container (where pipx and systemd don't exist)."""
+    if in_container():
+        return COMPOSE_HINT
+    return f"{UPGRADE_HINT} {restart_hint(plat)}"
 
 
 def restart_hint(plat: str | None = None) -> str:
@@ -23,6 +34,8 @@ def restart_hint(plat: str | None = None) -> str:
     dashboard are separate long-running processes, and both keep the old
     code in memory until restarted — an upgraded box whose dashboard was
     left running keeps reporting the old version from its own footer."""
+    if in_container():
+        return COMPOSE_HINT
     plat = plat or platform_name()
     if plat == "linux":
         return ("restart the poller and, if you run one, the dashboard: "
@@ -51,7 +64,11 @@ def installed_version() -> str | None:
 
 def restart_pending(installed: str | None) -> bool:
     """Newer files on disk than in this process. (A source checkout's
-    dist-info can lag *behind* its code; that is not a pending restart.)"""
+    dist-info can lag *behind* its code; that is not a pending restart. A
+    container has no separate installed copy — the image *is* the copy — so
+    nothing is ever pending there.)"""
+    if in_container():
+        return False
     return bool(installed) and compare(__version__, installed) == "newer"
 
 
@@ -122,7 +139,7 @@ def describe(status: str, latest: str, installed: str | None = None,
                 f"running {__version__} — {restart_hint(plat)}{also}")
     if status == "newer":
         return (f"Last Bell {latest} is available (this is {__version__}) — "
-                f"{UPGRADE_HINT} {restart_hint(plat)}")
+                f"{upgrade_hint(plat)}")
     if status == "ahead":
         return (f"This is {__version__}, newer than the latest release on PyPI "
                 f"({latest}) — nothing to do")
