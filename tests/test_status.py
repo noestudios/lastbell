@@ -183,6 +183,23 @@ def test_report_dashboard_unit_and_utc_clock(world, monkeypatch):
     assert "k" not in text.split("network key")[1].split("\n")[0][:4]   # never the key itself
 
 
+def test_report_tells_a_network_dashboard_where_the_key_lives(world, monkeypatch):
+    monkeypatch.setenv("LASTBELL_DASHBOARD_HOST", "0.0.0.0")
+    monkeypatch.setenv("LASTBELL_DASHBOARD_KEY", "super-secret-key")
+    monkeypatch.setattr(status, "dashboard_listening", lambda host, port: True)
+    text = "\n".join(status.report(NOW))
+    assert ("other devices need the key once: lastbell dashboard --show-key "
+            "prints the link") in text
+    assert "super-secret-key" not in text                 # still never the key
+
+
+def test_report_leaves_a_loopback_dashboard_alone(world, monkeypatch):
+    monkeypatch.setattr(status, "dashboard_listening", lambda host, port: True)
+    text = "\n".join(status.report(NOW))
+    assert "Dashboard: 127.0.0.1:" in text
+    assert "--show-key" not in text
+
+
 def test_report_keyring_backend_names_it_without_reading(world, monkeypatch):
     monkeypatch.setenv("LASTBELL_SECRET_BACKEND", "keyring")
     monkeypatch.setattr(status, "keyring_name", lambda: "macOS Keychain")

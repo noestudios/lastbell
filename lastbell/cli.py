@@ -5,6 +5,7 @@ import argparse
 import os
 import logging
 import sys
+import textwrap
 
 from . import __version__
 from . import config as cfg
@@ -921,7 +922,47 @@ def _cmd_seed_demo(args: argparse.Namespace) -> int:
     return 0
 
 
-def main() -> None:
+# What a parent reaches for, in the order they reach for it. Every
+# registered subcommand belongs to exactly one group (tests/test_cli_help.py
+# holds that line), so a new command can't quietly go missing from --help.
+COMMAND_GROUPS = (
+    ("Every day",
+     ("status", "dashboard", "alerts", "upgrade", "backup", "restore")),
+    ("First-time setup",
+     ("setup", "set-password", "set-canvas-token", "install-service",
+      "preflight", "discover")),
+    ("Who gets told",
+     ("watcher", "subscribe", "unsubscribe", "subscriptions", "flush")),
+    ("Under the hood",
+     ("run", "collect", "canvas", "init-db", "seed-demo")),
+    ("Leaving", ("forget",)),
+)
+
+
+def _grouped_help(parser, sub) -> str:
+    """Argparse lists 23 commands in registration order, which reads as a
+    wall. Group them instead — but take each one-line description from the
+    subparser itself, so the descriptions live in exactly one place."""
+    helps = {a.dest: (a.help or "") for a in sub._choices_actions}
+    width = max(len(name) for _, names in COMMAND_GROUPS for name in names)
+    col = 2 + width + 2                        # column the help text starts in
+    out = ["usage: lastbell <command> [options]", "",
+           parser.description or "", ""]
+    for title, names in COMMAND_GROUPS:
+        out.append(title)
+        for name in names:
+            body = textwrap.wrap(helps.get(name, ""), 78 - col) or [""]
+            out.append(f"  {name.ljust(width)}  {body[0]}")
+            out += [" " * col + rest for rest in body[1:]]
+        out.append("")
+    out.append("`lastbell <command> --help` shows a command's options; "
+               "`--version` prints the version.")
+    return "\n".join(out) + "\n"
+
+
+def build_parser():
+    """The whole CLI, built but not run — so the help tests can look at it
+    without executing a command."""
     parser = argparse.ArgumentParser(prog="lastbell", description="Self-hosted ParentVUE grade monitor")
     parser.add_argument("--version", action="version", version=f"lastbell {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1045,7 +1086,7 @@ def main() -> None:
     sub.add_parser("flush", help="send due digests/summaries now; list what's still queued"
                    ).set_defaults(func=_cmd_flush)
 
-    p_dash = sub.add_parser("dashboard", help="serve the web dashboard")
+    p_dash = sub.add_parser("dashboard", help="serve the web dashboard; --show-key prints the link a phone opens once")
     p_dash.add_argument("--host", help="bind address (default: 127.0.0.1)")
     p_dash.add_argument("--port", type=int, help="port (default: 8321)")
     p_dash.add_argument("--show-key", action="store_true",
@@ -1104,6 +1145,21 @@ def main() -> None:
     p_seed.add_argument("--force", action="store_true",
                         help="overwrite an existing file at --db")
     p_seed.set_defaults(func=_cmd_seed_demo)
+
+    # The help action calls print_help -> format_help, so this is all it takes
+    # for -h/--help to get the grouped listing too.
+    parser.format_help = lambda: _grouped_help(parser, sub)
+    return parser, sub
+
+
+def main() -> None:
+    parser, _sub = build_parser()
+    # Bare `lastbell` used to be an argparse error: a usage line with all 23
+    # commands in braces, then "the following arguments are required". Show
+    # someone who typed the name alone what they can do instead.
+    if len(sys.argv) == 1:
+        parser.print_help()
+        return
 
     args = parser.parse_args()
     try:

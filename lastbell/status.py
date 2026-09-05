@@ -343,6 +343,12 @@ def report(now: datetime | None = None) -> list[str]:
                      + ("listening" if listening else "not listening")
                      + ("; network key set" if key_set else
                         "; network key not made yet (the first start beyond loopback makes one)"))
+        # A phone can't open a network-bound dashboard without the key, and
+        # this screen gets pasted into issues — so say where to get it, never
+        # what it is.
+        if conf.dashboard_host not in ("127.0.0.1", "localhost", "::1"):
+            lines.append("           other devices need the key once: "
+                         "lastbell dashboard --show-key prints the link")
     log = service.log_path()
     if log.is_file():
         st = log.stat()
