@@ -22,7 +22,7 @@ def world(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)                          # no checkout .env
     for key in ("LASTBELL_DB_PATH", "LASTBELL_SNAPSHOT_DIR", "LASTBELL_PASSWORD",
                 "LASTBELL_PASSWORD_FILE", "LASTBELL_DASHBOARD_KEY", "LASTBELL_CANVAS_HOST",
-                "LASTBELL_SMTP_HOST", "XDG_CONFIG_HOME"):
+                "LASTBELL_SMTP_HOST", "XDG_CONFIG_HOME", "LASTBELL_CONTAINER"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("LASTBELL_DISTRICT", "x.example")
     monkeypatch.setenv("LASTBELL_USERNAME", "parent.person@example.com")
@@ -303,3 +303,23 @@ def test_report_says_where_the_score_tint_comes_from(world, monkeypatch):
     assert ("Score tint: off — saved on the Settings page (Display); "
             "LASTBELL_SCORE_CUTOFF in the environment is ignored — it only seeds "
             "the setting") in text
+
+
+def test_report_in_a_container_names_the_image_and_the_compose_upgrade(world, monkeypatch):
+    """0.3.0: inside the image there is no pipx, no systemd unit, no log
+    file, and no separate installed copy — the report says what applies."""
+    monkeypatch.setenv("LASTBELL_CONTAINER", "1")
+    monkeypatch.setenv("LASTBELL_DASHBOARD_HOST", "0.0.0.0")   # the compose bind
+    monkeypatch.setattr(updates, "installed_version", lambda: "99.0.0")  # pending, outside
+    lines = status.report(NOW)
+    text = "\n".join(lines)
+    assert lines[0] == f"Last Bell container image {updates.__version__}"
+    assert lines[1] == f"Upgrade: {updates.COMPOSE_HINT}"
+    assert "docker compose pull, then docker compose up -d" in lines[1]
+    assert "restart to use it" not in text
+    assert "Service: kept running by Docker" in text
+    assert "install-service" not in text
+    assert "Log: the container's output — `docker compose logs -f`" in text
+    assert ("docker compose exec dashboard lastbell dashboard --show-key prints the link"
+            in text)
+    assert world["calls"] == []                            # no systemctl probes

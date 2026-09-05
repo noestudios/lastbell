@@ -1,43 +1,60 @@
+# Last Bell as two containers from one image: the poller (`run --loop`) and
+# the dashboard. Both mount ./data as /data, which holds everything — the
+# database, the snapshots, and the settings file `lastbell setup` writes
+# (the image sets LASTBELL_HOME=/data). Nothing of yours is in the image.
+#
+# First run, from a folder holding only this file (README → "Run it as a
+# container"). Linux: `mkdir -p data` first so the folder is yours and not
+# root's; if your user isn't uid 1000 — a NAS, usually — also
+# `sudo chown -R 1000:1000 data`, the image's unprivileged user.
+#
+#   docker compose run --rm lastbell setup
+#   docker compose up -d
+#   docker compose exec dashboard lastbell dashboard --show-key
+#
+# Upgrade: `docker compose pull`, then `docker compose up -d` — compose
+# restarts only the containers whose image changed.
+
 services:
   lastbell:
-    build: .
-    # Non-secret settings (district, username, SMTP host …) come from your
-    # git-ignored .env — copy .env.example and fill it in.
-    env_file: .env
+    image: ghcr.io/noestudios/lastbell:latest
+    # build: .        # contributors: build the working tree instead of pulling
     environment:
-      LASTBELL_SECRET_BACKEND: env
-      # Secrets arrive as files, never in .env or here. Each *_FILE setting
-      # names a Docker secret mounted under /run/secrets.
-      LASTBELL_PASSWORD_FILE: /run/secrets/parentvue_password
-      # LASTBELL_PASSWORD_SMTP_FILE: /run/secrets/smtp_password
-    secrets:
-      - parentvue_password
-      # - smtp_password
+      # The household's clock: digests and quiet hours follow it. Without
+      # this a container runs on UTC and `lastbell status` says so.
+      TZ: America/New_York
     volumes:
       - ./data:/data
     command: ["run", "--loop"]
     restart: unless-stopped
+    # No healthcheck here on purpose: the heartbeat URL (LASTBELL_HEARTBEAT_URL,
+    # set by the wizard or in data/env) is the poller's liveness signal.
 
   # The dashboard shows full names. It is published on this host's loopback
   # only; widen that deliberately, and read the README's dashboard section
-  # first. Inside the container every request arrives from the Docker
-  # bridge, not loopback, so the browser needs the dashboard key once; pin
-  # it with LASTBELL_DASHBOARD_KEY (or _FILE) so it survives restarts.
+  # first. Inside a container every request arrives over the Docker bridge,
+  # not loopback, so even this host's browser needs the dashboard key once —
+  # the third command above prints the link. The key is written to data/env
+  # on first start and survives restarts.
   dashboard:
-    build: .
-    env_file: .env
+    image: ghcr.io/noestudios/lastbell:latest
+    # build: .
     environment:
-      LASTBELL_DASHBOARD_KEY: change-me-to-a-long-random-string
+      TZ: America/New_York
+      # The dashboard answers only to names it recognizes (localhost, IP
+      # addresses, .local names). Reaching it by a NAS or home-DNS name?
+      # List that name here — the one line a NAS needs:
+      # LASTBELL_DASHBOARD_HOSTNAMES: nas.home.arpa
     command: ["dashboard", "--host", "0.0.0.0"]
     ports:
       - "127.0.0.1:8321:8321"
     volumes:
       - ./data:/data
     restart: unless-stopped
-
-secrets:
-  parentvue_password:
-    # One line, the password. Keep the secrets/ directory out of git.
-    file: ./secrets/parentvue_password.txt
-  # smtp_password:
-  #   file: ./secrets/smtp_password.txt
+    healthcheck:
+      # Is something answering on the dashboard's port? A TCP connect, nothing sent.
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8321), timeout=3).close()"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

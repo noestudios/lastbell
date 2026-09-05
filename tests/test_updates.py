@@ -121,3 +121,20 @@ def test_settings_footer_flags_a_pending_restart():
     assert "9.9.9 installed — restart to use it" in html
     assert "installed — restart" not in dashboard.render_settings([], [], installed="0.0.1")
     assert "installed — restart" not in dashboard.render_settings([], [])
+
+
+def test_container_has_no_pending_restart_and_is_told_compose(monkeypatch):
+    """0.3.0: the image is the only copy of the code, so "installed but not
+    restarted" cannot happen there, and the upgrade words are compose's."""
+    from lastbell import dashboard
+
+    monkeypatch.setenv("LASTBELL_CONTAINER", "1")
+    assert not updates.restart_pending("9.9.9")
+    html = dashboard.render_settings([], [], installed="9.9.9")
+    assert "installed — restart" not in html
+    assert f"Last Bell {__version__}" in html              # the version link stays
+    msg = updates.describe("newer", "9.9.9", installed="9.9.9", plat="linux")
+    assert "docker compose pull, then docker compose up -d" in msg
+    assert "pipx" not in msg and "systemctl" not in msg
+    assert "docker compose pull" in updates.restart_hint("linux")
+    assert updates.describe("current", __version__) == f"You're on the latest version ({__version__})"

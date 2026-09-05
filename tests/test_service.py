@@ -283,3 +283,33 @@ def test_cli_uninstall_print(world, monkeypatch, capsys):
         cli.main()
     assert exc.value.code == 0
     assert "launchctl bootout" in capsys.readouterr().out
+
+
+def test_in_container_reads_the_image_flag(monkeypatch):
+    monkeypatch.delenv("LASTBELL_CONTAINER", raising=False)
+    assert service.in_container() is False
+    for value in ("1", "true", "YES"):
+        monkeypatch.setenv("LASTBELL_CONTAINER", value)
+        assert service.in_container() is True
+    monkeypatch.setenv("LASTBELL_CONTAINER", "0")
+    assert service.in_container() is False
+
+
+def test_install_service_in_a_container_is_not_applicable(world, monkeypatch, capsys):
+    """0.3.0: Docker keeps the container running; there is no unit to write
+    and nothing to run. Both directions say so and exit 0."""
+    linux(monkeypatch)
+    monkeypatch.setenv("LASTBELL_CONTAINER", "1")
+    assert service.install(say=world["say"]) == 0
+    assert service.uninstall(say=world["say"]) == 0
+    out = world["output"]()
+    assert out.count("not applicable in a container") == 2
+    assert "docker compose up -d" in out and "docker compose down" in out
+    assert world["commands"] == []
+    assert not service.unit_path().exists()
+
+    monkeypatch.setattr(sys, "argv", ["lastbell", "install-service"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0
+    assert "not applicable in a container" in capsys.readouterr().out

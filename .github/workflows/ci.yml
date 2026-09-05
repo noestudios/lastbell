@@ -73,3 +73,46 @@ jobs:
           /tmp/smoke/bin/lastbell --version
           /tmp/smoke/bin/lastbell --help > /dev/null
           /tmp/smoke/bin/parentvue-preflight --help > /dev/null
+
+  image:
+    # A broken Dockerfile should fail here, not on a tag. Builds the image
+    # both ways release.yml can — from the tree and from a wheel — for amd64
+    # only, pushes nothing, and runs each result once: the version, the
+    # container-aware CLI branches, the unprivileged user, the one volume,
+    # and a clock that follows TZ (digests would otherwise run hours early).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install build && python -m build --wheel
+      - uses: docker/setup-buildx-action@v3
+      - name: build from the tree
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: lastbell:tree
+      - name: build from the wheel (the release path)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          build-args: SOURCE=wheel
+          tags: lastbell:wheel
+      - name: run both once
+        run: |
+          set -eux
+          for t in tree wheel; do
+            docker run --rm "lastbell:$t" --version | grep -q '^lastbell '
+            docker run --rm "lastbell:$t" upgrade | grep -q 'docker compose pull'
+            docker run --rm "lastbell:$t" install-service | grep -q 'not applicable in a container'
+            docker run --rm "lastbell:$t" status | grep -q '^Last Bell container image '
+            test "$(docker run --rm --entrypoint id "lastbell:$t" -u)" = 1000
+            test "$(docker run --rm --entrypoint sh "lastbell:$t" -c 'echo "$LASTBELL_HOME:$LASTBELL_CONTAINER"')" = "/data:1"
+            docker run --rm -e TZ=America/New_York --entrypoint python "lastbell:$t" \
+              -c "import time; assert time.tzname[0] in ('EST', 'EDT'), time.tzname"
+          done
