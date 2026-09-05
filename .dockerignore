@@ -1,0 +1,10 @@
+# The Dockerfile copies only pyproject.toml, README.md, lastbell/ (a tree
+# build) and dist/ (a release build); keep everything else — the venv, the
+# database, secrets, the git history — out of the build context.
+*
+!pyproject.toml
+!README.md
+!lastbell/
+!dist/
+**/__pycache__/
+**/*.pyc

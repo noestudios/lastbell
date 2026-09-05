@@ -2,7 +2,9 @@ name: release
 
 # Tag-driven release to PyPI via trusted publishing (OIDC) — no long-lived
 # token lives in this repo — followed by a GitHub Release whose notes come
-# from the tag's section of CHANGELOG.md (with the wheel + sdist attached). One-time setup on pypi.org (after the manual
+# from the tag's section of CHANGELOG.md (with the wheel + sdist attached)
+# and a multi-arch container image on GHCR built from that same wheel
+# (the `image` job at the bottom). One-time setup on pypi.org (after the manual
 # first upload claims the name): project "lastbell" → Settings → Publishing →
 # add this repo/workflow ("release.yml", environment "pypi").
 on:
@@ -66,3 +68,56 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" dist/* \
             --verify-tag --title "Last Bell $VERSION" --notes-file notes.md
+
+  image:
+    # The container image, built from the wheel that just went to PyPI (so
+    # the image is the release, not the tree) for linux/amd64 and linux/arm64
+    # (a 64-bit Raspberry Pi), pushed to GHCR as X.Y.Z and latest. The
+    # package is private after its first push; the owner makes it public
+    # once, in the package's settings on github.com (Packages → lastbell →
+    # Package settings → Change visibility). ci.yml builds the same
+    # Dockerfile without pushing on every push and PR.
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # push to ghcr.io with the workflow's own token
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/noestudios/lastbell
+          # v0.3.0 → 0.3.0, plus latest (metadata-action adds it for a
+          # release tag). The Dockerfile carries the static OCI labels;
+          # this adds revision, created, and version from the tag.
+          tags: |
+            type=semver,pattern={{version}}
+          labels: |
+            org.opencontainers.image.title=Last Bell
+            org.opencontainers.image.licenses=MIT
+      - uses: docker/build-push-action@v6
+        with:
+          context: .              # the checkout plus the downloaded dist/
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            SOURCE=wheel
+            VERSION=${{ steps.meta.outputs.version }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # No provenance manifest: it shows up as an "unknown/unknown"
+          # platform on the GHCR page, which is confusing for the people
+          # this image is for.
+          provenance: false

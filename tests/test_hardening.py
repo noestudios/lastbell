@@ -433,6 +433,12 @@ def test_key_link_names_a_reachable_host(monkeypatch):
     assert key_link("", 8321, "K") == "http://nas.home.arpa:8321/?key=K"
     assert key_link("192.168.1.20", 8321, "K") == "http://192.168.1.20:8321/?key=K"
     assert key_link("fd00::7", 8321, "K") == "http://[fd00::7]:8321/?key=K"
+    # In a container the hostname is the container ID — useless outside it.
+    # Compose publishes the port on the Docker host's loopback.
+    monkeypatch.setenv("LASTBELL_CONTAINER", "1")
+    monkeypatch.setattr(socket, "gethostname", lambda: "3f9a1c2b7d8e")
+    assert key_link("0.0.0.0", 8321, "K") == "http://127.0.0.1:8321/?key=K"
+    assert key_link("192.168.1.20", 8321, "K") == "http://192.168.1.20:8321/?key=K"
 
 
 def test_dashboard_key_is_generated_once_and_persisted(tmp_path, monkeypatch):
