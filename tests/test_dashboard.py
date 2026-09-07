@@ -1639,3 +1639,17 @@ def test_settings_display_card_sits_first_and_binds_to_its_section_form(populate
     household.set_score_cutoff(populated, 0)
     _, html = _get(populated, "/settings")
     assert "inputmode='numeric' value='0' form='display-save'" in html
+
+
+def test_history_transition_shows_a_dash_for_a_blank_side():
+    # The portal empties the percent slot at interim time (0% → ""), and a
+    # NULL side was already a dash; a blank string reads the same way.
+    from lastbell.dashboard.render import _history_transition
+
+    assert _history_transition({"field": "percent", "old_value": "0%",
+                                "new_value": ""}) == "0% → —"
+    assert _history_transition({"field": "percent", "old_value": None,
+                                "new_value": "87.20%"}) == "— → 87.20%"
+    assert _history_transition({"field": "status", "old_value": "due",
+                                "new_value": "ungraded_past_due"}) \
+        == "due → ungraded past due"

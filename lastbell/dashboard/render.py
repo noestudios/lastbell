@@ -1161,8 +1161,10 @@ def _history_transition(r) -> str:
     """A field's old → new for the history tables. Status values read as
     the badge words ("due → ungraded past due"), not the enum names."""
     words = _STATUS_LABELS if r["field"] == "status" else {}
-    old = r["old_value"] if r["old_value"] is not None else "—"
-    new = r["new_value"] if r["new_value"] is not None else "—"
+    # Blank is as absent as NULL: the portal empties the percent slot at
+    # interim time, and "0% → " with nothing after the arrow reads broken.
+    old = r["old_value"] if r["old_value"] not in (None, "") else "—"
+    new = r["new_value"] if r["new_value"] not in (None, "") else "—"
     return f"{escape(words.get(old, (old,))[0])} → {escape(words.get(new, (new,))[0])}"
 
 
