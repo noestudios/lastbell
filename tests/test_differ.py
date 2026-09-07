@@ -57,6 +57,27 @@ def test_newly_graded_reads_as_graded_not_changed():
     assert "graded: 8/10" in events[0].detail
 
 
+def test_points_possible_change_on_ungraded_work_is_not_a_grade_change():
+    # Interim time: the portal rewrote the rows and two ungraded items came
+    # back without their "Points Possible" text. Nothing was graded, so
+    # nothing to say (it used to read "score changed ungraded → ungraded").
+    prev = _snap(assignments=[_assignment(score=None, points=8.0,
+                                          status=AssignmentStatus.DUE)])
+    curr = _snap(assignments=[_assignment(score=None, points=None,
+                                          status=AssignmentStatus.DUE)])
+    assert diff(prev, curr) == []
+    # …and the other way round, when the points come back.
+    assert diff(curr, prev) == []
+
+
+def test_points_possible_change_on_graded_work_still_fires():
+    prev = _snap(assignments=[_assignment(score=8.0, points=10.0)])
+    curr = _snap(assignments=[_assignment(score=8.0, points=20.0)])
+    events = diff(prev, curr)
+    assert len(events) == 1 and events[0].type is AlertType.GRADE_CHANGED
+    assert "8/10 → 8/20" in events[0].detail
+
+
 def test_flip_to_missing_emits_assignment_missing():
     prev = _snap(assignments=[_assignment(score=None, status=AssignmentStatus.DUE)])
     curr = _snap(assignments=[_assignment(score=None, status=AssignmentStatus.MISSING)])

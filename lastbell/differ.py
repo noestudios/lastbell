@@ -174,7 +174,12 @@ def diff(
                     AlertType.UPCOMING_DEADLINE, agu, course,
                     due_phrase(_day(a.due_date)), item=a.name, via=via))
             continue
-        if (a.score, a.points) != (p.score, p.points):
+        # A grade change needs a score on at least one side. Points possible
+        # alone changing on ungraded work (the portal rewrites rows at
+        # interim time and can drop the "Points Possible" text) is not news
+        # to a parent and would read "ungraded → ungraded".
+        if ((a.score, a.points) != (p.score, p.points)
+                and not (a.score is None and p.score is None)):
             if p.score is None and a.score is not None:
                 what = f"graded: {_score(a)}"
             else:
