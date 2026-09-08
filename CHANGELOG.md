@@ -4,6 +4,23 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.3.1 — 2026-09-08
+
+**Two things the first outside testers noticed at interim time, both
+fixed.**
+
+- **No more "score changed ungraded → ungraded".** When the portal posts
+  interim grades it rewrites the gradebook rows, and ungraded work can
+  come back without its "points possible". That is not a grade change,
+  so a digest no longer reports it. A points change on work that *is*
+  graded still shows, as before ("8/10 → 8/20").
+- **History reads "0% → —", not "0% →".** When a course's percent slot
+  goes blank, the History page now shows a dash for the empty side, the
+  same way it already shows a value that disappeared.
+
+Nothing changes on disk; upgrade with `lastbell upgrade` or
+`docker compose pull && docker compose up -d`.
+
 ## 0.3.0 — 2026-09-05
 
 **Last Bell runs without Python now, keeps its first household setting
