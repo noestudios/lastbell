@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import re
+import json as _json
 from datetime import date, datetime, timedelta, timezone
 from html import escape
 from pathlib import Path
@@ -1072,14 +1073,51 @@ def _pager(page: int, last: int, href) -> str:
             + "</nav>")
 
 
+# A course-level alert has no assignment; the cell names what the row is
+# about instead, so a stacked phone row still has a title line.
+_COURSE_LEVEL_ITEM = {
+    "grade_changed": "Course grade",
+    "grade_drop": "Course grade",
+    "term_final": "Marking period",
+}
+
+
+def _course_level_item(alert_type: str) -> str:
+    label = _COURSE_LEVEL_ITEM.get(alert_type)
+    return f"<span class='small'>{label}</span>" if label else "<span class='small'>—</span>"
+
+
+def _alert_parts(al) -> tuple[str, str, str, str]:
+    """(course, assignment, what happened, via) from a stored alert. Rows
+    carry the sentence's parts since the parts were added to the event;
+    an older row has only the sentence, whose course prefix is peeled off
+    so the Detail cell never repeats the Course cell."""
+    try:
+        body = _json.loads(al["body"])
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    detail = body.get("detail") or al["body"]
+    course = body.get("course", "")
+    what = body.get("what", "")
+    if not what:
+        what = detail
+        if course and what.startswith(f"{course}: "):
+            what = what[len(course) + 2:]
+    return course, body.get("item", ""), what, body.get("via", "")
+
+
 def render_alerts(alerts, counts=(), nav_students=(),
                   page: int = 1, alert_type: str = "", total: int = 0,
-                  today: date | None = None) -> str:
+                  today: date | None = None,
+                  course_ids: dict | None = None) -> str:
+    """``course_ids`` maps (student id, course title) → course id, so the
+    Course cell can link the way History's does; a course it cannot place
+    (renamed, or gone from the gradebook) shows as text."""
     if not counts:
         body = "<h1>Alerts</h1><p>No alerts yet — quiet is good.</p>"
         return _page("Alerts", body, nav_students=nav_students, path="/alerts")
-    import json as _json
-
     today = today or date.today()
     last = alerts_last_page(total)
 
@@ -1100,21 +1138,34 @@ def render_alerts(alerts, counts=(), nav_students=(),
         f"{escape(c['type'].replace('_', ' '))} <b>{c['n']}</b></a>"
         for c in counts]
 
+    # The same columns as History's assignment table, so the changes both
+    # pages record read as one thing: the assignment leads, the course is
+    # its own cell and opens the student page scoped to that class, and
+    # the sentence is left with only what happened.
+    course_ids = course_ids or {}
     rows = []
     for al in alerts:
-        try:
-            detail = _json.loads(al["body"]).get("detail", al["body"])
-        except Exception:
-            detail = al["body"]
+        course, item, what, via = _alert_parts(al)
+        gu = course_ids.get((al["student_id"], course)) if course else None
+        if gu:
+            course_html = (f"<a href='/student/{escape(al['student_agu'])}"
+                           f"?view=everything&course={quote(gu)}'>{escape(course)}</a>")
+        else:
+            course_html = escape(course) if course else "—"
+        detail_html = escape(what) + (f" <span class='src'>{escape(via)}</span>" if via else "")
         rows.append(
             f"<tr>"
-            f"<td>{escape(detail)}</td>"
+            f"<td>{escape(item) if item else _course_level_item(al['type'])}</td>"
             f"<td class='small' data-label='When'>"
             f"{_when_html(al['created_at'], today)}</td>"
             f"<td data-label='Student'>{escape(al['student_name'])}</td>"
-            f"<td data-label='Type'>{_alert_type_badge(al['type'])}</td></tr>")
-    table = ("<table class='alerts'><tr class='head'><th scope='col'>Detail</th><th scope='col'>When</th>"
-             "<th scope='col'>Student</th><th scope='col'>Type</th></tr>"
+            f"<td data-label='Course'>{course_html}</td>"
+            f"<td data-label='Type'>{_alert_type_badge(al['type'])}</td>"
+            f"<td data-label='Detail'>{detail_html}</td></tr>")
+    table = ("<table class='alerts'><tr class='head'><th scope='col'>Assignment</th>"
+             "<th scope='col'>When</th><th scope='col'>Student</th>"
+             "<th scope='col'>Course</th><th scope='col'>Type</th>"
+             "<th scope='col'>Detail</th></tr>"
              + "".join(rows) + "</table>"
              if rows else "<p class='small'>Nothing on this page.</p>")
 

@@ -347,7 +347,7 @@ def fetch_alerts(conn: sqlite3.Connection, page: int = 1,
     """One page of alerts, newest first. Offset paging is safe here because
     the sort key is stable between requests; the total (for the page count)
     comes from fetch_alert_counts, which the chips need anyway."""
-    sql = ("SELECT al.*, st.name AS student_name "
+    sql = ("SELECT al.*, st.name AS student_name, st.agu AS student_agu "
            "FROM alerts al "
            "JOIN students st ON st.id = al.student_id ")
     params: list = []
@@ -357,6 +357,17 @@ def fetch_alerts(conn: sqlite3.Connection, page: int = 1,
     sql += "ORDER BY al.created_at DESC, al.rowid DESC LIMIT ? OFFSET ?"
     params += [_ALERTS_PAGE, (page - 1) * _ALERTS_PAGE]
     return conn.execute(sql, params).fetchall()
+
+
+def fetch_course_ids(conn: sqlite3.Connection) -> dict[tuple[str, str], str]:
+    """(student id, course title) → the course's portal id, for pages that
+    hold a course only by name (an alert stores the sentence's parts, not
+    ids) and want to link it the way History does. A title seen across
+    terms maps to one id; the student page scopes by that id."""
+    return {(r["student_id"], r["title"]): r["edupoint_gu"]
+            for r in conn.execute(
+                "SELECT student_id, title, edupoint_gu FROM courses "
+                "ORDER BY term")}
 
 
 def fetch_alert_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:

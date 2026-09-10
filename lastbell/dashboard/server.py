@@ -25,6 +25,7 @@ from .queries import (
     fetch_alert_counts,
     fetch_alerts,
     fetch_course_history,
+    fetch_course_ids,
     fetch_courses,
     fetch_history,
     fetch_history_class_counts,
@@ -108,7 +109,8 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
             return 301, "/alerts" + ("?" + "&".join(q) if q else "")
         return 200, render_alerts(fetch_alerts(conn, page, alert_type), counts,
                                   nav_students=students, page=page,
-                                  alert_type=alert_type, total=total)
+                                  alert_type=alert_type, total=total,
+                                  course_ids=fetch_course_ids(conn))
     if path == "/history":
         h_course = (query.get("course") or [""])[0]
         h_field = (query.get("field") or [""])[0]

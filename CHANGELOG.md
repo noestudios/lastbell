@@ -6,6 +6,12 @@ Plain-words notes for each release. The heading's version is what
 
 ## Unreleased
 
+- **The Alerts page reads like History.** Same columns: the assignment
+  leads, the course is its own cell and opens the student page scoped to
+  that class, and Detail carries only what happened ("graded: 5/6"). The
+  old one-line form ("5: Algebra 1A: “Exit Ticket…” graded: 5/6") ran the
+  period, the class, and the assignment together, and "1A" read as part of
+  the assignment name.
 - **A digest that Gmail "temporarily rejects" after delivering it no
   longer lands twice.** Gmail sometimes answers a submission with a
   temporary-rejection reply even though it has already accepted the

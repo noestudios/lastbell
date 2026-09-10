@@ -298,6 +298,47 @@ def test_alerts_page(populated):
     assert "Fractions Quiz" in html
 
 
+def test_alerts_table_has_history_columns_with_a_linked_course(populated):
+    """The Alerts table reads like History's: the assignment leads, the
+    course is its own cell opening the student page scoped to that class,
+    and Detail carries only what happened — not "Course: “Item” what"."""
+    from lastbell.differ import event
+
+    store.record_alert(populated, "1", event(
+        AlertType.GRADE_CHANGED, "1", "Math <Adv>", "graded: 8/10",
+        item="Fractions Quiz", via="Canvas"))
+    _, html = _get(populated, "/alerts")
+    assert ("<th scope='col'>Assignment</th><th scope='col'>When</th>"
+            "<th scope='col'>Student</th><th scope='col'>Course</th>"
+            "<th scope='col'>Type</th><th scope='col'>Detail</th>") in html
+    assert "<td>Fractions Quiz</td>" in html
+    assert ("<td data-label='Course'><a href='/student/1?view=everything"
+            "&course=709775'>Math &lt;Adv&gt;</a></td>") in html
+    assert "<td data-label='Detail'>graded: 8/10 <span class='src'>Canvas</span></td>" in html
+    assert "Math &lt;Adv&gt;: “Fractions Quiz”" not in html   # the sentence is not repeated
+
+
+def test_alerts_course_level_and_legacy_rows(populated):
+    from lastbell.differ import event
+
+    # course-level: no assignment cell; the course still links
+    store.record_alert(populated, "1", event(
+        AlertType.GRADE_DROP, "1", "Math <Adv>", "overall 91.0% → 86.0%"))
+    # a course the gradebook no longer lists: text, not a dead link
+    store.record_alert(populated, "1", event(
+        AlertType.UPCOMING_DEADLINE, "1", "Old Elective", "due Fri Sep 11", item="Poster"))
+    # a pre-parts row: only the sentence; its course prefix is peeled off
+    store.record_alert(populated, "1", Event(
+        type=AlertType.ASSIGNMENT_MISSING, student_agu="1", course_title="Math <Adv>",
+        detail="Math <Adv>: “Collage” is marked missing"))
+    _, html = _get(populated, "/alerts")
+    assert "<td><span class='small'>Course grade</span></td>" in html   # no assignment
+    assert "<td data-label='Detail'>overall 91.0% → 86.0%</td>" in html
+    assert "<td data-label='Course'>Old Elective</td>" in html
+    assert "<td data-label='Detail'>“Collage” is marked missing</td>" in html
+    assert "href='/student/1?view=everything&course=709775'" in html
+
+
 def test_history_page(populated):
     # regrade -> one history row
     snap = Snapshot(
