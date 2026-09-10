@@ -134,8 +134,11 @@ def flush_due(conn: sqlite3.Connection, now: datetime | None = None,
             ch = transports.get(channel_name)
             if ch is None:
                 ch = transports[channel_name] = channel_factory(channel_name)
-            ch.send(to or {}, _subject_for(group), _body_for(group))
             ids = [r["id"] for r in group]
+            # The same rows resent (a retry) are the same message to the
+            # mailbox; a group that changed in between is a new one.
+            body = render.with_id(_body_for(group), render.stable_id("digest", *sorted(ids)))
+            ch.send(to or {}, _subject_for(group), body)
             conn.executemany(
                 "UPDATE outbox SET sent_at = datetime('now') WHERE id = ?",
                 [(i,) for i in ids])

@@ -140,6 +140,29 @@ def test_flush_uses_current_address_not_queued_one(conn):
     assert ch.calls[0][0] == {"topic": "new"}
 
 
+def test_retry_of_the_same_rows_keeps_its_message_id(conn):
+    """Gmail once said "temporarily rejected" after it had already delivered
+    the digest; the retry a minute later landed as a second copy. With one
+    id per set of rows, the mailbox recognizes the retry as the same message."""
+    w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
+                             {"email": {"to": "mom@example.com"}})
+    outbox.enqueue(conn, _delivery(w, [GRADE], channel="email"), NOON.replace(hour=17))
+    bad, good = FakeChannel(fail=True), FakeChannel()
+    outbox.flush_due(conn, now=NOON.replace(hour=18), channel_factory=lambda n: bad)
+    outbox.flush_due(conn, now=NOON.replace(hour=18), channel_factory=lambda n: good)
+    first = good.calls[0][2].message_id
+    assert first.startswith("lastbell.")
+    # the same rows on a second attempt: same id
+    conn.execute("UPDATE outbox SET sent_at = NULL")
+    conn.commit()
+    outbox.flush_due(conn, now=NOON.replace(hour=18), channel_factory=lambda n: good)
+    assert good.calls[1][2].message_id == first
+    # a group that gained a row in between is a new message
+    outbox.enqueue(conn, _delivery(w, [MISSING], channel="email"), NOON.replace(hour=17))
+    outbox.flush_due(conn, now=NOON.replace(hour=18), channel_factory=lambda n: good)
+    assert good.calls[2][2].message_id != first
+
+
 def test_failed_flush_retries_next_time(conn):
     w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
                              {"ntfy": {"topic": "t"}})

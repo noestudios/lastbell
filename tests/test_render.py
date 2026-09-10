@@ -53,6 +53,22 @@ def test_email_carries_both_parts_or_just_text():
     assert plain.get_content_type() == "text/plain"
 
 
+def test_email_message_id_comes_from_the_token_under_the_sender_domain():
+    body = render.with_id(render.Message("text", "<p>t</p>"), "lastbell.abc123")
+    msg = build_message("Last Bell <bell@example.com>", "b@y", "Subj", body)
+    assert msg["Message-ID"] == "<lastbell.abc123@example.com>"
+    assert msg.get_content_type() == "multipart/alternative"   # html twin kept
+    # no token: the server mints one, as before
+    assert build_message("a@x", "b@y", "Subj", "just text")["Message-ID"] is None
+
+
+def test_stable_id_is_deterministic_and_order_sensitive():
+    assert render.stable_id("digest", "r1", "r2") == render.stable_id("digest", "r1", "r2")
+    assert render.stable_id("digest", "r1", "r2") != render.stable_id("digest", "r1", "r3")
+    assert render.stable_id("digest", "r1") != render.stable_id("summary", "r1")
+    assert render.stable_id("x").startswith("lastbell.")
+
+
 def test_summary_html_lists_overall_and_groups():
     html = render.summary_html("J.", datetime.date(2026, 9, 3),
                                [("Math", "87.2% (B+)")],

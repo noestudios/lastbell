@@ -94,6 +94,26 @@ def test_send_due_fires_once_per_day(conn):
     assert summary.send_due(conn, now=tomorrow, channel_factory=lambda n: ch)[0] == 1
 
 
+def test_summary_message_id_is_per_subscription_per_day(conn):
+    w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
+                             {"email": {"to": "mom@example.com"}})
+    watchers.subscribe(conn, w, "1", ["daily_summary"], send_at="07:00")
+    ch = FakeChannel()
+    summary.send_due(conn, now=MORNING, channel_factory=lambda n: ch)
+    today_id = ch.calls[0][2].message_id
+    assert today_id.startswith("lastbell.")
+    # the sent marker never landed (a crash after the send): the resend is
+    # the same message to the mailbox
+    conn.execute("UPDATE subscriptions SET last_sent_on = NULL")
+    conn.commit()
+    summary.send_due(conn, now=MORNING, channel_factory=lambda n: ch)
+    assert ch.calls[1][2].message_id == today_id
+    # tomorrow's is a new one
+    summary.send_due(conn, now=MORNING + datetime.timedelta(days=1),
+                     channel_factory=lambda n: ch)
+    assert ch.calls[2][2].message_id != today_id
+
+
 def test_send_due_wildcard_channel_uses_all_addresses(conn):
     w = watchers.add_watcher(conn, "Mom", WatcherKind.GUARDIAN,
                              {"email": {"to": "m@x.com"}, "ntfy": {"topic": "t"}})

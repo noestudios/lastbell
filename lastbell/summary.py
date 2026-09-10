@@ -186,6 +186,7 @@ def send_due(conn: sqlite3.Connection, *, lookahead_days: int = 7,
         body = build(conn, sub["student_id"], sub["initials"],
                      lookahead_days=lookahead_days, today=now.date(),
                      grace_days=grace_days)
+        body = render.with_id(body, render.stable_id("summary", sub["sub_id"], today_str))
         subject = f"[Last Bell] Daily summary for {sub['initials'] or sub['agu']}"
         delivered = False
         for ch_name in channel_names:

@@ -18,6 +18,7 @@ import smtplib
 import ssl
 from dataclasses import dataclass
 from email.message import EmailMessage
+from email.utils import parseaddr
 
 
 def _need(key: str) -> str:
@@ -39,6 +40,14 @@ def build_message(sender: str, recipient: str, subject: str, body: str) -> Email
     html = getattr(body, "html", "")
     if html:
         msg.add_alternative(html, subtype="html")
+    token = getattr(body, "message_id", "")
+    if token:
+        # Gmail (and others) keep one copy per Message-ID, so a retry of the
+        # same message after a false "temporarily rejected" reply is dropped
+        # at the mailbox instead of landing twice. Without the header the
+        # server mints a fresh id per submission and both copies arrive.
+        domain = parseaddr(sender)[1].rpartition("@")[2] or "lastbell.invalid"
+        msg["Message-ID"] = f"<{token}@{domain}>"
     return msg
 
 

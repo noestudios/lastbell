@@ -4,6 +4,16 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## Unreleased
+
+- **A digest that Gmail "temporarily rejects" after delivering it no
+  longer lands twice.** Gmail sometimes answers a submission with a
+  temporary-rejection reply even though it has already accepted the
+  message, and the retry a minute later arrived as a second copy. Digests
+  and daily summaries now carry a Message-ID of their own that stays the
+  same across a retry, so the mailbox keeps one copy. A real failure still
+  retries as before.
+
 ## 0.3.1 — 2026-09-08
 
 **Two things the first outside testers noticed at interim time, both

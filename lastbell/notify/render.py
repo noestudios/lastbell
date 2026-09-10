@@ -30,14 +30,36 @@ from typing import Union
 
 class Message(str):
     """Plain text with an optional HTML twin. ``str(msg)`` / ``msg`` is the
-    text; ``msg.html`` is '' when no alternative exists."""
+    text; ``msg.html`` is '' when no alternative exists.
+
+    ``message_id`` is an opaque token a sender that may *retry* attaches
+    (the digest, the daily summary): email turns it into the Message-ID
+    header, so a resend of the same message after a false "temporarily
+    rejected" reply carries the same id and the mailbox drops the copy.
+    Other channels ignore it."""
 
     html: str
+    message_id: str
 
-    def __new__(cls, text: str, html: str = "") -> Message:
+    def __new__(cls, text: str, html: str = "", message_id: str = "") -> Message:
         obj = super().__new__(cls, text)
         obj.html = html
+        obj.message_id = message_id
         return obj
+
+
+def stable_id(*parts: str) -> str:
+    """A message-id token that is the same every time for the same parts:
+    a retry of one message must look like that message, not a new one."""
+    import hashlib
+
+    digest = hashlib.sha256("\x1f".join(parts).encode()).hexdigest()
+    return f"lastbell.{digest[:32]}"
+
+
+def with_id(body, token: str) -> Message:
+    """``body`` (str or Message) stamped with a message-id token."""
+    return Message(str(body), getattr(body, "html", ""), token)
 
 
 # ── vocabulary ────────────────────────────────────────────────────────
