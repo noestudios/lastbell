@@ -4,7 +4,10 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
-## Unreleased
+## 0.3.2 — 2026-09-10
+
+**The Alerts page reads like History, and a Gmail hiccup no longer
+doubles a digest.**
 
 - **The Alerts page reads like History.** Same columns: the assignment
   leads, the course is its own cell and opens the student page scoped to
@@ -19,6 +22,9 @@ Plain-words notes for each release. The heading's version is what
   and daily summaries now carry a Message-ID of their own that stays the
   same across a retry, so the mailbox keeps one copy. A real failure still
   retries as before.
+
+Nothing changes on disk; upgrade with `lastbell upgrade` or
+`docker compose pull && docker compose up -d`.
 
 ## 0.3.1 — 2026-09-08
 
