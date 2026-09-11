@@ -31,7 +31,7 @@ jobs:
           python-version: "3.12"
       - run: pip install .
       - run: python scripts/build_demo_site.py --out _site --base /lastbell
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
