@@ -4,8 +4,14 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
-## Unreleased
+## 0.3.3 — 2026-09-11
 
+**A housekeeping release: the source tarball no longer ships the test
+suite, and a few things GitHub's code scanning pointed at.**
+
+- **The source tarball on PyPI carries only the package.** Earlier
+  tarballs also included the test suite; the wheel, which is what pip
+  installs, never did. Nothing changes for an install.
 - **Hardening from GitHub's code scanning.** The dashboard's redirect
   targets are written as one-line header values by construction; the
   workflows' token is read-only unless a job says otherwise; the Canvas
