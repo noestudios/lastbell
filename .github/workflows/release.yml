@@ -112,7 +112,7 @@ jobs:
           labels: |
             org.opencontainers.image.title=Last Bell
             org.opencontainers.image.licenses=MIT
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .              # the checkout plus the downloaded dist/
           platforms: linux/amd64,linux/arm64
