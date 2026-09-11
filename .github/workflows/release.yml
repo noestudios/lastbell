@@ -11,6 +11,11 @@ on:
   push:
     tags: ["v*"]
 
+# The token is read-only unless a job says otherwise (the release
+# jobs that publish, cut the Release, or push the image each do).
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest

@@ -614,3 +614,15 @@ def test_cli_refuses_a_public_bind_in_one_line(monkeypatch, capsys, tmp_path):
                                                port=None, show_key=False))
     err = capsys.readouterr().err
     assert rc == 2 and "public address" in err
+
+
+def test_redirect_location_is_always_one_line():
+    """http.server writes header values verbatim, so a target carrying a
+    line break would end the header and start another. Every real target
+    is built from the request path and quoted parts (no breaks); this is
+    the guarantee at the one place a break could matter."""
+    from lastbell.dashboard.server import _location
+
+    assert _location("/alerts?type=grade_drop") == "/alerts?type=grade_drop"
+    assert _location("/x\r\nSet-Cookie: a=b") == "/xSet-Cookie: a=b"
+    assert _location("/x\n") == "/x"

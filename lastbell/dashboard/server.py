@@ -151,6 +151,14 @@ def _row_prefixes(form: dict) -> list[str]:
     return [f"r{n}" for n in seen]
 
 
+def _location(target: str) -> str:
+    """A redirect target as a Location header value: one line, always. The
+    targets are built from a request's own path and from quoted parts, so
+    this changes none of them; it is the guarantee a header needs, since
+    http.server writes header values verbatim."""
+    return target.replace("\r", "").replace("\n", "")
+
+
 def _handle_settings_post(conn: sqlite3.Connection, action: str,
                           form: dict) -> tuple[int, str]:
     """POST /settings/<action> — the Settings page's write paths. They carry
@@ -614,7 +622,7 @@ def serve(db_path: Path, host: str, port: int, hostnames: tuple = (),
                 rest = [(k, v) for k, vs in query.items() if k != "key" for v in vs]
                 target = parsed.path + ("?" + urlencode(rest) if rest else "")
                 self.send_response(303)
-                self.send_header("Location", target)
+                self.send_header("Location", _location(target))
                 self.send_header("Set-Cookie", f"{COOKIE}={key}; Path=/; HttpOnly; "
                                                f"SameSite=Lax; Max-Age=31536000")
                 self.end_headers()
@@ -658,7 +666,7 @@ def serve(db_path: Path, host: str, port: int, hostnames: tuple = (),
                     conn.close()
             if status == 301:   # html is the redirect target, not a body
                 self.send_response(301)
-                self.send_header("Location", html)
+                self.send_header("Location", _location(html))
                 self.end_headers()
                 return
             payload = html.encode("utf-8")
@@ -700,7 +708,7 @@ def serve(db_path: Path, host: str, port: int, hostnames: tuple = (),
                     conn.close()
             if status == 303:
                 self.send_response(303)
-                self.send_header("Location", result)
+                self.send_header("Location", _location(result))
                 self.end_headers()
                 return
             payload = result.encode("utf-8")

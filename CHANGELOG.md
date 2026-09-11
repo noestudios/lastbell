@@ -4,6 +4,16 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## Unreleased
+
+- **Hardening from GitHub's code scanning.** The dashboard's redirect
+  targets are written as one-line header values by construction; the
+  workflows' token is read-only unless a job says otherwise; the Canvas
+  token command reports where secrets live without touching the token's
+  value on the way. Nothing a person would notice.
+- **Placeholder names in tests and docs are fictional.** The sample family
+  used in the test suite and the README's examples now has made-up names.
+
 ## 0.3.2 — 2026-09-10
 
 **The Alerts page reads like History, and a Gmail hiccup no longer

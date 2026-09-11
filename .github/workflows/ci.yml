@@ -7,6 +7,11 @@ on:
   schedule:
     - cron: "17 11 * * 1"   # Mondays: re-run the dependency audit against fresh advisories
 
+# The token is read-only unless a job says otherwise (the release
+# jobs that publish, cut the Release, or push the image each do).
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest

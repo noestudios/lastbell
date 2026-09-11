@@ -49,7 +49,7 @@ def failure() -> str:
     since = (datetime.now(timezone.utc) - timedelta(hours=7)).strftime("%Y-%m-%d %H:%M:%S")
     state = health.Health(failures=2, since=since, kind="login",
                           detail="Invalid user id or password")
-    return health.failure_message(state, host="pihole")[1].html
+    return health.failure_message(state, host="raspberrypi")[1].html
 
 
 def main(argv=None) -> int:

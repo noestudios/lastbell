@@ -168,6 +168,17 @@ def set_smtp_password(password: str) -> str:
                          password)
 
 
+def storage_description() -> str:
+    """Where this install keeps its secrets, in a phrase for a message:
+    the owner-only settings file on the ``env`` backend, else the OS keyring."""
+    if backend() == "env":
+        from . import paths
+
+        env_path = paths.active_env_file() or paths.default_env_file()
+        return f"the settings file ({env_path})"
+    return "the OS keyring"
+
+
 def _store_secret(account: str, env_key: str, label: str, value: str) -> str:
     if backend() == "env":
         from . import paths
@@ -175,7 +186,7 @@ def _store_secret(account: str, env_key: str, label: str, value: str) -> str:
 
         env_path = paths.active_env_file() or paths.default_env_file()
         write_env(env_path, {env_key: value})
-        return f"the settings file ({env_path})"
+        return storage_description()
     import keyring
 
     try:
@@ -186,7 +197,7 @@ def _store_secret(account: str, env_key: str, label: str, value: str) -> str:
             f"({exc.__class__.__name__}: {exc}). Set {env_key} in the "
             f"environment instead, or re-run `lastbell setup` and choose the "
             f"settings-file store.") from exc
-    return "the OS keyring"
+    return storage_description()
 
 
 # A Canvas personal access token is optional: the poll can ride the portal's

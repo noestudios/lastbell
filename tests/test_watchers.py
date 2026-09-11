@@ -58,7 +58,7 @@ def test_remove_watcher_cascades_subscriptions(conn_with_student):
 def test_resolve_student_by_agu_and_name_prefix(conn_with_student):
     conn = conn_with_student
     assert watchers.resolve_student(conn, "1")["name"] == "Jules P. Harlow"
-    assert watchers.resolve_student(conn, "jas")["agu"] == "1"
+    assert watchers.resolve_student(conn, "jul")["agu"] == "1"
     assert watchers.resolve_student(conn, "JPH")["agu"] == "1"   # initials, dots optional
     with pytest.raises(watchers.WatcherError, match="no student matching"):
         watchers.resolve_student(conn, "zz")

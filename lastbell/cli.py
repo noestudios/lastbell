@@ -363,7 +363,8 @@ def _cmd_set_canvas_token(args: argparse.Namespace) -> int:
     if not token:
         print("error: empty token; nothing stored", file=sys.stderr)
         return 2
-    where = secretstore.set_canvas_token(token)
+    secretstore.set_canvas_token(token)
+    where = secretstore.storage_description()
     print(f"Stored the Canvas token in {where}. Set LASTBELL_CANVAS_HOST "
           "to your Canvas hostname so polls use it.")
     return 0
