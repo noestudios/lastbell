@@ -92,7 +92,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install build && python -m build --wheel
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: build from the tree
         uses: docker/build-push-action@v6
         with:
