@@ -73,7 +73,7 @@ def fetch_strip_rows(conn: sqlite3.Connection, student_id: str,
            "  SUM(a.status = 'due') AS due, "
            "  MAX(CASE WHEN a.status = 'graded' THEN COALESCE(a.graded_at, "
            "      (SELECT date(MIN(h.seen_at), 'localtime') FROM grade_history h "
-           "       WHERE h.assignment_id = a.id AND h.field = 'score')) END) "
+           "       WHERE h.assignment_id = a.id AND h.field IN ('score', 'mark'))) END) "
            "  AS last_graded "
            "FROM courses c LEFT JOIN assignments a ON a.course_id = c.id "
            "  AND " + store.NOT_SUPERSEDED_SQL + " "
@@ -94,7 +94,7 @@ def fetch_view_rows(conn: sqlite3.Connection, student_id: str,
            "  c.term AS course_term, " + store.CANVAS_TWIN_SQL + ", "
            "  COALESCE(a.graded_at, (SELECT date(MIN(h.seen_at), 'localtime') "
            "    FROM grade_history h WHERE h.assignment_id = a.id "
-           "    AND h.field = 'score')) AS graded_on "
+           "    AND h.field IN ('score', 'mark'))) AS graded_on "
            "FROM assignments a JOIN courses c ON c.id = a.course_id "
            "WHERE c.student_id = ? AND " + store.NOT_SUPERSEDED_SQL)
     params: list = [student_id]
@@ -295,6 +295,9 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
     # Recent card: the last 10 graded scores — the leading indicator.
     pcts10 = [r["score"] / r["points"] * 100
               for r in scoped(graded) if r["points"] and r["score"] is not None][:10]
+    # Standards-scored work has marks instead ("B", "A, B"): the card falls
+    # back to them when there are no percents to average.
+    marks10 = [r["mark"] for r in scoped(graded) if r["score"] is None and r["mark"]][:10]
 
     ctx = {
         "view": view, "course_gu": course_gu, "hl": hl,
@@ -312,7 +315,7 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
             "problems_series": pseries,
             "due_count": len(scoped(due)), "due_total": len(due),
             "due_next": scoped(due)[:2],
-            "recent_pcts": pcts10, "term_avg": term_avg,
+            "recent_pcts": pcts10, "recent_marks": marks10, "term_avg": term_avg,
             "term_series": tseries, "courses": len(strip),
             # Scoped only: the course's grade as the Everything card's story.
             "course": scoped_course, "course_pct": course_pct,

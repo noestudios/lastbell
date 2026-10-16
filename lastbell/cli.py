@@ -165,15 +165,25 @@ def _run_once(client, conn, notifier, conf) -> int:
     _configure_logging()
     total = 0
     unread: list[str] = []
+    # The first poll after the standards-mark column arrived reads marks
+    # already given: record them, announce nothing (store.MARKS_FIRST_READ_KEY).
+    quiet_marks = bool(store.get_meta(conn, store.MARKS_FIRST_READ_KEY))
     children = client.get_children()
     canvas_layer = _canvas_layer(client, children, conf)
     for child in children:
-        col = collect_student(client, child)
+        previous = store.load_snapshot(conn, child.agu)
+        known_marks = ({a.edupoint_gu: a.mark for a in previous.assignments if a.mark}
+                       if previous else {})
+        col = collect_student(client, child, known_marks=known_marks)
         for err in col.errors:
             log.warning(f"[{col.student.initials}]: {err} — that class was "
                         f"skipped this poll; the others were still checked")
         if col.errors and not col.classes:
             unread.append(col.student.initials)
+        if col.mark_errors:
+            log.warning(f"[{col.student.initials}]: couldn't read the standards "
+                        f"marks of {len(col.mark_errors)} assignment(s) — kept what "
+                        f"was recorded; first: {col.mark_errors[0]}")
 
         snapshot = col.snapshot
         # The Canvas layer folds in before the time rules run, so a Canvas
@@ -203,9 +213,9 @@ def _run_once(client, conn, notifier, conf) -> int:
             grace_days=conf.ungraded_grace_days,
             lookahead_days=conf.lookahead_days,
         )
-        previous = store.load_snapshot(conn, child.agu)
         events = differ.diff(previous, snapshot,
-                             grade_drop_points=conf.grade_drop_points)
+                             grade_drop_points=conf.grade_drop_points,
+                             quiet_marks=quiet_marks)
         store.persist_snapshot(conn, col.student, snapshot,
                                prune_canvas=stats is not None)
 
@@ -245,6 +255,11 @@ def _run_once(client, conn, notifier, conf) -> int:
                 store.record_alert(conn, child.agu, e)
             total += len(events)
     store.record_poll(conn)
+    if quiet_marks:
+        conn.execute("DELETE FROM meta WHERE key = ?", (store.MARKS_FIRST_READ_KEY,))
+        conn.commit()
+        log.info("read the standards marks already given, without alerts; "
+                 "new marks alert from the next poll")
     # After students are persisted: an install with zero watchers gets one
     # for the credential holder, subscribed to everyone (UX decision 3).
     w = watchers.ensure_default_watcher(
@@ -334,7 +349,7 @@ def _cmd_canvas(args: argparse.Namespace) -> int:
         o = matched.get(child.agu)
         if o is None:
             continue
-        col = collect_student(client, child)
+        col = collect_student(client, child, read_marks=False)
         snapshot = col.snapshot
         pv_courses = list(snapshot.courses)
         if courses_cache is None:

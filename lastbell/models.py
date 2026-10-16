@@ -139,6 +139,10 @@ class Assignment:
     graded_at: date | None = None
     score: float | None = None
     points: float | None = None
+    # Standards-scored work (elementary) has no points: its grade is the
+    # teacher's mark on each standard ("B", or "A, B" for two), read from
+    # the assignment's detail page. "" when unmarked or not standards-scored.
+    mark: str = ""
     status: AssignmentStatus = AssignmentStatus.DUE
     source: str = SOURCE_PARENTVUE
     # A Canvas row whose gradebook twin exists names it here (the twin's

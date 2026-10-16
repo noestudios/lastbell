@@ -105,6 +105,7 @@ def apply_time_rules(
 def diff(
     previous: Snapshot | None, current: Snapshot, *,
     today: date | None = None, grade_drop_points: float = 5.0,
+    quiet_marks: bool = False,
 ) -> list[Event]:
     """Return the events implied by moving from ``previous`` to ``current``.
 
@@ -113,6 +114,9 @@ def diff(
     student speaks only through the deadline look-ahead: it alerts if it's
     already inside the window (status DUE with a future due date), otherwise
     it waits silently to enter it — so year-start backfill stays quiet.
+
+    ``quiet_marks`` records standards marks without announcing them: the
+    first poll after an upgrade starts reading marks teachers gave weeks ago.
     """
     if previous is None:
         return []
@@ -184,6 +188,13 @@ def diff(
                 what = f"graded: {_score(a)}"
             else:
                 what = f"score changed {_score(p)} → {_score(a)}"
+            events.append(event(AlertType.GRADE_CHANGED, agu, course, what,
+                                item=a.name, via=via))
+        # Standards-scored work: the marks are the grade. A mark cleared by
+        # the teacher isn't news; a new or different one is.
+        if a.mark and a.mark != p.mark and not quiet_marks:
+            what = (f"graded: {a.mark}" if not p.mark
+                    else f"mark changed {p.mark} → {a.mark}")
             events.append(event(AlertType.GRADE_CHANGED, agu, course, what,
                                 item=a.name, via=via))
         if a.status is AssignmentStatus.MISSING and p.status is not AssignmentStatus.MISSING:

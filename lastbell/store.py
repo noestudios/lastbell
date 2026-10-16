@@ -21,7 +21,8 @@ from .models import Assignment, AssignmentStatus, Course, Snapshot, Student
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 # Assignment fields whose changes are worth an audit row.
-_TRACKED_FIELDS = ("name", "kind", "due_date", "graded_at", "score", "points", "status")
+_TRACKED_FIELDS = ("name", "kind", "due_date", "graded_at", "score", "points", "mark",
+                   "status")
 
 # Course fields whose changes are worth an audit row (the grade trajectory).
 _COURSE_TRACKED_FIELDS = ("mark", "percent")
@@ -70,7 +71,14 @@ _MIGRATIONS = [
     ("assignments", "source", "TEXT NOT NULL DEFAULT 'parentvue'"),
     ("assignments", "superseded_by", "TEXT NOT NULL DEFAULT ''"),
     ("outbox", "body", "TEXT NOT NULL DEFAULT ''"),
+    ("assignments", "mark", "TEXT NOT NULL DEFAULT ''"),
 ]
+
+# Set when the standards-mark column arrives on a database that already has
+# assignments: the first poll after that reads every mark the teachers have
+# already given, which is history, not news. That poll records them without
+# alerting (see cli._run_once) and clears this.
+MARKS_FIRST_READ_KEY = "marks_first_read"
 
 # A Canvas assignment is the leading copy of work that later reaches the
 # gradebook under the same name. Once the ParentVUE row exists it is the
@@ -111,6 +119,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
             except sqlite3.OperationalError as e:
                 if "duplicate column" not in str(e).lower():
                     raise
+                continue
+            if (table, column) == ("assignments", "mark") and conn.execute(
+                    "SELECT 1 FROM assignments LIMIT 1").fetchone():
+                set_meta(conn, MARKS_FIRST_READ_KEY, "1")
 
 
 # ── deterministic ids ─────────────────────────────────────────────────
@@ -174,6 +186,7 @@ def load_snapshot(conn: sqlite3.Connection, student_agu: str) -> Snapshot | None
             graded_at=_from_iso(r["graded_at"]),
             score=r["score"],
             points=r["points"],
+            mark=r["mark"],
             status=AssignmentStatus(r["status"]),
             source=r["source"],
             superseded_by=r["superseded_by"],
@@ -265,7 +278,8 @@ def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot,
         new = {
             "name": a.name, "kind": a.kind,
             "due_date": _to_iso(a.due_date), "graded_at": _to_iso(a.graded_at),
-            "score": a.score, "points": a.points, "status": a.status.value,
+            "score": a.score, "points": a.points, "mark": a.mark,
+            "status": a.status.value,
         }
         old = old_assignments.get(aid)
         if old is not None:
@@ -280,16 +294,16 @@ def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot,
                     )
         conn.execute(
             "INSERT INTO assignments (id, edupoint_gu, course_id, name, kind, assigned, "
-            "due_date, graded_at, score, points, status, source, superseded_by) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "due_date, graded_at, score, points, mark, status, source, superseded_by) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET name=excluded.name, kind=excluded.kind, "
             "assigned=excluded.assigned, due_date=excluded.due_date, "
             "graded_at=excluded.graded_at, score=excluded.score, "
-            "points=excluded.points, status=excluded.status, source=excluded.source, "
-            "superseded_by=excluded.superseded_by",
+            "points=excluded.points, mark=excluded.mark, status=excluded.status, "
+            "source=excluded.source, superseded_by=excluded.superseded_by",
             (aid, a.edupoint_gu, cid, a.name, a.kind, _to_iso(a.assigned),
-             new["due_date"], new["graded_at"], a.score, a.points, new["status"],
-             a.source, a.superseded_by),
+             new["due_date"], new["graded_at"], a.score, a.points, a.mark,
+             new["status"], a.source, a.superseded_by),
         )
 
     if prune_canvas:

@@ -142,7 +142,8 @@ def test_a_student_with_every_class_unread_fails_the_poll_after_the_rest_is_save
         "1": _collection("1", "A.H.", classes=[], errors=[]),
         "2": _collection("2", "J.H.", classes=[], errors=["MP1: not understood"]),
     }
-    monkeypatch.setattr(collector, "collect_student", lambda client, child: by_agu[child.agu])
+    monkeypatch.setattr(collector, "collect_student",
+                        lambda client, child, **kw: by_agu[child.agu])
     client = SimpleNamespace(get_children=lambda: [readable, unreadable])
     conf = SimpleNamespace(canvas="off", ungraded_grace_days=2, lookahead_days=3,
                            grade_drop_points=5.0, username="someparent")

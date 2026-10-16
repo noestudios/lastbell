@@ -253,6 +253,12 @@ class ParentVueClient:
             params["viewName"] = "assignment"
         return self.load_control("Gradebook_ClassDetails", params, agu_header=agu_header)
 
+    def assignment_details(self, focus_args: dict, agu_header: str = "0") -> str:
+        """``Gradebook_AssignmentDetails`` for one assignment: for
+        standards-scored work, the only place its marks appear."""
+        return self.load_control("Gradebook_AssignmentDetails", focus_args,
+                                 agu_header=agu_header)
+
     def load_control(self, control: str, parameters: dict, agu_header: str = "0") -> str:
         """Call the portal's LoadControl web method and return its HTML fragment.
 

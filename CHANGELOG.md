@@ -4,6 +4,31 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.3.6 — 2026-10-16
+
+**Elementary marks are read, so marked work no longer shows as past due.**
+
+- **Standards marks are read from each assignment.** Elementary work is
+  graded on standards, and the assignment list shows "See Standards"
+  whether the teacher has marked it or not. 0.3.4 counted all of it as
+  ungraded past due. Last Bell now opens each assignment's detail page
+  and reads the marks ("B", or "A, B" when it covers two standards).
+  Marked work shows its mark wherever a score would go: the class list,
+  Recent grades, History. Only work that really is unmarked counts as
+  past due.
+- **A new mark alerts like a grade:** "Art: Leaf Collages — graded: B",
+  and "mark changed B → A" when a teacher revises one.
+- **The first check after upgrading is quiet.** It records the marks
+  teachers have already given without alerting; new marks alert from the
+  next check on.
+- **The extra reads stay small.** Unmarked work and work due in the last
+  30 days is read every check, in case a mark lands or changes. Older
+  marked work keeps the mark already recorded, so the number of reads
+  doesn't grow over the year.
+- **The Recent grades card works for marks.** With no percents to
+  average, it shows the most common recent mark and a tally of the last
+  ten ("last 10: 6 A, 3 B, 1 C").
+
 ## 0.3.5 — 2026-10-16
 
 **A grade is announced once after the marking period changes, not on

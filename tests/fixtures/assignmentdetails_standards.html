@@ -1,0 +1,19 @@
+<!-- Synthetic: an elementary Gradebook_AssignmentDetails page — the
+     assignment's standards with the teacher's mark on each (GBMark wraps the
+     mark in <b>; an unmarked standard is <b></b>). All values are fake. -->
+<div class="panel panel-default"><h2 class="panel-heading">Assignment Details</h2></div>
+<div class="panel panel-default"><h2 class="panel-heading">Standards</h2>
+  <div class="panel-body"><div id="StandardsGrid"></div>
+    <script type="text/javascript">
+      $('#StandardsGrid').dxDataGrid(PXP.DevExpress.ExtendGridConfiguration({
+        "columns":[{"dataField":"GBStandard"},{"dataField":"GBMark"},{"dataField":"GBPerformanceIndicator"}],
+        "dataSource":[
+          {"RowType":"standard","GBSubject":"Mathematics","GBStandard":"<a href=\"#\">Place value</a>","GBMark":"<b>B</b>","GBNotes":"","ID":"performance1_22220001"},
+          {"RowType":"standard","GBSubject":"Mathematics","GBStandard":"<a href=\"#\">Rounding</a>","GBMark":"<b>A</b>","GBNotes":"","ID":"performance2_22220001"},
+          {"RowType":"standard","GBSubject":"Mathematics","GBStandard":"<a href=\"#\">Estimation</a>","GBMark":"<b>B</b>","GBNotes":"","ID":"performance3_22220001"},
+          {"RowType":"standard","GBSubject":"Mathematics","GBStandard":"<a href=\"#\">Number lines</a>","GBMark":"<b></b>","GBNotes":"","ID":"performance4_22220001"}
+        ]
+      }));
+    </script>
+  </div>
+</div>

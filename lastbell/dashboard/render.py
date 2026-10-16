@@ -381,12 +381,18 @@ def _score(row, cutoff: int) -> str:
     percent against — those show the raw score.
     """
     if row["score"] is None:
-        return "—"
+        return escape(_mark(row) or "—")
     if not row["points"]:
         return escape(f"{row['score']:g}")
     raw = f"{row['score']:g}/{row['points']:g}"
     pct = row["score"] / row["points"] * 100
     return _tip(f"{pct:.1f}%", raw, extra_class=_low_class(pct, cutoff))
+
+
+def _mark(row) -> str:
+    """A row's standards marks ("B", "A, B"), or '' — rows from queries
+    that don't select the column read as unmarked."""
+    return (row["mark"] or "") if "mark" in row.keys() else ""
 
 
 def _low_class(pct: float | None, cutoff: int) -> str:
@@ -674,6 +680,18 @@ def _stat_cards(student, ctx) -> str:
             list(reversed(pcts)),
             label=f"last {len(pcts)} scores as bars, oldest first, "
                   f"{min(pcts):.0f} to {max(pcts):.0f} percent")
+    elif c.get("recent_marks"):
+        # Standards marks: the most common one is the headline, the tally
+        # of the last ten says the rest ("last 10: 6 A, 3 B, 1 C").
+        tally: dict[str, int] = {}
+        for m in c["recent_marks"]:
+            for one in m.split(", "):
+                tally[one] = tally.get(one, 0) + 1
+        ranked = sorted(tally.items(), key=lambda kv: (-kv[1], kv[0]))
+        big = escape(ranked[0][0])
+        r_ctx = (f"last {len(c['recent_marks'])}: "
+                 + escape(", ".join(f"{n} {m}" for m, n in ranked)))
+        extra = ""
     else:
         big, r_ctx, extra = "—", "no grades yet", ""
     parts.append(card("recent", "Recent grades", big, r_ctx, extra))
@@ -891,7 +909,7 @@ def _view_recent(student, ctx) -> str:
             pct, raw = f"{pval:.1f}%", f"{r['score']:g}/{r['points']:g}"
             low = _low_class(pval, cutoff)
         else:
-            pct = f"{r['score']:g}" if r["score"] is not None else "—"
+            pct = f"{r['score']:g}" if r["score"] is not None else (_mark(r) or "—")
             raw = "—"
         out.append(
             f"<tr><td>{escape(r['name'])}{_src(r)}{_twin(r)}</td>"
@@ -1286,9 +1304,11 @@ def _compose_history_group(group, points_after) -> list[dict]:
 
     fields = {g["field"]: g for g in group}    # one row per field per poll
     score, points, status = (fields.get(k) for k in ("score", "points", "status"))
+    # Standards-scored work: the marks are its grade, read like a score.
+    mark = fields.get("mark")
     # A graded-on date arriving with the score is the same event (its When
     # column says when); the date changing by itself stays its own row.
-    folded = {"score", "points", "status"}
+    folded = {"score", "points", "status", "mark"}
     if score is not None and fields.get("graded_at") is not None:
         folded.add("graded_at")
     out = [item(g, _field_label(g["field"]), _history_transition(g))
@@ -1310,8 +1330,12 @@ def _compose_history_group(group, points_after) -> list[dict]:
             out.append(item(points, "points",
                             f"{escape(_num(points['old_value']) if points['old_value'] is not None else '—')} → "
                             f"{escape(_num(points['new_value']) if points['new_value'] is not None else '—')}"))
-        if status is not None:
+        if status is not None and not (mark is not None
+                                       and status["new_value"] == "graded"):
             out.append(item(status, "status", _history_transition(status)))
+    if mark is not None:
+        out.append(item(mark, "graded" if not mark["old_value"] else "mark",
+                        _history_transition(mark)))
     return out
 
 

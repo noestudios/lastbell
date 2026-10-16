@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS assignments (
     graded_at   TEXT,
     score       REAL,
     points      REAL,
+    mark        TEXT NOT NULL DEFAULT '',          -- standards marks ("B", "A, B")
     status      TEXT NOT NULL DEFAULT 'due',
     source      TEXT NOT NULL DEFAULT 'parentvue',  -- 'parentvue' | 'canvas'
     superseded_by TEXT NOT NULL DEFAULT '',        -- gradebook twin's GUID (Canvas rows)

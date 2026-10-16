@@ -340,6 +340,45 @@ def _row_to_assignment(row: dict, course_gu: str) -> Assignment:
     )
 
 
+# ── standards-scored work (elementary) ───────────────────────────────
+
+# What the assignment list shows for work graded against standards, marked
+# or not: the marks are only on each assignment's detail page.
+STANDARDS_SCORE = "See Standards"
+
+
+def standards_scored(a: Assignment) -> bool:
+    return _cell_value(a.raw.get("GBScore")) == STANDARDS_SCORE
+
+
+def assignment_focus(a: Assignment) -> dict:
+    """The FocusArgs that open this assignment's detail page, from the
+    ``data-focus={...}`` in its name cell's link — {} when there is none."""
+    cell = a.raw.get("GBAssignment")
+    try:
+        cell = json.loads(cell) if isinstance(cell, str) else cell
+        attr = unescape((cell or {}).get("hrefAttributes") or "")
+        _, _, focus_json = attr.partition("data-focus=")
+        focus, _ = json.JSONDecoder().raw_decode(focus_json.strip())
+    except (ValueError, AttributeError):
+        return {}
+    return focus.get("FocusArgs") or {} if isinstance(focus, dict) else {}
+
+
+def parse_assignment_marks(html: str) -> str:
+    """The marks on a ``Gradebook_AssignmentDetails`` page's standards grid,
+    each distinct mark once in order ("B", "A, B"); "" when no standard is
+    marked yet. Raises ParseError for a page with no standards grid."""
+    if '"GBMark"' not in html:
+        raise ParseError("AssignmentDetails fragment had no standards grid.")
+    marks: list[str] = []
+    for row in _extract_datasource(html):
+        mark = _text(unescape(str(row.get("GBMark") or "")))
+        if mark and mark not in marks:
+            marks.append(mark)
+    return ", ".join(marks)
+
+
 def parse_class_details(html: str, course_gu: str = "") -> ClassDetails:
     grade = re.search(
         r'gb-current-grade.*?<div class="mark">\s*([^<]*?)\s*</div>\s*'
