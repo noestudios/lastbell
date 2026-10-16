@@ -4,6 +4,21 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.3.5 — 2026-10-16
+
+**A grade is announced once after the marking period changes, not on
+every check.**
+
+- **No more repeated "graded" alerts after a term change.** When the
+  portal moves to a new marking period (say "MP1 Interim" to "MP1"), it
+  keeps each class's assignments, and Last Bell files them again under
+  the new period while keeping the old period's copy as history. When it
+  compared one check with the next, the old copy could stand in for the
+  new one, so an assignment graded since the change looked newly graded
+  every three hours and the same "graded: 9/10" line went out again and
+  again. Last Bell now compares against the current marking period's
+  copy. The old copies stay on the dashboard as history.
+
 ## 0.3.4 — 2026-10-16
 
 **Elementary students are checked again, and a student whose classes can't

@@ -151,13 +151,21 @@ def load_snapshot(conn: sqlite3.Connection, student_agu: str) -> Snapshot | None
             source=r["source"],
         ))
 
-    assignments = []
+    # The portal carries a class's work across a term change under the same
+    # GUID, and courses are keyed on (GUID, term), so one assignment can be
+    # stored once per term: the closed term's copy frozen, the current
+    # term's copy live. The differ keys on the GUID alone, so the snapshot
+    # says each GUID once — the current term's copy, else the newest course
+    # row's. Read in that order and the later row wins; a frozen ungraded
+    # copy winning would re-announce "graded" on every poll.
+    assignments: list[Assignment] = []
+    seen: dict[str, int] = {}  # edupoint_gu -> index in assignments
     for r in conn.execute(
         "SELECT a.* FROM assignments a JOIN courses c ON c.id = a.course_id "
-        "WHERE c.student_id = ?",
-        (student_id,),
+        "WHERE c.student_id = ? ORDER BY c.term = ?, c.rowid, a.rowid",
+        (student_id, student["current_term"]),
     ):
-        assignments.append(Assignment(
+        a = Assignment(
             edupoint_gu=r["edupoint_gu"],
             course_gu=course_gu_by_id.get(r["course_id"], ""),
             name=r["name"],
@@ -169,7 +177,13 @@ def load_snapshot(conn: sqlite3.Connection, student_agu: str) -> Snapshot | None
             status=AssignmentStatus(r["status"]),
             source=r["source"],
             superseded_by=r["superseded_by"],
-        ))
+        )
+        if a.edupoint_gu in seen:  # keyless rows are never duplicates
+            assignments[seen[a.edupoint_gu]] = a
+            continue
+        if a.edupoint_gu:
+            seen[a.edupoint_gu] = len(assignments)
+        assignments.append(a)
 
     return Snapshot(student_agu=student_agu, courses=courses,
                     assignments=assignments, term=student["current_term"] or "")

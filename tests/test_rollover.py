@@ -151,3 +151,56 @@ def test_summary_scopes_to_current_term(rolled):
     assert "New Quiz" in body
     assert "Old Worksheet" not in body
     assert body.count("Algebra 1A") >= 1
+
+
+# ── the same assignment under two terms' course rows ──────────────────
+
+
+def _essay(course_gu="c1", score=None):
+    return Assignment(edupoint_gu="a1", course_gu=course_gu, name="Unit 2 Essay",
+                      due_date=datetime.date(2026, 10, 9), score=score, points=10.0,
+                      status=AssignmentStatus.GRADED if score is not None
+                      else AssignmentStatus.UNGRADED_PAST_DUE)
+
+
+def test_graded_alert_does_not_repeat_after_term_change(conn):
+    # The portal carries a class's assignments across an interim → term flip
+    # under the same GUID; the store keys courses on (GUID, term), so the
+    # work ends up stored twice: the old term's copy frozen ungraded, the
+    # current term's copy graded. The loaded snapshot must speak for the
+    # current term's copy, or every poll re-announces "graded: 9/10".
+    interim = Snapshot(student_agu="1", term="MP1 Interim",
+                       courses=[_course(term="MP1 Interim")],
+                       assignments=[_essay()])
+    store.persist_snapshot(conn, STUDENT, interim)
+
+    def mp1():
+        return Snapshot(student_agu="1", term="MP1",
+                        courses=[_course(term="MP1")],
+                        assignments=[_essay(score=9.0)])
+
+    # The flip: the term event and the grade, each said once.
+    first = differ.diff(store.load_snapshot(conn, "1"), mp1())
+    assert sorted(e.type.value for e in first) == sorted(
+        [AlertType.TERM_FINAL.value, AlertType.GRADE_CHANGED.value])
+    store.persist_snapshot(conn, STUDENT, mp1())
+
+    # Both copies are kept (history), and the next polls are quiet.
+    assert conn.execute("SELECT COUNT(*) FROM assignments").fetchone()[0] == 2
+    for _ in range(3):
+        assert differ.diff(store.load_snapshot(conn, "1"), mp1()) == []
+        store.persist_snapshot(conn, STUDENT, mp1())
+
+
+def test_load_snapshot_prefers_current_terms_copy_whatever_the_row_order(conn):
+    # The current term's course was stored first (rowid order would pick the
+    # other copy): the student's current term still decides.
+    store.persist_snapshot(conn, STUDENT, Snapshot(
+        student_agu="1", term="MP2", courses=[_course(term="MP2")],
+        assignments=[_essay(score=9.0)]))
+    store.persist_snapshot(conn, STUDENT, Snapshot(
+        student_agu="1", term="", courses=[_course(term="MP1")],
+        assignments=[_essay()]))
+    loaded = store.load_snapshot(conn, "1")
+    assert loaded.term == "MP2"
+    assert [a.score for a in loaded.assignments] == [9.0]
