@@ -239,6 +239,20 @@ class ParentVueClient:
         return out
 
     # ── the gradebook web-service call ────────────────────────────────
+    def class_details(self, parameters: dict, agu_header: str = "0") -> str:
+        """``Gradebook_ClassDetails`` in the assignment view.
+
+        A focus with no ``viewName`` gets the portal's default view, and for
+        elementary students that became the standards view (marks per
+        standard, no assignments) in the 2026-10 upgrade. Asking for the
+        assignment view by name gets every student the assignment list;
+        secondary classes were already served it.
+        """
+        params = dict(parameters)
+        if not params.get("viewName"):
+            params["viewName"] = "assignment"
+        return self.load_control("Gradebook_ClassDetails", params, agu_header=agu_header)
+
     def load_control(self, control: str, parameters: dict, agu_header: str = "0") -> str:
         """Call the portal's LoadControl web method and return its HTML fragment.
 

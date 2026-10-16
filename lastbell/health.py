@@ -27,14 +27,16 @@ from . import store
 
 FAILURES_KEY = "poll_failures"          # consecutive failed polls
 SINCE_KEY = "poll_failure_since"        # UTC of the first failure in this run
-KIND_KEY = "poll_failure_kind"          # login | portal | other
+KIND_KEY = "poll_failure_kind"          # login | portal | unread | other
 DETAIL_KEY = "poll_failure_detail"      # one line, for the dashboard
 NOTIFIED_KEY = "poll_failure_notified"  # UTC when guardians were told, if they were
 
 # How many consecutive failures before guardians hear about it. A rejected
 # sign-in doesn't fix itself, so two (six hours at the default interval) is
 # enough; a portal that can't be reached usually comes back, so a full day.
-NOTIFY_AFTER = {"login": 2, "portal": 8, "other": 3}
+# Pages that changed shape don't change back on their own, but a portal in
+# the middle of an upgrade can serve odd pages for an hour: three polls.
+NOTIFY_AFTER = {"login": 2, "portal": 8, "unread": 3, "other": 3}
 
 # While sign-in is being rejected, back off to once a day after this many
 # consecutive rejections — enough to notice a fix, few enough to stay clear
@@ -50,9 +52,24 @@ EXPLAIN = {
     "portal": ("the portal couldn't be reached. If {host} is online and the "
                "portal opens in a browser, run `lastbell preflight --report` "
                "there to see what changed."),
+    "unread": ("the portal answered, but none of {who}'s classes could be "
+               "read — its gradebook pages changed shape. The other students "
+               "are still being checked. A fixed Last Bell may already be out: "
+               "run `lastbell upgrade` on {host}. If that doesn't help, "
+               "`lastbell preflight --report` there says what changed."),
     "other": ("a poll couldn't finish. The log on {host} has the details "
               "(`lastbell run` once, by hand, shows them on screen)."),
 }
+
+
+class ClassesUnreadable(Exception):
+    """The poll went through, but every class of these students failed to
+    parse. Raised after everything readable has been saved and alerted, so
+    the loop counts the poll as failed without losing the rest of it."""
+
+    def __init__(self, initials: list[str]) -> None:
+        self.initials = list(initials)
+        super().__init__("couldn't read any classes for " + ", ".join(self.initials))
 
 
 @dataclass(frozen=True)
@@ -80,6 +97,8 @@ def classify(exc: BaseException) -> str:
 
     if isinstance(exc, LoginError):
         return "login"
+    if isinstance(exc, ClassesUnreadable):
+        return "unread"
     try:
         import requests
 
@@ -141,6 +160,13 @@ def next_delay_minutes(state: Health, poll_minutes: int) -> int:
     return poll_minutes
 
 
+def _who(detail: str) -> str:
+    """The students named in an "unread" failure's detail, by initials —
+    the same low-PII handle the alerts use."""
+    _, _, names = (detail or "").partition(" for ")
+    return names or "a student"
+
+
 def _local(utc: str | None) -> str:
     if not utc:
         return "a while"
@@ -175,8 +201,18 @@ def failure_message(state: Health, host: str | None = None) -> tuple[str, str]:
     construction: no student, no course, no credential — only what is wrong
     with the watcher and what to do about it."""
     host = host or socket.gethostname()
-    why = EXPLAIN.get(state.kind, EXPLAIN["other"]).format(host=host)
     n = state.failures
+    if state.kind == "unread":
+        who = _who(state.detail)
+        why = EXPLAIN["unread"].format(host=host, who=who)
+        body = _notice(f"Can't read {who}'s classes", [
+            f"Since {_local(state.since)} ({n} {'try' if n == 1 else 'tries'}), "
+            f"{why}",
+            f"No gradebook or Canvas alerts are coming for {who} until this is "
+            f"fixed. You'll get one more message when their classes can be "
+            f"read again."])
+        return f"[Last Bell] can't read {who}'s classes — action needed", body
+    why = EXPLAIN.get(state.kind, EXPLAIN["other"]).format(host=host)
     body = _notice("Can't check the gradebook", [
         f"Last Bell hasn't been able to check the gradebook since "
         f"{_local(state.since)} ({n} {'try' if n == 1 else 'tries'}): {why}",
@@ -186,6 +222,14 @@ def failure_message(state: Health, host: str | None = None) -> tuple[str, str]:
 
 
 def recovery_message(cleared: Health) -> tuple[str, str]:
+    if cleared.kind == "unread":
+        who = _who(cleared.detail)
+        body = _notice("Reading classes again", [
+            f"Last Bell can read {who}'s classes again. It couldn't since "
+            f"{_local(cleared.since)} ({cleared.failures} tries). Work posted "
+            f"in between was taken in quietly; upcoming deadlines and anything "
+            f"that changes from here alert as usual."])
+        return f"[Last Bell] reading {who}'s classes again", body
     body = _notice("Checking again", [
         f"Last Bell is checking the gradebook again. It had been failing "
         f"since {_local(cleared.since)} ({cleared.failures} tries); alerts "
@@ -253,6 +297,7 @@ def dashboard_note(state: Health) -> str:
     n = state.failures
     what = {"login": "the portal rejected the sign-in",
             "portal": "the portal couldn't be reached",
+            "unread": f"{_who(state.detail)}'s classes couldn't be read",
             "other": "the poll couldn't finish"}.get(state.kind, "the poll couldn't finish")
     return (f"The last {n} {'try' if n == 1 else 'tries'} failed: {what}"
             + (" — run `lastbell setup` to store the new password" if state.kind == "login" else "")

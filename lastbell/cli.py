@@ -164,6 +164,7 @@ def _run_once(client, conn, notifier, conf) -> int:
 
     _configure_logging()
     total = 0
+    unread: list[str] = []
     children = client.get_children()
     canvas_layer = _canvas_layer(client, children, conf)
     for child in children:
@@ -171,6 +172,8 @@ def _run_once(client, conn, notifier, conf) -> int:
         for err in col.errors:
             log.warning(f"[{col.student.initials}]: {err} — that class was "
                         f"skipped this poll; the others were still checked")
+        if col.errors and not col.classes:
+            unread.append(col.student.initials)
 
         snapshot = col.snapshot
         # The Canvas layer folds in before the time rules run, so a Canvas
@@ -250,6 +253,11 @@ def _run_once(client, conn, notifier, conf) -> int:
         log.info(f"created default watcher {w.name!r} (guardian, via "
                  f"{', '.join(w.channels)}), subscribed to all students — "
                  f"adjust with `lastbell watcher` / `subscribe`")
+    if unread:
+        # Last, so everything readable is already saved and sent: the loop
+        # counts this poll as failed and the guardians hear about it.
+        from .health import ClassesUnreadable
+        raise ClassesUnreadable(unread)
     return total
 
 
@@ -477,6 +485,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     _run_once(client, conn, notifier, conf)
                 except Exception as e:
                     if not args.loop:
+                        from .health import ClassesUnreadable
+                        if isinstance(e, ClassesUnreadable):
+                            log.warning(f"{e} — the portal's pages may have "
+                                        f"changed; `lastbell preflight` says more")
+                            return 1
                         raise
                     delay = _poll_failed(conn, notifier, conf, e)
                 else:

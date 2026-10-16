@@ -1,0 +1,16 @@
+<!-- Synthetic: the elementary standards view — what a focus with no
+     viewName gets since 2026-10. Marks per standard, no assignments. -->
+<div class="detail-content"><div id="category-graph" class="col-md-9"></div></div>
+<script language="JavaScript" type="text/javascript">PXP.GBFocus.SetViewName('standard');</script>
+<div id="standards-details">
+  <div class="panel panel-default"><h2 class="panel-heading">Standards</h2>
+    <div class="panel-body"><div id="StandardsGrid"></div>
+      <script type="text/javascript">
+        $('#StandardsGrid').dxDataGrid(PXP.DevExpress.ExtendGridConfiguration({
+          "columns":[{"dataField":"GBSubject"},{"dataField":"GBStandard"},{"dataField":"GBPerformanceIndicator"},{"dataField":"GBMark"},{"dataField":"GBNotes"}],
+          "dataSource":[{"GBSubject":"Mathematics","GBStandard":"Operations","GBPerformanceIndicator":"Adds within 1000","GBMark":"P","GBNotes":""}]
+        }));
+      </script>
+    </div>
+  </div>
+</div>

@@ -91,6 +91,9 @@ class FakeClient:
         return self.classes_html if control == "Gradebook_SchoolClasses" \
             else self.details_html
 
+    def class_details(self, parameters, agu_header="0"):
+        return self.load_control("Gradebook_ClassDetails", parameters, agu_header)
+
 
 def _run(client) -> Report:
     return run_full("example.edupoint.com", "https://example.edupoint.com",
@@ -231,6 +234,9 @@ def test_portal_error_text_never_reaches_the_report():
             raise ParentVueError("LoadControl(Gradebook_SchoolClasses) server error: "
                                  "No gradebook for student JANE DOE (AGU 123456)",
                                  response_text="<x/>")
+
+        def class_details(self, params, agu_header="0"):
+            return self.load_control("Gradebook_ClassDetails", params, agu_header)
 
     report = preflight.run_full("x.example", "https://x.example", "u", "p",
                                 client=Client(), get=fake_get, post=fake_post)

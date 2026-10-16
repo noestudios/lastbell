@@ -520,9 +520,14 @@ def _step_first_run(username: str, chosen: tuple | None) -> None:
     _say("  start with the next change after that.")
     ran = False
     if _ask_yn("  Run it now?", default=True):
+        from .health import ClassesUnreadable
+
         try:
             _baseline_run()
             ran = True
+        except ClassesUnreadable as e:
+            ran = True  # the run itself finished; only some classes are unread
+            _say(f"  ⚠ {e} — `lastbell preflight` shows what the portal sent")
         except Exception as e:
             _say(f"  ✗ the first run failed ({e.__class__.__name__}: {e})")
             _say("  Everything you configured is saved — `lastbell run` retries it.")

@@ -107,6 +107,15 @@ def _row_focus(seg: str) -> dict:
 # ── Gradebook_SchoolClasses ───────────────────────────────────────────
 
 
+def _opens_class(focus: dict) -> bool:
+    """Whether a row's focus opens the class's assignments. Secondary rows
+    use ``Gradebook_RichContentClassDetails``, the fixtures and elementary
+    rows ``Gradebook_ClassDetails``; an elementary subject header carries
+    only a ``Gradebook_ClassResources`` link, which is not a class."""
+    control = (focus.get("LoadParams") or {}).get("ControlName") or ""
+    return not control or control.endswith("ClassDetails")
+
+
 def parse_school_classes(html: str) -> SchoolClasses:
     panel = re.search(
         r'data-school-id="([^"]*)"[^>]*data-orgyear-id="([^"]*)"', html
@@ -134,6 +143,11 @@ def parse_school_classes(html: str) -> SchoolClasses:
     ]
 
     rows: list[SubjectRow] = []
+    # Elementary (since 2026-09-15): a subject header (subject name, teacher,
+    # a class-resources link) followed by a data row whose only label is the
+    # mark period ("MP1"). The data row opens the subject's assignments; it
+    # takes its name and teacher from the header above it.
+    header: SubjectRow | None = None
     for m in re.finditer(r'<div class="[^"]*gb-class-row[^"]*"[^>]*>', html):
         # A row segment runs until the next row (or end of fragment).
         nxt = re.search(r'<div class="[^"]*gb-class-row', html[m.end():])
@@ -150,17 +164,28 @@ def parse_school_classes(html: str) -> SchoolClasses:
             c = re.search(rf'class="[^"]*\b{cls}\b[^"]*"[^>]*>(.*?)</', seg, re.DOTALL)
             return _text(c.group(1)) if c else ""
 
-        rows.append(
-            SubjectRow(
-                teacher=teacher,
-                teacher_id=tid.group(1) if tid else "",
-                title=cell("class-title") or cell("course-title"),
-                period=cell("period"),
-                room=cell("room"),
-                score=cell("score") or cell("mark"),
-                focus=_row_focus(seg),
-            )
+        focus = _row_focus(seg)
+        if not _opens_class(focus):
+            focus = {}
+        row = SubjectRow(
+            teacher=teacher,
+            teacher_id=tid.group(1) if tid else "",
+            title=cell("class-title") or cell("course-title"),
+            period=cell("period"),
+            room=cell("room"),
+            score=cell("score") or cell("mark"),
+            focus=focus,
         )
+        if "subject-header" in m.group(0):
+            name = re.match(r'<div[^>]*>\s*<div>([^<]*)</div>', seg)
+            if name and not row.title:
+                row.title = _text(name.group(1))
+            header = row
+        elif "course-markperiod" in seg and header is not None:
+            row.title = header.title or row.title
+            row.teacher = row.teacher or header.teacher
+            row.teacher_id = row.teacher_id or header.teacher_id
+        rows.append(row)
 
     if not periods and not rows:
         raise ParseError("SchoolClasses fragment had neither terms nor rows.")
@@ -322,16 +347,21 @@ def parse_class_details(html: str, course_gu: str = "") -> ClassDetails:
         html,
         re.DOTALL,
     )
-    if grade is None:
-        raise ParseError("ClassDetails fragment had no current-grade block.")
+    # Elementary subjects are graded on standards: their assignment view has
+    # no class grade at all. Only a page with neither a grade nor an
+    # assignment grid is one we don't understand — the standards view
+    # (Subject / Standard / Mark) has a grid too, but not this one.
+    if grade is None and '"GBAssignment"' not in html:
+        raise ParseError("ClassDetails fragment had neither a current grade "
+                         "nor an assignment grid.")
 
     missing = re.search(
         r'gb-classdetail-missingassignments[^"]*"[^>]*>(.*?)</div>', html, re.DOTALL
     )
 
     return ClassDetails(
-        mark=grade.group(1).strip(),
-        percent=grade.group(2).strip(),
+        mark=grade.group(1).strip() if grade else "",
+        percent=grade.group(2).strip() if grade else "",
         missing_text=_text(missing.group(1)) if missing else "",
         assignments=[_row_to_assignment(r, course_gu) for r in _extract_datasource(html)],
     )

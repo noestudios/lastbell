@@ -96,10 +96,8 @@ def collect_student(
                  or (f"{teacher}'s class" if teacher else f"Class {class_gu}"))
         try:
             cd = parse_class_details(
-                client.load_control(
-                    "Gradebook_ClassDetails", focus.as_parameters(),
-                    agu_header=focus.agu_header,
-                ),
+                client.class_details(focus.as_parameters(),
+                                     agu_header=focus.agu_header),
                 course_gu=class_gu,
             )
         except (ParentVueError, ParseError) as e:
@@ -128,9 +126,7 @@ def collect_student(
         label = row.title or f"Class {class_gu}"
         try:
             cd = parse_class_details(
-                client.load_control(
-                    "Gradebook_ClassDetails", merged, agu_header=focus.agu_header
-                ),
+                client.class_details(merged, agu_header=focus.agu_header),
                 course_gu=class_gu,
             )
         except (ParentVueError, ParseError) as e:

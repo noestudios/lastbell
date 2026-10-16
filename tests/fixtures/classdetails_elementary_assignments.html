@@ -1,0 +1,17 @@
+<!-- Synthetic: the elementary assignment view (viewName "assignment") — an
+     assignment grid and no class-grade block. All names and ids are fake. -->
+<script language="JavaScript" type="text/javascript">PXP.GBFocus.SetViewName('assignment');</script>
+<div class="detail-content">
+  <div id="assignment-details">
+    <div id="AssignmentsGrid"></div>
+    <script type="text/javascript">
+      $('#AssignmentsGrid').dxDataGrid(PXP.DevExpress.ExtendGridConfiguration({
+        "columns":[{"caption":"Date","dataField":"Date"},{"caption":"Assignment","dataField":"GBAssignment"},{"caption":"Subject","dataField":"GBSubject"}],
+        "dataSource":[
+          {"Date":"10/2/26","GBAssignment":"{\"value\":\"Place Value Check\",\"dataType\":\"LinkColumn\"}","GBAssignmentType":"All Tasks / Assessments","GBSubject":"Mathematics","GBScore":"{\"value\":\"3 out of 4.0000\",\"dataType\":\"LinkColumn\"}","GBScoreType":"Raw Score","GBNotes":"","Teacher":"Dana Ellery","gradeBookId":"22220001","studentId":"999002"},
+          {"Date":"10/20/26","GBAssignment":"{\"value\":\"Measurement Project\",\"dataType\":\"LinkColumn\"}","GBAssignmentType":"All Tasks / Assessments","GBSubject":"Mathematics","GBScore":"{\"value\":\"Not Graded\",\"dataType\":\"LinkColumn\"}","GBScoreType":"Raw Score","GBNotes":"","Teacher":"Dana Ellery","gradeBookId":"22220002","studentId":"999002"}
+        ]
+      }));
+    </script>
+  </div>
+</div>

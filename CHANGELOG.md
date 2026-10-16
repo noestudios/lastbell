@@ -4,6 +4,34 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.3.4 — 2026-10-16
+
+**Elementary students are checked again, and a student whose classes can't
+be read is no longer a silent failure.**
+
+- **Elementary gradebooks are read again.** In mid-September MCPS split
+  the elementary gradebook from one homeroom class into a class per
+  subject, and the October portal upgrade made a subject open on its
+  standards marks instead of its assignments. Last Bell read neither, so
+  an elementary student got no alerts at all, and the only sign was a
+  warning in the log. Each subject (Art, Mathematics, Reading, …) is now
+  its own class, named and with its teacher, and Last Bell asks the
+  portal for the assignment list by name. Elementary subjects have no
+  class grade, so their grade column shows a dash. Secondary classes are
+  read exactly as before.
+- **The work posted while it was broken comes in quietly.** Past work
+  shows up on the dashboard without an alert; deadlines still ahead
+  alert as usual.
+- **A student whose classes can't be read now counts as a failed check.**
+  When the portal answers but none of a student's classes can be read,
+  Last Bell treats that poll as failed. After three in a row (about nine
+  hours), the guardians get one message naming the student by initials
+  and saying what to do, and one more when that student's classes can be
+  read again. The other students keep being checked, and the dashboard
+  footer says what's wrong.
+- **`lastbell preflight` checks the same assignment view** the poll
+  reads, so it no longer fails an elementary credential.
+
 ## 0.3.3 — 2026-09-11
 
 **A housekeeping release: the source tarball no longer ships the test

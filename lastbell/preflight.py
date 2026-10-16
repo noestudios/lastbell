@@ -325,8 +325,8 @@ def run_full(district: str, base_url: str, username: str, password: str,
                    f"run with --dump and file a district report")
 
     try:
-        details_html = client.load_control(
-            "Gradebook_ClassDetails", focus.as_parameters(), agu_header=focus.agu_header)
+        details_html = client.class_details(
+            focus.as_parameters(), agu_header=focus.agu_header)
         _dump("classdetails_fragment.html", details_html)
         cd = parse_class_details(details_html)
         report.add("parse_assignments", "Assignment parser",
