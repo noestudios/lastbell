@@ -103,14 +103,31 @@ def _gmail_transport(host="smtp.gmail.com"):
                          password="app-password", sender="parent@example.com")
 
 
-def test_a_451_for_a_message_already_in_sent_mail_is_not_resent(gmail, caplog):
+@pytest.fixture
+def warnings_logged():
+    """What the "lastbell" logger said. A handler on that logger itself:
+    the CLI turns off its propagation to the root, and the caplog of the
+    older pytest that Python 3.9 gets only listens at the root."""
+    records: list[str] = []
+
+    class Keep(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    logger = logging.getLogger("lastbell")
+    handler = Keep(level=logging.WARNING)
+    logger.addHandler(handler)
+    yield records
+    logger.removeHandler(handler)
+
+
+def test_a_451_for_a_message_already_in_sent_mail_is_not_resent(gmail, warnings_logged):
     gmail["sent_ids"] = {"yes"}
-    with caplog.at_level(logging.WARNING, logger="lastbell"):
-        _gmail_transport().deliver("parent@example.com", "digest", "body")  # no raise
+    _gmail_transport().deliver("parent@example.com", "digest", "body")  # no raise
     (imap,) = FakeImap.instances
     assert ("select", '"[Gmail]/Gesendet"', True) in imap.calls     # read-only
     assert imap.logged_out
-    assert "in Sent Mail" in caplog.text and "not resending" in caplog.text
+    assert any("in Sent Mail" in w and "not resending" in w for w in warnings_logged)
 
 
 def test_a_451_for_a_message_not_in_sent_mail_is_retried(gmail):
@@ -120,13 +137,12 @@ def test_a_451_for_a_message_not_in_sent_mail_is_retried(gmail):
     assert imap.searches == email_mod.SENT_CHECK_TRIES      # waited for it to arrive
 
 
-def test_an_imap_problem_means_retry(gmail, caplog):
+def test_an_imap_problem_means_retry(gmail, warnings_logged):
     gmail["sent_ids"] = {"yes"}
     gmail["imap_fail"] = imaplib.IMAP4.error("IMAP access is disabled")
-    with caplog.at_level(logging.WARNING, logger="lastbell"), \
-            pytest.raises(smtplib.SMTPDataError):
+    with pytest.raises(smtplib.SMTPDataError):
         _gmail_transport().deliver("parent@example.com", "digest", "body")
-    assert "couldn't check Gmail's Sent Mail" in caplog.text
+    assert any("couldn't check Gmail's Sent Mail" in w for w in warnings_logged)
 
 
 @pytest.mark.parametrize("host,reply", [
