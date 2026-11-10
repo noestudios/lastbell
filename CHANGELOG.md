@@ -4,6 +4,34 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.3.9 — 2026-11-10
+
+**Canvas work is now picked up in districts that name their courses
+differently from MCPS.**
+
+- **Year-long classes are recognised.** Last Bell reads the class and the
+  teacher out of a Canvas course name like "Hon Biology A-Yeh-S1-2027". It
+  only accepted a semester code such as "S1" in that name, so a district
+  that marks year-long classes "YR" ("English 6, Intensified-Dizayee-YR-2027")
+  had every class skipped and no Canvas work shown. Any short term code is
+  now accepted ("YR", "Q3", "SEM1"). (Reported from Arlington Public
+  Schools, issue #10.)
+- **A class title that ParentVUE cuts short still matches.** ParentVUE
+  shortens long titles ("US History to Present, Int" for "…, Intensified").
+  A gradebook title that is the beginning of the Canvas title now counts as
+  the same class.
+- **A course a teacher named by hand can match too.** When a Canvas course
+  has no district-style name but does contain the surname of one of the
+  student's teachers ("Pre-Algebra for 6th Graders - Teixeira 2627"), and
+  that teacher has one class with the student, the work goes to that class.
+- **`lastbell canvas` shows each course's full name.** It used to cut
+  names at 40 characters, which hid the part needed to work out why a
+  course was skipped.
+- **For MCPS families nothing moves today:** every course is placed as it
+  was in 0.3.8. One thing may differ later: an elementary homeroom
+  ("Homeroom-…-YR-2027") that starts posting dated work will now appear as
+  its own course; before, it was ignored.
+
 ## 0.3.8 — 2026-11-09
 
 **A student with no gradebook no longer stops the check for everyone
