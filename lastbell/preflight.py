@@ -347,7 +347,45 @@ def run_full(district: str, base_url: str, username: str, password: str,
                    f"fragment fetched but not understood ({e}) — "
                    f"run with --dump and file a district report")
 
+    if len(children) > 1:
+        _other_students(report, client, children[1:], _dump)
     return report
+
+
+def _other_students(report: Report, client, others, dump) -> None:
+    """The checks above read the first student only. A brother or sister can
+    be in another school with another page shape, or have no gradebook at
+    all, so each one's class list is fetched too (and saved by --dump).
+    Students are numbered, never named."""
+    from .gradebook import ParseError, parse_school_classes
+
+    notes, all_read = [], True
+    for n, child in enumerate(others, start=2):
+        try:
+            focus = client.get_focus_args(child.agu)
+            dump(f"gradebook_page_student{n}.html",
+                 getattr(client, "last_gradebook_html", ""))
+            html = client.load_control("Gradebook_SchoolClasses", focus.as_parameters(),
+                                       agu_header=focus.agu_header)
+            dump(f"schoolclasses_fragment_student{n}.html", html)
+            sc = parse_school_classes(html)
+            notes.append(f"student {n}: {len(sc.rows)} class row(s)")
+            all_read = all_read and bool(sc.rows)
+        except ParentVueError as e:
+            dump(f"loadcontrol_error_student{n}.html", e.response_text)
+            notes.append(f"student {n}: the portal answered with an error")
+            all_read = False
+        except ParseError:
+            notes.append(f"student {n}: nothing in the class list")
+            all_read = False
+        except requests.RequestException as e:
+            notes.append(f"student {n}: request failed ({type(e).__name__})")
+            all_read = False
+    report.add("other_students", "Other students", PASS if all_read else WARN,
+               "; ".join(notes) + ("" if all_read else
+                                   " — a student with no class list is skipped; if they "
+                                   "have a gradebook on the ParentVUE site, run with "
+                                   "--dump and file a district report"))
 
 
 # ── output ────────────────────────────────────────────────────────────

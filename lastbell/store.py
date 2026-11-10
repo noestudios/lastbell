@@ -339,6 +339,16 @@ def list_alerts(conn: sqlite3.Connection, *, limit: int = 50) -> list[sqlite3.Ro
 
 LAST_POLL_KEY = "last_poll_at"
 
+# Initials of the students the last poll skipped because the portal has no
+# gradebook for them (comma-separated; empty when there are none). Status
+# and the dashboard say so: a skipped student is never a silent one.
+NO_GRADEBOOK_KEY = "no_gradebook"
+
+
+def no_gradebook(conn: sqlite3.Connection) -> list[str]:
+    raw = get_meta(conn, NO_GRADEBOOK_KEY) or ""
+    return [s for s in raw.split(",") if s]
+
 
 def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) "

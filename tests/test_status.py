@@ -323,3 +323,14 @@ def test_report_in_a_container_names_the_image_and_the_compose_upgrade(world, mo
     assert ("docker compose exec dashboard lastbell dashboard --show-key prints the link"
             in text)
     assert world["calls"] == []                            # no systemctl probes
+
+
+def test_report_names_a_student_the_portal_has_no_gradebook_for(world):
+    """0.3.8: a skipped student is said, not left to a log line."""
+    conn = _db(world["home"])
+    _students(conn)
+    store.set_meta(conn, store.NO_GRADEBOOK_KEY, "V.R.")
+    conn.close()
+    text = "\n".join(status.report(NOW))
+    assert "Not watched: V.R. — the portal shows no gradebook for this student" in text
+    assert "`lastbell preflight --dump`" in text

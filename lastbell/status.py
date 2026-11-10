@@ -282,6 +282,12 @@ def _db_section(conf: cfg.Config, now: datetime) -> list[str]:
         n = len(rows)
         lines.append(f"Students: {n} ({', '.join(initials.values())})" if n
                      else "Students: none yet (they appear after the first check)")
+        skipped = store.no_gradebook(conn)
+        if skipped:
+            lines.append(f"Not watched: {', '.join(skipped)} — the portal shows no "
+                         f"gradebook for {'them' if len(skipped) > 1 else 'this student'}. "
+                         "If they have one on the ParentVUE site, run "
+                         "`lastbell preflight --dump` and file a report")
         lines += _score_tint_lines(conn)
 
         subs: dict = {}

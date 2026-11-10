@@ -70,7 +70,8 @@ def _handle(conn: sqlite3.Connection, path: str) -> tuple[int, str]:
         from .. import health
 
         return 200, render_overview(students, courses, counts, store.last_poll(conn),
-                                    failure_note=health.dashboard_note(health.current(conn)))
+                                    failure_note=health.dashboard_note(health.current(conn)),
+                                    not_watched=store.no_gradebook(conn))
     if path.startswith("/student/"):
         agu = path[len("/student/"):]
         student = fetch_student(conn, agu)

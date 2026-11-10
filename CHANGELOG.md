@@ -4,6 +4,36 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.3.8 — 2026-11-09
+
+**A student with no gradebook no longer stops the check for everyone
+else on the account.**
+
+- **One child without grades doesn't fail the whole check.** When the
+  portal lists a student but has no gradebook for them (a younger child,
+  or one in a program that posts no grades), their class list comes back
+  empty. Last Bell treated that as a broken portal and gave up on the whole
+  check, every time, so the family's other students were never marked as
+  checked and the "couldn't finish" notice went out. Now that student is
+  skipped and the others are checked as usual. (Reported from Arlington
+  Public Schools, issue #10.)
+- **A skipped student is named, not hidden.** `lastbell status` and the
+  dashboard's home page say "Not watched: V. — the portal shows no
+  gradebook for this student", so nobody assumes a child is covered who
+  isn't. The line goes away on the first check that finds their classes.
+- **If every student comes back empty, that is still a failure.** A whole
+  account with no gradebooks is far more likely a portal that changed, so
+  the check fails and guardians are told, as before.
+- **Any other trouble reading one student's class list no longer hides the
+  others.** The rest are checked and saved first; the check then counts as
+  failed for the student who couldn't be read, and guardians hear after
+  three in a row. A rejected sign-in still fails the check at once.
+- **`lastbell preflight` looks at every student.** It used to test the
+  first student only. It now reads each other student's class list as well
+  ("student 2: 14 class row(s)", by number, never by name), and
+  `--dump` saves each one, so a brother or sister in another school can be
+  reported too.
+
 ## 0.3.7 — 2026-11-09
 
 **A Gmail hiccup no longer doubles an email: Last Bell checks Sent Mail

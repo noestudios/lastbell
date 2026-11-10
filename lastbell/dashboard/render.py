@@ -449,7 +449,15 @@ def _freshness_html(last_poll_utc: str | None, now: datetime | None = None,
 
 
 def render_overview(students, courses_by_student, counts_by_student,
-                    last_poll_utc: str | None = None, failure_note: str = "") -> str:
+                    last_poll_utc: str | None = None, failure_note: str = "",
+                    not_watched: list[str] | None = None) -> str:
+    # Students the portal has no gradebook for (store.NO_GRADEBOOK_KEY):
+    # named, so nobody takes a missing card for a watched student.
+    skipped = ""
+    if not_watched:
+        skipped = ("<p class='credit' role='note'>Not watched: "
+                   f"{escape(', '.join(not_watched))} — the portal shows no gradebook "
+                   f"for {'them' if len(not_watched) > 1 else 'this student'}.</p>")
     if not students:
         return _page("Students",
                      "<h1>No students yet</h1><p>Run <code>lastbell run</code> "
@@ -492,7 +500,8 @@ def render_overview(students, courses_by_student, counts_by_student,
             f"<table class='courses'><tr class='head'><th scope='col'>Course</th><th scope='col'>Teacher</th>"
             f"<th scope='col'>%</th><th scope='col'>Mark</th></tr>{rows}</table></div>")
     return _page("Students", "<h1>Students</h1><div class='cards'>" + "".join(cards)
-                 + "</div>" + _freshness_html(last_poll_utc, failure_note=failure_note), path="/",
+                 + "</div>" + skipped
+                 + _freshness_html(last_poll_utc, failure_note=failure_note), path="/",
                  nav_students=students)
 
 

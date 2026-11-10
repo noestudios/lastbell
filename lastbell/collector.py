@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-from .client import Child, ParentVueClient, ParentVueError
+from .client import Child, LoginError, ParentVueClient, ParentVueError
 from .gradebook import (
     ClassDetails,
     ParseError,
@@ -60,6 +60,11 @@ class StudentCollection:
     # if any, was kept). Not class failures: the class itself was read.
     mark_errors: list[str] = field(default_factory=list)
     agu_header: str = "0"   # the page's PXP.AGU, for follow-up requests
+    # The portal has no gradebook for this student: an empty class list, or
+    # its "No gradebook for student …" error. A child in pre-K, or in a
+    # program that posts no grades, looks like this. Skipped, not a failure
+    # — unless every student on the account looks like it (see cli._run_once).
+    empty_gradebook: bool = False
 
     @property
     def snapshot(self) -> Snapshot:
@@ -85,10 +90,29 @@ def collect_student(
     ``known_marks`` (assignment GUID → recorded standards mark) lets marked
     work older than MARK_RECHECK_DAYS keep its mark without a fetch.
     """
-    out = _collect_classes(client, child, delay_s=delay_s)
+    try:
+        out = _collect_classes(client, child, delay_s=delay_s)
+    except LoginError:
+        raise                    # the account, not this student: fail the poll
+    except (ParentVueError, ParseError) as e:
+        # This student's class list couldn't be read. Their brothers and
+        # sisters on the same account are still checked.
+        student = Student(agu=child.agu, name=child.name, school=child.school or "",
+                          initials=initials_of(child.name))
+        return StudentCollection(
+            student=student,
+            school_classes=SchoolClasses(school_name="", school_id="",
+                                         org_year_gu="", current_term=""),
+            errors=[f"class list: {e}"],
+            empty_gradebook=_no_gradebook(e))
     if read_marks:
         _read_marks(client, out, known_marks or {}, today or date.today(), delay_s)
     return out
+
+
+def _no_gradebook(e: Exception) -> bool:
+    text = str(e).lower()
+    return "neither terms nor rows" in text or "no gradebook" in text
 
 
 def _read_marks(client, out: StudentCollection, known: dict[str, str],

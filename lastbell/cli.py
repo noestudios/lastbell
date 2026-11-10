@@ -165,6 +165,7 @@ def _run_once(client, conn, notifier, conf) -> int:
     _configure_logging()
     total = 0
     unread: list[str] = []
+    empty: list[str] = []
     # The first poll after the standards-mark column arrived reads marks
     # already given: record them, announce nothing (store.MARKS_FIRST_READ_KEY).
     quiet_marks = bool(store.get_meta(conn, store.MARKS_FIRST_READ_KEY))
@@ -175,11 +176,21 @@ def _run_once(client, conn, notifier, conf) -> int:
         known_marks = ({a.edupoint_gu: a.mark for a in previous.assignments if a.mark}
                        if previous else {})
         col = collect_student(client, child, known_marks=known_marks)
+        if col.empty_gradebook:
+            # Nothing to watch, nothing to save. Said here once per poll,
+            # and kept in front of the reader by `lastbell status` and the
+            # dashboard (store.NO_GRADEBOOK_KEY).
+            log.info(f"[{col.student.initials}]: the portal has no gradebook for "
+                     f"this student ({col.errors[0]}) — skipped")
+            empty.append(col.student.initials)
+            continue
         for err in col.errors:
             log.warning(f"[{col.student.initials}]: {err} — that class was "
                         f"skipped this poll; the others were still checked")
         if col.errors and not col.classes:
             unread.append(col.student.initials)
+            if not col.school_classes.current_term:
+                continue   # not even the class list: nothing worth saving
         if col.mark_errors:
             log.warning(f"[{col.student.initials}]: couldn't read the standards "
                         f"marks of {len(col.mark_errors)} assignment(s) — kept what "
@@ -254,6 +265,9 @@ def _run_once(client, conn, notifier, conf) -> int:
             for e in events:
                 store.record_alert(conn, child.agu, e)
             total += len(events)
+    skipped = empty if len(empty) < len(children) else []
+    if skipped != store.no_gradebook(conn):
+        store.set_meta(conn, store.NO_GRADEBOOK_KEY, ",".join(skipped))
     store.record_poll(conn)
     if quiet_marks:
         conn.execute("DELETE FROM meta WHERE key = ?", (store.MARKS_FIRST_READ_KEY,))
@@ -268,6 +282,10 @@ def _run_once(client, conn, notifier, conf) -> int:
         log.info(f"created default watcher {w.name!r} (guardian, via "
                  f"{', '.join(w.channels)}), subscribed to all students — "
                  f"adjust with `lastbell watcher` / `subscribe`")
+    if empty and len(empty) == len(children):
+        # Every student "without a gradebook" is more likely a portal that
+        # changed shape than a family of pre-schoolers: say so.
+        unread += empty
     if unread:
         # Last, so everything readable is already saved and sent: the loop
         # counts this poll as failed and the guardians hear about it.
