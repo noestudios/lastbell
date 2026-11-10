@@ -59,8 +59,8 @@ def test_split_course_name_strips_district_suffix():
 
 @pytest.mark.parametrize("name, expected", [
     # Arlington: year-long classes (issue #10); a comma in the title is fine
-    ("English 6, Intensified-Dizayee-YR-2027", ("English 6, Intensified", "Dizayee")),
-    ("6th Grade HR-Encubahre-YR-2027", ("6th Grade HR", "Encubahre")),
+    ("English 6, Intensified-Quill-YR-2027", ("English 6, Intensified", "Quill")),
+    ("6th Grade HR-Ellery-YR-2027", ("6th Grade HR", "Ellery")),
     # other term codes a district may use
     ("Algebra 1-Okafor-Q3-2027", ("Algebra 1", "Okafor")),
     ("Band-De La Cruz-SEM1-2027", ("Band", "De La Cruz")),
@@ -71,7 +71,7 @@ def test_split_course_name_takes_any_term_code(name, expected):
 
 
 @pytest.mark.parametrize("name", [
-    "Pre-Algebra for 6th Graders - Teixeira 2026-2027",   # hand-named
+    "Pre-Algebra for 6th Graders - Pereira 2026-2027",   # hand-named
     "2026-2027 WMS Library",
     "WMS Rising 6th Transition-2026",
     "Robotics Club-Fall-2027",                             # a word, not a term code
@@ -81,15 +81,72 @@ def test_split_course_name_leaves_other_names_whole(name):
     assert canvas.split_course_name(name) == (name, "")
 
 
+# Issue #10's account, as ParentVUE and Canvas each name the same eight
+# classes (teacher names invented). ParentVUE cuts long titles short; one
+# Canvas course is named by its teacher, not by the district.
+ARLINGTON_PV = [
+    ("0: 6th Grade HR", "Sam Ellery"),
+    ("1: US History to Present, Int", "Sam Ellery"),
+    ("2: English 6, Intensified", "Robin Quill"),
+    ("3: Disciplinary Literacy, Intensi", "Ana Novak"),
+    ("4: Pre-Algebra for 6 grade", "Dana Pereira"),
+    ("5: Science 6, Intensified", "Lee Marsh"),
+    ("6: Health and PE 6", "Will Kowal"),
+    ("7: Exploratory", "Andie McAllen"),
+]
+ARLINGTON_CANVAS = {
+    "6th Grade HR-Ellery-YR-2027": "0: 6th Grade HR",                      # title
+    "US History to Present, Intensified-Ellery-YR-2027":
+        "1: US History to Present, Int",                                   # cut title
+    "English 6, Intensified-Quill-YR-2027": "2: English 6, Intensified",
+    "Disciplinary Literacy, Intensified-Novak-YR-2027":
+        "3: Disciplinary Literacy, Intensi",
+    "Pre-Algebra for 6th Graders - Pereira 2627": "4: Pre-Algebra for 6 grade",  # name
+    "Science Grade 6, Intensified-Marsh-YR-2027": "5: Science 6, Intensified",   # teacher
+    "Grade 6 Health and Physical Education -Kowal-YR-2027": "6: Health and PE 6",
+    "Grade 6 Exploratory Program-McAllen-YR-2027": "7: Exploratory",
+    "2026 -2027 WMS Student Information Page": None,
+    "2026-2027 WMS Library": None,
+    "WMS Rising 6th Transition-2026": None,
+    "WMS School Counseling Class of 2029": None,
+}
+
+
+@pytest.mark.parametrize("canvas_name, gradebook_title", ARLINGTON_CANVAS.items())
+def test_every_class_of_a_real_arlington_schedule_finds_its_gradebook_course(
+        canvas_name, gradebook_title):
+    pv = [Course(edupoint_gu=str(i), title=t, teacher=te)
+          for i, (t, te) in enumerate(ARLINGTON_PV)]
+    hit = canvas.match_course(canvas_name, pv)
+    assert (hit.title if hit else None) == gradebook_title
+
+
+def test_a_cut_title_must_be_long_and_point_at_one_class():
+    short = [Course(edupoint_gu="1", title="Art", teacher="A B")]
+    assert canvas.match_course("Art History-Zed-YR-2027", short) is None
+    two = [Course(edupoint_gu="1", title="US History to Present", teacher="A B"),
+           Course(edupoint_gu="2", title="US History to Present, Int", teacher="C D")]
+    assert canvas.match_course("US History to Present, Intensified-Zed-YR-2027", two) is None
+
+
+def test_a_surname_in_a_hand_made_name_needs_one_class_and_a_real_surname():
+    two = [Course(edupoint_gu="1", title="Algebra", teacher="Dana Pereira"),
+           Course(edupoint_gu="2", title="Geometry", teacher="Dana Pereira")]
+    assert canvas.match_course("Math help - Pereira 2627", two) is None
+    lee = [Course(edupoint_gu="1", title="Algebra", teacher="Kim Lee")]
+    assert canvas.match_course("Lee county reading challenge", lee) is None   # too short
+    assert canvas.match_course("Pereira", [two[0]]).edupoint_gu == "1"
+
+
 def test_a_year_long_class_matches_its_gradebook_course_or_gets_its_own_row():
     """Issue #10: every Arlington class was skipped as "not named like a
     class" because its name ends -YR-2027."""
-    pv = [Course(edupoint_gu="1", title="English 6, Intensified", teacher="A Dizayee")]
-    assert canvas.match_course("English 6, Intensified-Dizayee-YR-2027", pv).edupoint_gu == "1"
+    pv = [Course(edupoint_gu="1", title="English 6, Intensified", teacher="A Quill")]
+    assert canvas.match_course("English 6, Intensified-Quill-YR-2027", pv).edupoint_gu == "1"
     snap = Snapshot(student_agu="7", courses=list(pv), term="Q2")
     col = canvas.CanvasCollection(observee=canvas.Observee(id=1, name="x"), courses=[
-        _cc(1, "English 6, Intensified-Dizayee-YR-2027", "Essay", term="2026/2027 YR"),
-        _cc(2, "Science Grade 6, Intensified-Blandford-YR-2027", "Lab", term="2026/2027 YR"),
+        _cc(1, "English 6, Intensified-Quill-YR-2027", "Essay", term="2026/2027 YR"),
+        _cc(2, "Science Grade 6, Intensified-Marsh-YR-2027", "Lab", term="2026/2027 YR"),
         _cc(3, "2026-2027 WMS Library", "Orientation", term="2026/2027 YR"),
     ])
     stats = canvas.merge(snap, col)

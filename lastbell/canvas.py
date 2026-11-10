@@ -283,12 +283,31 @@ def norm_title(title: str) -> str:
     return re.sub(r"[^a-z0-9]", "", _PERIOD_PREFIX.sub("", title).lower())
 
 
+# ParentVUE cuts a long class title short ("US History to Present, Int" for
+# "…, Intensified"). A gradebook title at least this long (letters and digits
+# only) that begins the Canvas title is taken as the same class.
+_CUT_TITLE_MIN = 15
+# A surname shorter than this is too likely to be an ordinary word in a
+# course name ("Lee", "Art") to be looked for inside one.
+_SURNAME_IN_NAME_MIN = 4
+
+
 def match_course(canvas_name: str, courses: Iterable[Course]) -> Course | None:
-    """The ParentVUE course this Canvas course is: by normalized title, or
-    failing that by the teacher's surname when the student has exactly one
-    class with that teacher. Teachers who share one Canvas shell across
-    sections name it for one of them ("Theatre HS 2A" holding the 1A work),
-    and the schedule — not the shell's name — says which class this is."""
+    """The ParentVUE course this Canvas course is. In order, each step only
+    when it points at exactly one class:
+
+    1. the same normalized title;
+    2. a gradebook title that ParentVUE cut short and that begins the
+       Canvas title;
+    3. the teacher's surname from the district suffix, when the student has
+       one class with that teacher. Teachers who share one Canvas shell
+       across sections name it for one of them ("Theatre HS 2A" holding the
+       1A work), and the schedule — not the shell's name — says which class
+       this is;
+    4. for a name with no district suffix (a teacher's own "Pre-Algebra for
+       6th Graders - Teixeira 2627"), a teacher of the student's whose
+       surname is a word in the name, again with one class.
+    """
     courses = list(courses)
     title, surname = split_course_name(canvas_name)
     want = norm_title(title)
@@ -297,10 +316,23 @@ def match_course(canvas_name: str, courses: Iterable[Course]) -> Course | None:
     hits = [c for c in courses if norm_title(c.title) == want]
     if len(hits) == 1:
         return hits[0]
-    if hits or not surname:
+    if hits:
         return None
-    by_teacher = [c for c in courses if _surname(c.teacher) == surname.lower()]
-    return by_teacher[0] if len(by_teacher) == 1 else None
+    cut = [c for c in courses
+           if len(norm_title(c.title)) >= _CUT_TITLE_MIN
+           and want.startswith(norm_title(c.title))]
+    if len(cut) == 1:
+        return cut[0]
+    if cut:
+        return None
+    if surname:
+        by_teacher = [c for c in courses if _surname(c.teacher) == surname.lower()]
+        return by_teacher[0] if len(by_teacher) == 1 else None
+    words = set(re.findall(r"[a-z'’\-]+", canvas_name.lower()))
+    named = [c for c in courses
+             if len(_surname(c.teacher)) >= _SURNAME_IN_NAME_MIN
+             and _surname(c.teacher) in words]
+    return named[0] if len(named) == 1 else None
 
 
 def _surname(teacher: str) -> str:
