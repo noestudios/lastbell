@@ -13,12 +13,30 @@ Two faces on one transport:
 """
 from __future__ import annotations
 
+import imaplib
+import logging
 import os
+import re
 import smtplib
 import ssl
+import time
 from dataclasses import dataclass
 from email.message import EmailMessage
-from email.utils import parseaddr
+from email.utils import make_msgid, parseaddr
+
+log = logging.getLogger("lastbell")
+
+# Gmail sometimes answers the end of a message with "451 4.3.0 temporarily
+# rejected" after it has already accepted and delivered it (seen 2026-09-10
+# and 2026-11-09). A retry then lands a second copy: Gmail does not merge two
+# submissions with the same Message-ID. So after a 4xx from Gmail's SMTP
+# server, Last Bell asks Gmail's IMAP server — same account, same app
+# password — whether that Message-ID is in Sent Mail, and only retries when
+# it isn't. Read-only: it searches one folder for one header, nothing else.
+GMAIL_SMTP_HOSTS = ("smtp.gmail.com", "smtp.googlemail.com")
+GMAIL_IMAP_HOST = "imap.gmail.com"
+SENT_CHECK_TRIES = 3          # Sent Mail can lag the submission by seconds
+SENT_CHECK_WAIT_S = 5.0
 
 
 def _need(key: str) -> str:
@@ -40,15 +58,57 @@ def build_message(sender: str, recipient: str, subject: str, body: str) -> Email
     html = getattr(body, "html", "")
     if html:
         msg.add_alternative(html, subtype="html")
+    # Every message carries a Message-ID of its own, so a submission can be
+    # looked up afterwards (see GMAIL_SMTP_HOSTS). A digest or summary
+    # passes a stable token, so each retry of it is the same message.
+    domain = parseaddr(sender)[1].rpartition("@")[2] or "lastbell.invalid"
     token = getattr(body, "message_id", "")
-    if token:
-        # Gmail (and others) keep one copy per Message-ID, so a retry of the
-        # same message after a false "temporarily rejected" reply is dropped
-        # at the mailbox instead of landing twice. Without the header the
-        # server mints a fresh id per submission and both copies arrive.
-        domain = parseaddr(sender)[1].rpartition("@")[2] or "lastbell.invalid"
-        msg["Message-ID"] = f"<{token}@{domain}>"
+    msg["Message-ID"] = f"<{token}@{domain}>" if token else make_msgid("lastbell", domain)
     return msg
+
+
+def _sent_folder(imap: imaplib.IMAP4) -> str | None:
+    """The mailbox flagged \\Sent (its name is localized: "[Gmail]/Sent
+    Mail", "[Gmail]/Gesendet", …), quoted as LIST printed it."""
+    _, lines = imap.list()
+    for line in lines or []:
+        if not isinstance(line, bytes):
+            continue
+        m = re.match(rb'\((?P<flags>[^)]*)\) (?:"[^"]*"|NIL) (?P<name>.+)$', line)
+        if m and b"\\Sent" in m.group("flags").split():
+            return m.group("name").decode("utf-8", "replace")
+    return None
+
+
+def gmail_sent_has(user: str, password: str, message_id: str, *,
+                   tries: int | None = None, wait_s: float | None = None,
+                   imap_factory=None) -> bool:
+    """Whether Gmail's Sent Mail holds a message with this Message-ID.
+    Raises on any IMAP trouble — the caller treats that as "don't know"."""
+    tries = SENT_CHECK_TRIES if tries is None else tries
+    wait_s = SENT_CHECK_WAIT_S if wait_s is None else wait_s
+    context = ssl.create_default_context()
+    factory = imap_factory or (lambda: imaplib.IMAP4_SSL(
+        GMAIL_IMAP_HOST, 993, ssl_context=context, timeout=30))
+    imap = factory()
+    try:
+        imap.login(user, password)
+        folder = _sent_folder(imap)
+        if folder is None:
+            raise imaplib.IMAP4.error("no mailbox is flagged as Sent")
+        for attempt in range(tries):
+            if attempt:
+                time.sleep(wait_s)
+            imap.select(folder, readonly=True)   # re-select: see new arrivals
+            _, data = imap.search(None, "HEADER", "Message-ID", message_id)
+            if data and data[0] and data[0].split():
+                return True
+        return False
+    finally:
+        try:
+            imap.logout()
+        except Exception:
+            pass
 
 
 @dataclass
@@ -88,7 +148,29 @@ class SmtpTransport:
                 smtp.starttls(context=context)
             if self.user:
                 smtp.login(self.user, self.password)
-            smtp.send_message(msg)
+            try:
+                smtp.send_message(msg)
+            except smtplib.SMTPDataError as e:
+                if not (400 <= e.smtp_code < 500 and self.can_check_sent):
+                    raise
+                if not self._sent_anyway(msg["Message-ID"]):
+                    raise
+                log.warning(f"Gmail answered {e.smtp_code} for {subject!r} but the "
+                            f"message is in Sent Mail — delivered; not resending")
+
+    @property
+    def can_check_sent(self) -> bool:
+        return self.host.lower() in GMAIL_SMTP_HOSTS and bool(self.user and self.password)
+
+    def _sent_anyway(self, message_id: str) -> bool:
+        """After a 4xx from Gmail: did the message go out regardless? Any
+        doubt (IMAP off, a network error) answers no, so it is retried."""
+        try:
+            return gmail_sent_has(self.user, self.password, message_id)
+        except Exception as e:
+            log.warning(f"couldn't check Gmail's Sent Mail after a temporary "
+                        f"rejection ({e.__class__.__name__}: {e}); retrying the send")
+            return False
 
 
 @dataclass

@@ -4,6 +4,30 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.3.7 — 2026-11-09
+
+**A Gmail hiccup no longer doubles an email: Last Bell checks Sent Mail
+before resending.**
+
+- **No more second copy after Gmail's false "temporarily rejected".**
+  Gmail sometimes answers a message with "451 temporarily rejected" after
+  it has already delivered it. Last Bell retried a minute later, and the
+  mailbox got the same digest twice. 0.3.2 gave each retry the same
+  Message-ID, expecting Gmail to keep one copy, but Gmail keeps both. Now,
+  after a temporary rejection from Gmail, Last Bell signs in to the same
+  account over IMAP with the same app password and looks in Sent Mail for
+  that one message. If it's there, the email went out and nothing is
+  resent. If it isn't, or the check can't run (IMAP turned off, a network
+  error), Last Bell retries as before, so a real rejection is never
+  dropped. The check is read-only: one folder, one header search, and only
+  after a temporary rejection from Gmail's own mail server. Other providers
+  behave as before.
+- **Every email now carries its own Message-ID**, instant alerts included,
+  so any message can be looked up this way.
+- **CI runs the Python 3.9 tests on Ubuntu 24.04.** GitHub's newest runner
+  image has no Python 3.9, and 3.9 is still the oldest Python Last Bell
+  supports.
+
 ## 0.3.6 — 2026-10-16
 
 **Elementary marks are read, so marked work no longer shows as past due.**

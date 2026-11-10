@@ -646,6 +646,11 @@ line is.
   minutes.
 - **The services you route alerts through.** Whatever you send: initials,
   a course, an assignment. Never a name, never a credential.
+- **Your mail account.** Last Bell signs in to send. With Gmail, and only
+  after Gmail answers a send with "temporarily rejected", it also signs in
+  over IMAP with the same app password and searches Sent Mail, read-only,
+  for that one message's Message-ID, so a message Gmail did deliver isn't
+  sent twice. It never opens, moves or deletes your mail.
 - **PyPI and GitHub.** Each release is built by the workflow in this
   repository and published through trusted publishing with a
   [PEP 740 attestation](https://docs.pypi.org/attestations/), so what

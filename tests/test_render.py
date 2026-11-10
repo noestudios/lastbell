@@ -58,8 +58,10 @@ def test_email_message_id_comes_from_the_token_under_the_sender_domain():
     msg = build_message("Last Bell <bell@example.com>", "b@y", "Subj", body)
     assert msg["Message-ID"] == "<lastbell.abc123@example.com>"
     assert msg.get_content_type() == "multipart/alternative"   # html twin kept
-    # no token: the server mints one, as before
-    assert build_message("a@x", "b@y", "Subj", "just text")["Message-ID"] is None
+    # no token: a fresh id of our own, so the submission can be looked up
+    minted = build_message("a@x", "b@y", "Subj", "just text")["Message-ID"]
+    assert minted.startswith("<") and minted.endswith("@x>") and "lastbell" in minted
+    assert minted != build_message("a@x", "b@y", "Subj", "just text")["Message-ID"]
 
 
 def test_stable_id_is_deterministic_and_order_sensitive():
