@@ -392,7 +392,9 @@ def _cmd_canvas(args: argparse.Namespace) -> int:
                          f"not a class term, or LASTBELL_CANVAS_SKIP)")
             else:
                 where = "skipped"
-            print(f"  {course.title!s:40.40} {where}: {shape}")
+            # The whole Canvas name, never cut: a report from a district
+            # whose names aren't understood yet has to show all of each one.
+            print(f"  {course.name!s:40} {where}: {shape}")
         for err in ccol.errors:
             print(f"  warning: {err}")
     print(f"\n{cc.calls} Canvas API calls. Nothing was written anywhere.")

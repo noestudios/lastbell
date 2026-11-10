@@ -261,7 +261,11 @@ def match_students(children: Iterable[Child], observees: Iterable[Observee]
 # ── course names ──────────────────────────────────────────────────────
 
 # "Hon Biology A-Yeh-S1-2027" → title "Hon Biology A", teacher "Yeh".
-_CANVAS_SUFFIX = re.compile(r"^(?P<title>.+?)-(?P<teacher>[A-Za-z'’.\- ]+)-[A-Z]\d-\d{4}$")
+# The shape is Title-Teacher-Term-Year; the term code is the district's own
+# (MCPS semesters "S1", Arlington's year-long "YR", quarters "Q3", "SEM1"),
+# so any short capital code is taken, not a list of known ones.
+_CANVAS_SUFFIX = re.compile(
+    r"^(?P<title>.+?)-(?P<teacher>[A-Za-z'’.\- ]+)-[A-Z][A-Z0-9]{0,3}-\d{4}$")
 # "7: Hon Biology A" → "Hon Biology A".
 _PERIOD_PREFIX = re.compile(r"^\d+\s*:\s*")
 
