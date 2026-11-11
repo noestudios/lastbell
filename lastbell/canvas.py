@@ -305,7 +305,7 @@ def match_course(canvas_name: str, courses: Iterable[Course]) -> Course | None:
        1A work), and the schedule — not the shell's name — says which class
        this is;
     4. for a name with no district suffix (a teacher's own "Pre-Algebra for
-       6th Graders - Teixeira 2627"), a teacher of the student's whose
+       6th Graders - Pereira 2627"), a teacher of the student's whose
        surname is a word in the name, again with one class.
     """
     courses = list(courses)

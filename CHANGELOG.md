@@ -12,7 +12,7 @@ differently from MCPS.**
 - **Year-long classes are recognised.** Last Bell reads the class and the
   teacher out of a Canvas course name like "Hon Biology A-Yeh-S1-2027". It
   only accepted a semester code such as "S1" in that name, so a district
-  that marks year-long classes "YR" ("English 6, Intensified-Dizayee-YR-2027")
+  that marks year-long classes "YR" ("English 6, Intensified-Quill-YR-2027")
   had every class skipped and no Canvas work shown. Any short term code is
   now accepted ("YR", "Q3", "SEM1"). (Reported from Arlington Public
   Schools, issue #10.)
@@ -22,7 +22,7 @@ differently from MCPS.**
   the same class.
 - **A course a teacher named by hand can match too.** When a Canvas course
   has no district-style name but does contain the surname of one of the
-  student's teachers ("Pre-Algebra for 6th Graders - Teixeira 2627"), and
+  student's teachers ("Pre-Algebra for 6th Graders - Pereira 2627"), and
   that teacher has one class with the student, the work goes to that class.
 - **`lastbell canvas` shows each course's full name.** It used to cut
   names at 40 characters, which hid the part needed to work out why a
