@@ -105,7 +105,7 @@ def apply_time_rules(
 def diff(
     previous: Snapshot | None, current: Snapshot, *,
     today: date | None = None, grade_drop_points: float = 5.0,
-    quiet_marks: bool = False,
+    quiet_marks: bool = False, quiet_canvas: bool = False,
 ) -> list[Event]:
     """Return the events implied by moving from ``previous`` to ``current``.
 
@@ -117,6 +117,9 @@ def diff(
 
     ``quiet_marks`` records standards marks without announcing them: the
     first poll after an upgrade starts reading marks teachers gave weeks ago.
+    ``quiet_canvas`` does the same for Canvas work's scores, missing flags
+    and gradebook disagreements: until 0.3.10 an observer's poll received
+    none of them, so the first poll that does is reading history.
     """
     if previous is None:
         return []
@@ -159,7 +162,7 @@ def diff(
             # A hidden Canvas twin speaks only through disagreement with its
             # gradebook row — once, when the disagreement first appears.
             twin = current_by_gu.get(a.superseded_by)
-            if twin is not None and conflicts(twin, a) and not (
+            if not quiet_canvas and twin is not None and conflicts(twin, a) and not (
                     p is not None and conflicts(
                         prev_assignments.get(a.superseded_by) or twin, p)):
                 events.append(event(
@@ -182,8 +185,9 @@ def diff(
         # alone changing on ungraded work (the portal rewrites rows at
         # interim time and can drop the "Points Possible" text) is not news
         # to a parent and would read "ungraded → ungraded".
+        hush = quiet_canvas and a.source == SOURCE_CANVAS
         if ((a.score, a.points) != (p.score, p.points)
-                and not (a.score is None and p.score is None)):
+                and not (a.score is None and p.score is None) and not hush):
             if p.score is None and a.score is not None:
                 what = f"graded: {_score(a)}"
             else:
@@ -197,7 +201,8 @@ def diff(
                     else f"mark changed {p.mark} → {a.mark}")
             events.append(event(AlertType.GRADE_CHANGED, agu, course, what,
                                 item=a.name, via=via))
-        if a.status is AssignmentStatus.MISSING and p.status is not AssignmentStatus.MISSING:
+        if (a.status is AssignmentStatus.MISSING
+                and p.status is not AssignmentStatus.MISSING and not hush):
             events.append(event(AlertType.ASSIGNMENT_MISSING, agu, course,
                                 MISSING_PHRASE, item=a.name, via=via))
         if (a.status is AssignmentStatus.UNGRADED_PAST_DUE

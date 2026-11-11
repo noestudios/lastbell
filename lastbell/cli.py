@@ -169,8 +169,12 @@ def _run_once(client, conn, notifier, conf) -> int:
     # The first poll after the standards-mark column arrived reads marks
     # already given: record them, announce nothing (store.MARKS_FIRST_READ_KEY).
     quiet_marks = bool(store.get_meta(conn, store.MARKS_FIRST_READ_KEY))
+    # Likewise the first poll that reads Canvas scores (0.3.10): until one
+    # has read Canvas for everyone, scores are recorded, not announced.
+    quiet_canvas = not store.get_meta(conn, store.CANVAS_SCORES_READ_KEY)
     children = client.get_children()
     canvas_layer = _canvas_layer(client, children, conf)
+    canvas_read = conf.canvas == "off" or canvas_layer is not None
     for child in children:
         previous = store.load_snapshot(conn, child.agu)
         known_marks = ({a.edupoint_gu: a.mark for a in previous.assignments if a.mark}
@@ -216,6 +220,8 @@ def _run_once(client, conn, notifier, conf) -> int:
                 log.warning(f"Canvas: {e} — the gradebook alone was used for "
                             f"{col.student.initials}")
                 ccol = None
+            if ccol is None and child.agu in canvas_layer.matched:
+                canvas_read = False     # failed for this student: stay quiet
             if ccol is not None:
                 stats = canvas_layer.merge(snapshot, ccol)
                 canvas_note = f" (+{stats['assignments']} from Canvas)"
@@ -226,7 +232,7 @@ def _run_once(client, conn, notifier, conf) -> int:
         )
         events = differ.diff(previous, snapshot,
                              grade_drop_points=conf.grade_drop_points,
-                             quiet_marks=quiet_marks)
+                             quiet_marks=quiet_marks, quiet_canvas=quiet_canvas)
         store.persist_snapshot(conn, col.student, snapshot,
                                prune_canvas=stats is not None)
 
@@ -269,6 +275,11 @@ def _run_once(client, conn, notifier, conf) -> int:
     if skipped != store.no_gradebook(conn):
         store.set_meta(conn, store.NO_GRADEBOOK_KEY, ",".join(skipped))
     store.record_poll(conn)
+    if quiet_canvas and canvas_read:
+        store.set_meta(conn, store.CANVAS_SCORES_READ_KEY, "1")
+        if canvas_layer is not None:
+            log.info("read the Canvas scores already given, without alerts; "
+                     "new scores alert from the next poll")
     if quiet_marks:
         conn.execute("DELETE FROM meta WHERE key = ?", (store.MARKS_FIRST_READ_KEY,))
         conn.commit()

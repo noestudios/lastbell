@@ -19,12 +19,16 @@ link once per poll yields a Canvas session cookie. A personal access token
 
     /api/v1/users/self/observees                       the linked students
     /api/v1/courses?include[]=observed_users           which course is whose
-    /api/v1/users/{student}/courses/{course}/assignments?include[]=submission
+    /api/v1/users/{student}/courses/{course}/assignments
+        ?include[]=submission&include[]=observed_users  the work, with the
+                                                       student's own submission
     /api/v1/courses/{course}/assignment_groups         category names
 
-**What we keep.** Published assignments that carry a due date or points —
-the ungraded, undated "read this page" items a course shell accumulates are
-noise a parent can't act on. Canvas's own words are trusted (``missing`` →
+**What we keep.** Published, named assignments that carry a due date, or
+that have no date but have been turned in or scored — the undated, untouched
+items a course shell accumulates (a plugged-in tool's placeholder, a "read
+this page") are noise a parent can't act on, and with no date they would
+sit as "due" for ever. Canvas's own words are trusted (``missing`` →
 MISSING, a posted score → GRADED, a submission → SUBMITTED); everything else
 is DUE and the time rules take it from there.
 
@@ -356,21 +360,53 @@ def _local_date(iso: str | None) -> date | None:
         return None
 
 
+def own_submission(a: dict, student_id: int | None = None) -> dict:
+    """The observed student's submission on an assignment row, or {}.
+
+    Canvas gives an observer no ``submission`` at all unless the request
+    also asks for ``observed_users``; it then sends a *list*, one entry per
+    observed student in the course. A parent with two children in one
+    course gets both, so the entry is picked by the student's id. (A
+    student's own token gets a single object, which is taken as it is.)"""
+    sub = a.get("submission")
+    if isinstance(sub, dict):
+        return sub
+    if isinstance(sub, list):
+        for s in sub:
+            if isinstance(s, dict) and (student_id is None
+                                        or s.get("user_id") == student_id):
+                return s
+    return {}
+
+
+def _touched(sub: dict) -> bool:
+    """Turned in or scored: Canvas has something to say about this work."""
+    return (sub.get("score") is not None or bool(sub.get("submitted_at"))
+            or sub.get("workflow_state") in ("submitted", "pending_review", "graded"))
+
+
 def keep_assignment(a: dict) -> bool:
-    """Only work a parent can act on: published, and dated or worth points.
-    Excused work is dropped outright — nothing to chase, nothing to grade."""
+    """Only work a parent can act on: published, named, and either dated or
+    worth points and already turned in or scored. Work with no due date can never become
+    "not due yet" or "past due", so an untouched one would sit as "due" for
+    ever. Excused work is dropped outright — nothing to chase, nothing to
+    grade. Expects ``a["submission"]`` to be the student's own (see
+    ``own_submission``)."""
     if not a.get("published", True) or a.get("workflow_state") == "deleted":
         return False
-    sub = a.get("submission") or {}
+    if not (a.get("name") or "").strip():
+        return False
+    sub = own_submission(a)
     if sub.get("excused"):
         return False
-    points = a.get("points_possible") or 0
-    return bool(a.get("due_at")) or points > 0
+    if a.get("due_at"):
+        return True
+    return (a.get("points_possible") or 0) > 0 and _touched(sub)
 
 
 def to_assignment(a: dict, course_gu: str, kinds: dict | None = None) -> Assignment:
     """Normalize one Canvas assignment (+ the observed student's submission)."""
-    sub = a.get("submission") or {}
+    sub = own_submission(a)
     score = sub.get("score")
     if sub.get("missing"):
         status = AssignmentStatus.MISSING
@@ -459,7 +495,10 @@ def collect(client: CanvasClient, observee: Observee, *,
                 f"/api/v1/courses/{course.id}/assignment_groups", per_page=100)}
             rows = client.get(
                 f"/api/v1/users/{observee.id}/courses/{course.id}/assignments",
-                per_page=100, **{"include[]": ["submission"], "order_by": "due_at"})
+                per_page=100, **{"include[]": ["submission", "observed_users"],
+                                 "order_by": "due_at"})
+            for a in rows:
+                a["submission"] = own_submission(a, observee.id)
         except CanvasError as e:
             out.errors.append(f"{title}: {e}")
             continue

@@ -80,6 +80,12 @@ _MIGRATIONS = [
 # alerting (see cli._run_once) and clears this.
 MARKS_FIRST_READ_KEY = "marks_first_read"
 
+# Set once a poll has read Canvas with the observed student's submissions
+# (0.3.10). Before that an observer's poll received no scores at all, so the
+# first poll that does is reading weeks of grading: it records them without
+# alerting (see cli._run_once). A new install sets it on its baseline poll.
+CANVAS_SCORES_READ_KEY = "canvas_scores_read"
+
 # A Canvas assignment is the leading copy of work that later reaches the
 # gradebook under the same name. Once the ParentVUE row exists it is the
 # record, so readers hide the Canvas twin: the count, the list, and the
@@ -307,6 +313,23 @@ def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot,
         )
 
     if prune_canvas:
+        # Canvas work is rebuilt from Canvas every poll. A stored row the
+        # snapshot no longer asserts, that was never scored or turned in, is
+        # work Canvas dropped or Last Bell stopped keeping (an undated tool
+        # placeholder, a nameless row): it would sit on the dashboard as
+        # "due" for ever. Scored rows are history and stay. Only in courses
+        # whose Canvas work was read this poll — a course that failed keeps
+        # its rows, or they would come back next poll as new work.
+        asserted = {f"{course_ids[a.course_gu]}:{_assignment_key(a)}"
+                    for a in snap.assignments
+                    if a.source == "canvas" and a.course_gu in course_ids}
+        read_courses = {course_ids[a.course_gu] for a in snap.assignments
+                        if a.source == "canvas" and a.course_gu in course_ids}
+        for aid, old in old_assignments.items():
+            if (old["source"] == "canvas" and old["course_id"] in read_courses
+                    and aid not in asserted and old["score"] is None
+                    and old["status"] in ("due", "not_due", "ungraded_past_due")):
+                conn.execute("DELETE FROM assignments WHERE id = ?", (aid,))
         keep = list(course_ids.values())
         conn.execute(
             "DELETE FROM courses WHERE student_id = ? AND source = 'canvas' "

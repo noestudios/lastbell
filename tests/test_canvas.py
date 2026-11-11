@@ -177,11 +177,75 @@ def _api_assignment(**kw) -> dict:
 
 def test_keep_assignment_wants_a_date_or_points():
     assert canvas.keep_assignment(_api_assignment())
-    assert canvas.keep_assignment(_api_assignment(due_at=None, points_possible=5))
     assert not canvas.keep_assignment(_api_assignment(due_at=None, points_possible=0))
     assert not canvas.keep_assignment(_api_assignment(published=False))
     assert not canvas.keep_assignment(_api_assignment(
         submission={"excused": True, "score": None}))
+
+
+def test_undated_work_is_kept_only_once_it_is_turned_in_or_scored():
+    """A plugged-in tool's placeholder has points and no due date. With no
+    date it can never age out of "due", so untouched it is left out."""
+    undated = dict(due_at=None, points_possible=100.0, submission_types=["external_tool"])
+    assert not canvas.keep_assignment(_api_assignment(**undated))
+    assert canvas.keep_assignment(_api_assignment(
+        **undated, submission={"workflow_state": "graded", "score": 90}))
+    assert canvas.keep_assignment(_api_assignment(
+        **undated, submission={"workflow_state": "submitted",
+                               "submitted_at": "2026-09-02T14:00:00Z"}))
+    assert not canvas.keep_assignment(_api_assignment(      # no points: still out
+        due_at=None, points_possible=0, submission={"workflow_state": "graded", "score": 0}))
+    # dated external-tool work is ordinary homework and stays
+    assert canvas.keep_assignment(_api_assignment(submission_types=["external_tool"]))
+
+
+@pytest.mark.parametrize("name", ["", "   ", None])
+def test_work_with_no_name_is_left_out(name):
+    assert not canvas.keep_assignment(_api_assignment(name=name))
+
+
+def test_own_submission_picks_the_observed_student_from_the_list():
+    """An observer gets a list, one entry per observed child in the course."""
+    row = _api_assignment(submission=[
+        {"user_id": 7, "workflow_state": "unsubmitted", "score": None},
+        {"user_id": 9, "workflow_state": "graded", "score": 8.0}])
+    assert canvas.own_submission(row, 9)["score"] == 8.0
+    assert canvas.own_submission(row, 7)["score"] is None
+    assert canvas.own_submission(row, 4) == {}
+    assert canvas.own_submission(_api_assignment(submission=None), 9) == {}
+    assert canvas.own_submission(_api_assignment(), 9)["workflow_state"] == "unsubmitted"
+
+
+def test_collect_asks_for_the_observed_students_submission_and_reads_the_score():
+    """Canvas sends an observer no submission unless observed_users is asked
+    for, so every score was blank and graded work read as ungraded past due
+    (issue #10)."""
+    asked = {}
+
+    class Stub:
+        def get(self, path, **params):
+            if path.endswith("/assignment_groups"):
+                return [{"id": 5, "name": "Formative"}]
+            asked.update(params)
+            return [
+                _api_assignment(id=1, name="Check-In", submission=[
+                    {"user_id": 3, "workflow_state": "graded", "score": 2.0},
+                    {"user_id": 9, "workflow_state": "graded", "score": 10.0,
+                     "graded_at": "2026-11-05T12:00:00Z"}]),
+                _api_assignment(id=2, name="Essay", submission=[
+                    {"user_id": 9, "workflow_state": "unsubmitted", "score": None}]),
+                _api_assignment(id=3, name="Tool placeholder", due_at=None, submission=[
+                    {"user_id": 9, "workflow_state": "unsubmitted", "score": None}]),
+                _api_assignment(id=4, name="", due_at=None, submission=[]),
+            ]
+
+    course = {"id": 77, "name": "English 6-Quill-YR-2027", "term": {"name": "YR"},
+              "enrollments": [{"associated_user_id": 9}]}
+    col = canvas.collect(Stub(), canvas.Observee(id=9, name="x"), courses_cache=[course])
+    assert "observed_users" in asked["include[]"] and "submission" in asked["include[]"]
+    got = {a.name: (a.status, a.score) for a in col.courses[0].assignments}
+    assert got == {"Check-In": (AssignmentStatus.GRADED, 10.0),
+                   "Essay": (AssignmentStatus.DUE, None)}
 
 
 def test_to_assignment_status_ladder():

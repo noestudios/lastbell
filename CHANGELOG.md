@@ -4,6 +4,35 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.3.10 — 2026-11-10
+
+**Canvas scores now arrive. Until now, graded Canvas work showed as
+ungraded.**
+
+- **Canvas work shows its score, and whether it was turned in or is
+  missing.** Canvas only tells a parent account about a student's
+  submission when it is asked for in a particular way, and Last Bell wasn't
+  asking. Every Canvas item therefore arrived with no score, and once its
+  due date passed it was listed as "ungraded past due", even when the
+  teacher had graded it weeks ago. Work that also reaches the ParentVUE
+  gradebook was less affected, because the gradebook copy is the one shown.
+  (Reported from Arlington Public Schools, issue #10; it affected every
+  district.)
+- **The first check after upgrading is quiet about Canvas.** It reads all
+  the scores and missing flags that were there all along and records them
+  without sending anything, so you don't get an email for every piece of
+  work graded since September. New Canvas scores alert from the check
+  after that. If Canvas can't be reached on that first check, the quiet
+  read waits for the next one.
+- **Canvas work with no due date is listed only once it is turned in or
+  scored.** Tools plugged into Canvas create undated entries that sat on
+  the dashboard as "due" for ever, because without a date they can never
+  become "not due yet" or "past due".
+- **Canvas work with no name is left out.**
+- **Rows already stored are tidied.** Canvas work that is no longer listed
+  and was never scored is removed from the dashboard on the next check.
+  Anything with a score is kept as history.
+
 ## 0.3.9 — 2026-11-10
 
 **Canvas work is now picked up in districts that name their courses
