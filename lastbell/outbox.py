@@ -135,6 +135,7 @@ def flush_due(conn: sqlite3.Connection, now: datetime | None = None,
             if ch is None:
                 ch = transports[channel_name] = channel_factory(channel_name)
             ids = [r["id"] for r in group]
+            group = _without_stale(group)   # every row is still marked sent
             # The same rows resent (a retry) are the same message to the
             # mailbox; a group that changed in between is a new one.
             body = render.with_id(_body_for(group), render.stable_id("digest", *sorted(ids)))
@@ -157,6 +158,30 @@ def pending(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         "JOIN watchers w ON w.id = o.watcher_id "
         "JOIN students st ON st.id = o.student_id "
         "WHERE o.sent_at IS NULL ORDER BY o.send_after").fetchall()
+
+
+# A queued line of these kinds settles the work it is about: a "due Thursday"
+# queued earlier for the same work is out of date by the time the digest goes.
+_SETTLES = {"grade_changed", "assignment_missing"}
+
+
+def _without_stale(group: list[sqlite3.Row]) -> list[sqlite3.Row]:
+    """The group without "coming up" lines for work that a later line in the
+    same digest reports as graded or missing. Rows queued by a version that
+    stored only the sentence can't be matched and are left alone."""
+    def work(r):
+        parts = _line(r)
+        if not isinstance(parts, dict) or not parts.get("item"):
+            return None
+        return r["student_id"], parts.get("course"), parts["item"]
+
+    settled_at: dict = {}
+    for n, r in enumerate(group):
+        if r["alert_type"] in _SETTLES and work(r) is not None:
+            settled_at[work(r)] = n
+    return [r for n, r in enumerate(group)
+            if not (r["alert_type"] == "upcoming_deadline"
+                    and settled_at.get(work(r), -1) > n)]
 
 
 def _subject_for(group: list[sqlite3.Row]) -> str:

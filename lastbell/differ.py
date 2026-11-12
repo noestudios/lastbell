@@ -186,8 +186,14 @@ def diff(
         # interim time and can drop the "Points Possible" text) is not news
         # to a parent and would read "ungraded → ungraded".
         hush = quiet_canvas and a.source == SOURCE_CANVAS
+        went_missing = (a.status is AssignmentStatus.MISSING
+                        and p.status is not AssignmentStatus.MISSING and not hush)
+        # A zero entered together with the missing flag is one fact, not a
+        # grade and a missing notice: it is said once, by the missing line.
+        missing_zero = went_missing and p.score is None and a.score == 0
         if ((a.score, a.points) != (p.score, p.points)
-                and not (a.score is None and p.score is None) and not hush):
+                and not (a.score is None and p.score is None)
+                and not hush and not missing_zero):
             if p.score is None and a.score is not None:
                 what = f"graded: {_score(a)}"
             else:
@@ -201,10 +207,11 @@ def diff(
                     else f"mark changed {p.mark} → {a.mark}")
             events.append(event(AlertType.GRADE_CHANGED, agu, course, what,
                                 item=a.name, via=via))
-        if (a.status is AssignmentStatus.MISSING
-                and p.status is not AssignmentStatus.MISSING and not hush):
-            events.append(event(AlertType.ASSIGNMENT_MISSING, agu, course,
-                                MISSING_PHRASE, item=a.name, via=via))
+        if went_missing:
+            events.append(event(
+                AlertType.ASSIGNMENT_MISSING, agu, course,
+                MISSING_PHRASE + (f" ({_score(a)})" if missing_zero else ""),
+                item=a.name, via=via))
         if (a.status is AssignmentStatus.UNGRADED_PAST_DUE
                 and p.status is not AssignmentStatus.UNGRADED_PAST_DUE):
             what = "still ungraded"
@@ -229,11 +236,12 @@ def conflicts(record: Assignment, twin: Assignment) -> bool:
     way worth a word? Canvas has a score, and the gradebook has a different
     one, a zero, or a missing flag. A gradebook row that is merely ungraded
     while Canvas has a score is ordinary sync lag — the dashboard hints at
-    it, nobody is alerted."""
+    it, nobody is alerted. A gradebook "missing" beside a Canvas zero is the
+    two agreeing: the teacher's placeholder zero is what the flag means."""
     if twin.score is None:
         return False
     if record.status is AssignmentStatus.MISSING:
-        return True
+        return twin.score > 0
     if record.score is None:
         return False
     if record.score == 0 and twin.score > 0:
