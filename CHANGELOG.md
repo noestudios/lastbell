@@ -4,6 +4,25 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.3.11 — 2026-11-12
+
+**One piece of work, one line: a lab marked missing no longer shows up
+four times in a digest.**
+
+- **No more "gradebook shows 0/20 but Canvas shows 0/20".** Since 0.3.10
+  reads Canvas scores, work a teacher zeroed and marked missing was reported
+  as a disagreement between the gradebook and Canvas, even though both said
+  the same thing. A gradebook "missing" next to a Canvas zero now counts as
+  agreement. It is still flagged when Canvas shows real credit or a
+  different score.
+- **A zero entered with the missing flag is said once.** It used to appear
+  as "graded: 0/20" under Grades posted and again as "is marked missing"
+  under Needs attention. Now it is one line: "is marked missing (0/20)".
+  A real score that is also flagged missing still gets both lines.
+- **A digest drops "coming up" lines that are out of date.** If work was
+  queued as "due Thursday" in the morning and graded or marked missing by
+  the time the digest is sent, only the later line is shown.
+
 ## 0.3.10 — 2026-11-10
 
 **Canvas scores now arrive. Until now, graded Canvas work showed as
