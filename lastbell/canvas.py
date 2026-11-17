@@ -264,7 +264,7 @@ def match_students(children: Iterable[Child], observees: Iterable[Observee]
 
 # ── course names ──────────────────────────────────────────────────────
 
-# "Hon Biology A-Yeh-S1-2027" → title "Hon Biology A", teacher "Yeh".
+# "Hon Biology A-Brask-S1-2027" → title "Hon Biology A", teacher "Brask".
 # The shape is Title-Teacher-Term-Year; the term code is the district's own
 # (MCPS semesters "S1", Arlington's year-long "YR", quarters "Q3", "SEM1"),
 # so any short capital code is taken, not a list of known ones.
@@ -340,7 +340,7 @@ def match_course(canvas_name: str, courses: Iterable[Course]) -> Course | None:
 
 
 def _surname(teacher: str) -> str:
-    """Last word of a ParentVUE teacher name ("Julian Lazarus" → "lazarus")."""
+    """Last word of a ParentVUE teacher name ("Tallis Vane" → "vane")."""
     words = teacher.replace(",", " ").split()
     return words[-1].lower() if words else ""
 

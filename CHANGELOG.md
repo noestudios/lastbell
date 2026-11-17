@@ -77,7 +77,7 @@ ungraded.**
 differently from MCPS.**
 
 - **Year-long classes are recognised.** Last Bell reads the class and the
-  teacher out of a Canvas course name like "Hon Biology A-Yeh-S1-2027". It
+  teacher out of a Canvas course name like "Hon Biology A-Brask-S1-2027". It
   only accepted a semester code such as "S1" in that name, so a district
   that marks year-long classes "YR" ("English 6, Intensified-Quill-YR-2027")
   had every class skipped and no Canvas work shown. Any short term code is

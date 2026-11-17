@@ -52,8 +52,8 @@ def test_lone_child_pairs_with_lone_observee_regardless_of_name():
 
 
 def test_split_course_name_strips_district_suffix():
-    assert canvas.split_course_name("Hon Biology A-Yeh-S1-2027") == ("Hon Biology A", "Yeh")
-    assert canvas.split_course_name("Hughes-Lloyd's class") == ("Hughes-Lloyd's class", "")
+    assert canvas.split_course_name("Hon Biology A-Brask-S1-2027") == ("Hon Biology A", "Brask")
+    assert canvas.split_course_name("Quill-Ardent's class") == ("Quill-Ardent's class", "")
     assert canvas.split_course_name("Class of 2030") == ("Class of 2030", "")
 
 
@@ -158,8 +158,8 @@ def test_a_year_long_class_matches_its_gradebook_course_or_gets_its_own_row():
 def test_match_course_ignores_period_prefix_and_suffix():
     pv = [Course(edupoint_gu="1", title="7: Hon Biology A"),
           Course(edupoint_gu="2", title="3: Theatre HS 1A")]
-    assert canvas.match_course("Hon Biology A-Yeh-S1-2027", pv).edupoint_gu == "1"
-    assert canvas.match_course("Theatre HS 2A-Lazarus-S1-2027", pv) is None
+    assert canvas.match_course("Hon Biology A-Brask-S1-2027", pv).edupoint_gu == "1"
+    assert canvas.match_course("Theatre HS 2A-Vane-S1-2027", pv) is None
     assert canvas.match_course("Library", pv) is None
 
 
@@ -311,7 +311,7 @@ def _cc(cid, name, *names, term="S1") -> canvas.CanvasCourse:
 def test_merge_attaches_to_the_matching_gradebook_course_and_supersedes_twins():
     snap = _snapshot()
     stats = canvas.merge(snap, _collection(
-        _cc(1088849, "Hon Biology A-Yeh-S1-2027", "Cell Lab", "Osmosis Quiz")))
+        _cc(1088849, "Hon Biology A-Brask-S1-2027", "Cell Lab", "Osmosis Quiz")))
     assert stats == {"matched": 1, "own": 0, "assignments": 1, "superseded": 1, "skipped": 0}
     assert [c.edupoint_gu for c in snap.courses] == ["736790"]     # no new course row
     names = {(a.name, a.course_gu, a.source) for a in snap.assignments}
@@ -330,13 +330,13 @@ def test_merge_gives_an_unmatched_course_its_own_row_only_when_it_looks_like_a_c
     other_term = _cc(4, "Yoga Camp", "Breathe")
     other_term.term = "Summer"
     stats = canvas.merge(snap, _collection(
-        _cc(1, "Theatre HS 2A-Lazarus-S1-2027", "Monologue"),      # S1, like the class below
-        _cc(1088849, "Hon Biology A-Yeh-S1-2027", "Osmosis Quiz"),  # matches → sets the term
+        _cc(1, "Theatre HS 2A-Vane-S1-2027", "Monologue"),      # S1, like the class below
+        _cc(1088849, "Hon Biology A-Brask-S1-2027", "Osmosis Quiz"),  # matches → sets the term
         _cc(2, "Library"),                                          # no assignments
         shell, other_term))
     assert stats["own"] == 1 and stats["skipped"] == 2
     own = [c for c in snap.courses if c.source == SOURCE_CANVAS]
-    assert [(c.title, c.teacher, c.term) for c in own] == [("Theatre HS 2A", "Lazarus", "MP1")]
+    assert [(c.title, c.teacher, c.term) for c in own] == [("Theatre HS 2A", "Vane", "MP1")]
     assert own[0].edupoint_gu == "canvas:1"
     assert sorted(a.course_gu for a in snap.assignments if a.source == SOURCE_CANVAS) == ["736790", "canvas:1"]
 
@@ -420,7 +420,7 @@ def test_layer_apply_collects_and_merges(monkeypatch):
     responses = {
         "/api/v1/users/self/observees": [{"id": 199014, "sortable_name": "Harlow, Jules"}],
         "/api/v1/courses": [
-            {"id": 1088849, "name": "Hon Biology A-Yeh-S1-2027",
+            {"id": 1088849, "name": "Hon Biology A-Brask-S1-2027",
              "term": {"name": "S1"},
              "enrollments": [{"associated_user_id": 199014}]},
             {"id": 5, "name": "Broken-X-S1-2027", "term": {"name": "S1"},
@@ -477,15 +477,15 @@ def test_school_shells_never_get_a_row_even_when_nothing_matched():
 
 
 def test_unmatched_title_falls_back_to_the_one_class_with_that_teacher():
-    pv = [Course(edupoint_gu="736651", title="3: Theatre HS 1A", teacher="Julian Lazarus", term="MP1"),
-          Course(edupoint_gu="736790", title="7: Hon Biology A", teacher="Connie Yeh", term="MP1")]
+    pv = [Course(edupoint_gu="736651", title="3: Theatre HS 1A", teacher="Tallis Vane", term="MP1"),
+          Course(edupoint_gu="736790", title="7: Hon Biology A", teacher="Ondine Brask", term="MP1")]
     # The teacher's shared shell is named for another section.
-    assert canvas.match_course("Theatre HS 2A-Lazarus-S1-2027", pv).edupoint_gu == "736651"
+    assert canvas.match_course("Theatre HS 2A-Vane-S1-2027", pv).edupoint_gu == "736651"
     # A title match still wins over the surname.
-    assert canvas.match_course("Hon Biology A-Yeh-S1-2027", pv).edupoint_gu == "736790"
+    assert canvas.match_course("Hon Biology A-Brask-S1-2027", pv).edupoint_gu == "736790"
     # Two classes with one teacher: the surname decides nothing.
-    two = pv + [Course(edupoint_gu="736652", title="4: Stagecraft", teacher="J. Lazarus", term="MP1")]
-    assert canvas.match_course("Theatre HS 2A-Lazarus-S1-2027", two) is None
+    two = pv + [Course(edupoint_gu="736652", title="4: Stagecraft", teacher="T. Vane", term="MP1")]
+    assert canvas.match_course("Theatre HS 2A-Vane-S1-2027", two) is None
     # No suffix, no surname to fall back on.
     assert canvas.match_course("Olney ES", pv) is None
 
@@ -494,11 +494,11 @@ def test_merge_folds_the_teachers_shell_into_the_scheduled_class():
     snap = Snapshot(
         student_agu="1", term="MP1",
         courses=[Course(edupoint_gu="736651", title="3: Theatre HS 1A",
-                        teacher="Julian Lazarus", term="MP1")],
+                        teacher="Tallis Vane", term="MP1")],
         assignments=[Assignment(edupoint_gu="9001", course_gu="736651", name="Syllabus Signed",
                                 score=0.0, points=5.0, status=AssignmentStatus.GRADED)])
     stats = canvas.merge(snap, _collection(
-        _cc(1043107, "Theatre HS 2A-Lazarus-S1-2027", "Syllabus Signed", "Playbill Assignment")))
+        _cc(1043107, "Theatre HS 2A-Vane-S1-2027", "Syllabus Signed", "Playbill Assignment")))
     assert stats == {"matched": 1, "own": 0, "assignments": 1, "superseded": 1, "skipped": 0}
     assert [c.edupoint_gu for c in snap.courses] == ["736651"]
     assert {a.course_gu for a in snap.assignments} == {"736651"}

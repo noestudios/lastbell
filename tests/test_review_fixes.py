@@ -55,7 +55,7 @@ class _Stub:
 def test_collect_for_returns_a_collection_and_merge_applies_it():
     layer = canvas.CanvasLayer(_Stub({
         "/api/v1/users/self/observees": [{"id": 7, "sortable_name": "Harlow, Jules"}],
-        "/api/v1/courses": [{"id": 1, "name": "Hon Biology A-Yeh-S1-2027",
+        "/api/v1/courses": [{"id": 1, "name": "Hon Biology A-Brask-S1-2027",
                              "term": {"name": "S1"},
                              "enrollments": [{"associated_user_id": 7}]}],
         "/api/v1/courses/1/assignment_groups": [],
