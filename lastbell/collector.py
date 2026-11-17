@@ -165,7 +165,13 @@ def _collect_classes(
     if not focus_rows:
         # Elementary subject view / no per-class focus: the bootstrap's default
         # class is the only one addressable (the Phase 0 path).
-        class_gu = str(focus.args.get("classID", ""))
+        class_gu = str(focus.args.get("classID") or "")
+        if not class_gu:
+            # A page with no class in focus has nothing to read. A course
+            # row saved without an ID can never be told apart from "no
+            # filter" on the dashboard, and is never asserted again.
+            out.errors.append("the gradebook page has no class in focus")
+            return out
         row = next(
             (r for r in sc.rows
              if r.teacher_id and r.teacher_id == str(focus.args.get("teacherID"))),

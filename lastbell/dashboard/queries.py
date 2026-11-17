@@ -265,7 +265,8 @@ def build_student_ctx(conn: sqlite3.Connection, student, view: str,
     # course filter every number on them is that course's, so a card's
     # count is a promise about the panel it opens. The whole-student
     # figure rides along as context ("1 of 5 overall").
-    scoped_course = next((c for c in strip if c["edupoint_gu"] == course_gu), None)
+    scoped_course = (next((c for c in strip if c["edupoint_gu"] == course_gu), None)
+                     if course_gu else None)
     card_courses = [scoped_course] if scoped_course else strip
 
     # Problems card: 6-week open-problem trend (weekly samples).

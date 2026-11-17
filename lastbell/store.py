@@ -220,7 +220,8 @@ def _to_iso(value: date | None) -> str | None:
 
 
 def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot,
-                     *, prune_canvas: bool = False) -> None:
+                     *, prune_canvas: bool = False,
+                     prune_gradebook: bool = False) -> None:
     """Upsert the student's courses + assignments and log field-level changes.
 
     Assignments that vanished from the portal are kept (they're history, and
@@ -230,6 +231,11 @@ def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot,
     no longer asserts are dropped, work and all — they are rebuilt from
     Canvas every poll, so a row that stopped qualifying would otherwise
     linger on the dashboard forever.
+
+    With ``prune_gradebook`` (every class on the list was read this poll)
+    a gradebook course row of the snapshot's term that the snapshot no
+    longer asserts, and that holds no work, is dropped too: what a
+    stripped-down or wrong-student gradebook page once left behind.
     """
     student_id = student.agu  # AGU is already the portal's stable student key
     conn.execute(
@@ -335,6 +341,14 @@ def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot,
             "DELETE FROM courses WHERE student_id = ? AND source = 'canvas' "
             f"AND id NOT IN ({','.join('?' * len(keep)) or 'NULL'})",
             (student_id, *keep),
+        )
+    if prune_gradebook and snap.term and course_ids:
+        keep = list(course_ids.values())
+        conn.execute(
+            "DELETE FROM courses WHERE student_id = ? AND source = 'parentvue' "
+            "AND term = ? AND id NOT IN (" + ",".join("?" * len(keep)) + ") "
+            "AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.course_id = courses.id)",
+            (student_id, snap.term, *keep),
         )
 
     conn.commit()

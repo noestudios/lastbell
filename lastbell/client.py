@@ -193,6 +193,12 @@ class ParentVueClient:
 
         agu_m = re.search(r"PXP\.AGU\s*=\s*['\"]?(\w+)", html)
         agu_header = agu_m.group(1) if agu_m else str(agu)
+        # The page names the student it shows. The portal has been seen to
+        # answer one child's request with the page of the child viewed just
+        # before; reading on would file that child's classes under this one.
+        if agu_m and agu_header != str(agu):
+            raise ParentVueError(
+                f"asked for student {agu}, the portal showed student {agu_header}")
 
         return FocusArgs(args=args, agu_header=agu_header)
 

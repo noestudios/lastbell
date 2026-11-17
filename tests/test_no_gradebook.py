@@ -173,3 +173,30 @@ def test_preflight_passes_a_second_student_with_classes():
 def test_preflight_with_one_student_has_no_extra_check():
     report = _preflight(Portal([CASEY]))
     assert not any(c.id == "other_students" for c in report.checks)
+
+
+def test_a_clean_poll_clears_a_stray_course_left_by_a_bad_page(conn):
+    """2026-11: a wrong-student or stripped page once left "<teacher>'s
+    class" rows with no work. The next poll that reads every class drops
+    them; one that reads nothing prunes nothing."""
+    from lastbell.models import Course, Snapshot, Student
+
+    cli._run_once(Portal([CASEY]), conn, notifier=None, conf=CONF)
+    term = conn.execute("SELECT current_term FROM students").fetchone()[0]
+    assert term
+    store.persist_snapshot(
+        conn, Student(agu="1", name=CASEY.name, school=CASEY.school, initials="C.H."),
+        Snapshot(student_agu="1", term=term,
+                 courses=[Course(edupoint_gu="", title="Pat Example's class",
+                                 term=term)]))
+
+    def strays():
+        return conn.execute(
+            "SELECT count(*) FROM courses WHERE edupoint_gu = ''").fetchone()[0]
+
+    with pytest.raises(health.ClassesUnreadable):
+        cli._run_once(Portal([CASEY], raises={"1": ParentVueError("boom")}), conn,
+                      notifier=None, conf=CONF)
+    assert strays() == 1
+    cli._run_once(Portal([CASEY]), conn, notifier=None, conf=CONF)
+    assert strays() == 0

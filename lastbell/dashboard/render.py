@@ -738,7 +738,9 @@ def _course_strip(student, ctx) -> str:
     rows = []
     for c in ctx["strip"]:
         gu = c["edupoint_gu"]
-        active = gu == ctx["course_gu"]
+        # An ID-less row (never saved now, but an old one may linger) must
+        # not read as the active filter when there is no filter: "" == "".
+        active = bool(gu) and gu == ctx["course_gu"]
         # Clearing the filter carries ?strip=open: deselecting must not
         # collapse the bar the reader is working in.
         href = f"/student/{agu}?view={ctx['view']}" + (
@@ -795,7 +797,7 @@ def _course_strip(student, ctx) -> str:
     # summary activates as a link, not a toggle.
     scoped_title = next(
         (c["title"] for c in ctx["strip"]
-         if c["edupoint_gu"] == ctx["course_gu"]), "")
+         if c["edupoint_gu"] == ctx["course_gu"]), "") if ctx["course_gu"] else ""
     tag = ""
     if scoped_title:
         tag = (f" <a class='striptag' "

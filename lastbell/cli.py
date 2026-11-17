@@ -234,7 +234,8 @@ def _run_once(client, conn, notifier, conf) -> int:
                              grade_drop_points=conf.grade_drop_points,
                              quiet_marks=quiet_marks, quiet_canvas=quiet_canvas)
         store.persist_snapshot(conn, col.student, snapshot,
-                               prune_canvas=stats is not None)
+                               prune_canvas=stats is not None,
+                               prune_gradebook=bool(col.classes) and not col.errors)
 
         n_assign = len(snapshot.assignments)
         if previous is None:
