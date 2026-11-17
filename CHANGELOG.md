@@ -4,6 +4,25 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.3.13 — 2026-11-17
+
+**When ParentVUE is waiting for you to acknowledge documents, Last Bell
+says so the first time, rather than quietly reading nothing.**
+
+- **The Parent Acknowledgements page is recognized.** When a school posts
+  documents a parent has to acknowledge, such as a progress report,
+  ParentVUE shows that page in place of the gradebook until a parent signs
+  in and acknowledges each one. Last Bell used to treat this as a gradebook
+  with no classes. Older versions saved a placeholder "<teacher>'s class"
+  course and counted the check as a success, so no alerts came and nothing
+  said why. Now the check stops for the whole account and guardians get
+  one email after the first try. The email says how many documents are
+  waiting and that only a parent can acknowledge them. The dashboard,
+  `lastbell status` and `lastbell preflight` say the same. Last Bell never
+  acknowledges anything itself.
+- **Checking resumes by itself.** The next check after the documents are
+  acknowledged reads as usual and sends the "checking again" message.
+
 ## 0.3.12 — 2026-11-17
 
 **A course named after a teacher, with nothing in it, no longer shows up
