@@ -27,7 +27,7 @@ from . import store
 
 FAILURES_KEY = "poll_failures"          # consecutive failed polls
 SINCE_KEY = "poll_failure_since"        # UTC of the first failure in this run
-KIND_KEY = "poll_failure_kind"          # login | portal | unread | other
+KIND_KEY = "poll_failure_kind"          # login | acknowledge | portal | unread | other
 DETAIL_KEY = "poll_failure_detail"      # one line, for the dashboard
 NOTIFIED_KEY = "poll_failure_notified"  # UTC when guardians were told, if they were
 
@@ -36,7 +36,9 @@ NOTIFIED_KEY = "poll_failure_notified"  # UTC when guardians were told, if they 
 # enough; a portal that can't be reached usually comes back, so a full day.
 # Pages that changed shape don't change back on their own, but a portal in
 # the middle of an upgrade can serve odd pages for an hour: three polls.
-NOTIFY_AFTER = {"login": 2, "portal": 8, "unread": 3, "other": 3}
+# Documents waiting to be acknowledged only go away when a parent signs in
+# and acknowledges them, so the first poll that meets them says so.
+NOTIFY_AFTER = {"login": 2, "acknowledge": 1, "portal": 8, "unread": 3, "other": 3}
 
 # While sign-in is being rejected, back off to once a day after this many
 # consecutive rejections — enough to notice a fix, few enough to stay clear
@@ -49,6 +51,12 @@ EXPLAIN = {
               "password, run `lastbell setup` (or `lastbell set-password`) on "
               "{host} and restart the service. Until then Last Bell tries once "
               "a day, so a locked-out account isn't made worse."),
+    "acknowledge": ("ParentVUE is showing its Parent Acknowledgements page "
+                    "in place of the gradebook. The school has posted "
+                    "{what} (such as a progress report) that a parent has to "
+                    "acknowledge. Sign in to ParentVUE in a browser and "
+                    "acknowledge each one; Last Bell can't do that for you. "
+                    "Checking resumes on its own at the next poll after that."),
     "portal": ("the portal couldn't be reached. If {host} is online and the "
                "portal opens in a browser, run `lastbell preflight --report` "
                "there to see what changed."),
@@ -92,11 +100,14 @@ class Health:
 
 
 def classify(exc: BaseException) -> str:
-    """login | portal | other — what kind of failure this exception is."""
-    from .client import LoginError
+    """login | acknowledge | unread | portal | other — what kind of failure
+    this exception is."""
+    from .client import AcknowledgementsPending, LoginError
 
     if isinstance(exc, LoginError):
         return "login"
+    if isinstance(exc, AcknowledgementsPending):
+        return "acknowledge"
     if isinstance(exc, ClassesUnreadable):
         return "unread"
     try:
@@ -167,6 +178,17 @@ def _who(detail: str) -> str:
     return names or "a student"
 
 
+def _ack_what(detail: str) -> str:
+    """ "5 documents" / "a document" / "documents", from the failure's detail
+    (the AcknowledgementsPending message)."""
+    import re
+
+    m = re.search(r"acknowledge (\d+) document", detail or "")
+    if not m:
+        return "documents"
+    return "a document" if m.group(1) == "1" else f"{m.group(1)} documents"
+
+
 def _local(utc: str | None) -> str:
     if not utc:
         return "a while"
@@ -212,6 +234,14 @@ def failure_message(state: Health, host: str | None = None) -> tuple[str, str]:
             f"fixed. You'll get one more message when their classes can be "
             f"read again."])
         return f"[Last Bell] can't read {who}'s classes — action needed", body
+    if state.kind == "acknowledge":
+        body = _notice("ParentVUE is waiting for you", [
+            EXPLAIN["acknowledge"].format(what=_ack_what(state.detail)),
+            f"No alerts are coming from ParentVUE or Canvas until then (since "
+            f"{_local(state.since)}). You'll get one more message when checking "
+            f"resumes."])
+        return ("[Last Bell] ParentVUE is waiting for you to acknowledge "
+                "documents — action needed", body)
     why = EXPLAIN.get(state.kind, EXPLAIN["other"]).format(host=host)
     body = _notice("Can't check the gradebook", [
         f"Last Bell hasn't been able to check the gradebook since "
@@ -296,6 +326,9 @@ def dashboard_note(state: Health) -> str:
         return ""
     n = state.failures
     what = {"login": "the portal rejected the sign-in",
+            "acknowledge": (f"ParentVUE is waiting for a parent to acknowledge "
+                            f"{_ack_what(state.detail)} — sign in to ParentVUE "
+                            f"and acknowledge them"),
             "portal": "the portal couldn't be reached",
             "unread": f"{_who(state.detail)}'s classes couldn't be read",
             "other": "the poll couldn't finish"}.get(state.kind, "the poll couldn't finish")

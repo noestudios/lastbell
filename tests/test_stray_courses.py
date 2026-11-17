@@ -35,7 +35,7 @@ def _client_serving(page: str) -> ParentVueClient:
     client = ParentVueClient("https://x.example", "u", "p")
     client.login = lambda: None
     client.session.get = lambda url, timeout=30: SimpleNamespace(
-        text=page, raise_for_status=lambda: None)
+        text=page, url=url, raise_for_status=lambda: None)
     return client
 
 

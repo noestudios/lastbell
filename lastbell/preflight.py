@@ -269,12 +269,21 @@ def run_full(district: str, base_url: str, username: str, password: str,
                private=", ".join(c.name for c in children))
 
     agu = children[0].agu if children else "0"
+    from .client import AcknowledgementsPending
+
     try:
         focus = client.get_focus_args(agu)
     except requests.RequestException as e:
         report.add("focus_args", "Gradebook focus bootstrap", FAIL,
                    f"the gradebook page request failed ({type(e).__name__})")
         return skip_rest("blocked by the gradebook page")
+    except AcknowledgementsPending as e:
+        if dump_dir is not None:
+            dump_dir.mkdir(parents=True, exist_ok=True)
+            (dump_dir / "gradebook_page.html").write_text(
+                getattr(client, "last_gradebook_html", ""), encoding="utf-8")
+        report.add("focus_args", "Gradebook focus bootstrap", FAIL, str(e))
+        return skip_rest("ParentVUE is showing its Parent Acknowledgements page")
     if dump_dir is not None:
         dump_dir.mkdir(parents=True, exist_ok=True)
         page = getattr(client, "last_gradebook_html", "")

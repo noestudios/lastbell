@@ -254,6 +254,9 @@ def _db_section(conf: cfg.Config, now: datetime) -> list[str]:
             lines.append("Last successful check: never — run `lastbell run` once by hand")
         if state.failing:
             what = {"login": "the portal rejected the sign-in",
+                    "acknowledge": "ParentVUE is waiting for a parent to "
+                                   "acknowledge documents — sign in to "
+                                   "ParentVUE and acknowledge them",
                     "portal": "the portal couldn't be reached"}.get(
                         state.kind, "the poll couldn't finish")
             told = (f"; guardians were told {ago(state.notified, now)}"

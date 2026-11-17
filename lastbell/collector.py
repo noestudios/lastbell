@@ -14,7 +14,13 @@ import time
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-from .client import Child, LoginError, ParentVueClient, ParentVueError
+from .client import (
+    AcknowledgementsPending,
+    Child,
+    LoginError,
+    ParentVueClient,
+    ParentVueError,
+)
 from .gradebook import (
     ClassDetails,
     ParseError,
@@ -92,7 +98,7 @@ def collect_student(
     """
     try:
         out = _collect_classes(client, child, delay_s=delay_s)
-    except LoginError:
+    except (LoginError, AcknowledgementsPending):
         raise                    # the account, not this student: fail the poll
     except (ParentVueError, ParseError) as e:
         # This student's class list couldn't be read. Their brothers and

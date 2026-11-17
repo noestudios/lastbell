@@ -36,6 +36,20 @@ class ParentVueError(RuntimeError):
         self.response_text = response_text
 
 
+class AcknowledgementsPending(ParentVueError):
+    """The portal shows its Parent Acknowledgements page in place of the
+    gradebook: documents (a progress report, a policy) a parent has to
+    acknowledge on the ParentVUE site. Nothing can be read until they do,
+    and Last Bell won't acknowledge for them."""
+
+    def __init__(self, count: int | None = None) -> None:
+        self.count = count
+        what = (f"{count} document{'s' if count != 1 else ''}" if count
+                else "documents")
+        super().__init__(f"ParentVUE is waiting for a parent to acknowledge {what} "
+                         f"— sign in to ParentVUE and acknowledge them")
+
+
 class LoginError(ParentVueError):
     """Authentication failed (bad credentials, MFA, or CAPTCHA)."""
 
@@ -182,6 +196,8 @@ class ParentVueClient:
         html = r.text
         # Kept so debug tooling (preflight --dump) can save the raw page.
         self.last_gradebook_html = html
+        if _acknowledgements_page(r.url, html):
+            raise AcknowledgementsPending(_acknowledgement_count(html))
 
         m = re.search(r"PXP\.GBCurrentFocus\s*=\s*(\{.*?\});", html, re.DOTALL)
         args: dict = {}
@@ -313,3 +329,21 @@ class ParentVueClient:
                 response_text=r.text,
             )
         return html
+
+
+# The portal's own page for documents a parent must acknowledge. It is
+# served in place of whatever was asked for, under the page's own address
+# or in the asked-for one with this page's form.
+_ACK_PAGE = "PXP2_Parent_Acknowledgements.aspx"
+
+
+def _acknowledgements_page(url: str, html: str) -> bool:
+    return (_ACK_PAGE.lower() in (url or "").lower()
+            or re.search(r'<form\b[^>]*\baction="' + re.escape(_ACK_PAGE), html,
+                         re.IGNORECASE) is not None)
+
+
+def _acknowledgement_count(html: str) -> int | None:
+    """N from the page's "Acknowledgement 1 / N" heading, when it has one."""
+    m = re.search(r"Acknowledgement\s+\d+\s*/\s*(\d+)", html)
+    return int(m.group(1)) if m else None

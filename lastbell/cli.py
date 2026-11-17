@@ -459,6 +459,7 @@ def _poll_failed(conn, notifier, conf, exc: BaseException) -> int:
     state = health.record_failure(conn, kind, text)
     delay = health.next_delay_minutes(state, conf.poll_minutes)
     reason = {"login": "the portal rejected the sign-in",
+              "acknowledge": "ParentVUE has documents waiting to be acknowledged",
               "portal": "couldn't reach the portal"}.get(kind, "couldn't finish this poll")
     retry_at = (datetime.now() + timedelta(minutes=delay)).strftime("%H:%M")
     log.warning(f"{reason} ({text}) — {state.failures} in a row; retrying at {retry_at}"
