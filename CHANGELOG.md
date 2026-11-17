@@ -4,6 +4,25 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.3.12 — 2026-11-17
+
+**A course named after a teacher, with nothing in it, no longer shows up
+for the wrong child or sticks as a filter you can't clear.**
+
+- **One child's gradebook is never saved under another child.** The
+  portal sometimes answers a request for one child with the page of the
+  child viewed just before. Last Bell used to read that page anyway. Now
+  that child's check fails for that poll and nothing is saved.
+- **A gradebook page with no class on it saves nothing.** When the portal
+  sends a stripped-down gradebook, Last Bell used to save a placeholder
+  course called "<teacher>'s class". It did that even when the page named
+  no class. Such a course had no ID, so the dashboard showed it as the
+  selected filter and its × did nothing.
+- **Leftover placeholder courses clear themselves.** Once a check reads
+  every one of a child's classes, any course from this term that the
+  check didn't see and that has no work under it is removed. Courses with
+  work and courses from past terms are kept.
+
 ## 0.3.11 — 2026-11-12
 
 **One piece of work, one line: a lab marked missing no longer shows up
