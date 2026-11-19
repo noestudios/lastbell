@@ -4,6 +4,32 @@ Plain-words notes for each release. The heading's version is what
 `release.yml` looks up to fill the GitHub Release page, so keep the
 `## <version> — <date>` shape.
 
+## 0.3.14 — 2026-11-19
+
+**Last marking period's missing Canvas work no longer counts against this
+one.**
+
+- **Only the current grading period's Canvas work is shown.** A Canvas
+  class runs all semester, but the gradebook starts fresh each marking
+  period. After MP1 ended, MP1 work that Canvas marked missing stayed on the
+  student page and in its missing count, so the count no longer matched
+  ParentVUE. Last Bell now reads each Canvas class's grading periods and
+  keeps only work from the current one. It sorts work by due date the way
+  Canvas does: work with no due date goes to the last period, and work due
+  in the days between two periods counts toward the next one. Classes with
+  no grading periods in Canvas keep all their work, as before.
+- **Leftovers clear on the first check after upgrading.** Copies of
+  earlier-period work already saved under this marking period are removed,
+  including ones marked missing or scored 0. Work saved while its own
+  marking period was current stays there as history. Nothing is announced
+  when work is removed.
+- **Canvas-only work can still differ from ParentVUE.** If Canvas marks
+  this period's work missing and the teacher hasn't added it to the
+  gradebook, Last Bell still shows it, because catching that is what the
+  Canvas layer is for.
+- `lastbell canvas` says how many items from other grading periods each
+  class left out.
+
 ## 0.3.13 — 2026-11-17
 
 **When ParentVUE is waiting for you to acknowledge documents, Last Bell
