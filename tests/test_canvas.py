@@ -429,6 +429,7 @@ def test_layer_apply_collects_and_merges(monkeypatch):
              "enrollments": [{"associated_user_id": 1}]},
         ],
         "/api/v1/courses/1088849/assignment_groups": [{"id": 5, "name": "Practice"}],
+        "/api/v1/courses/1088849/grading_periods": {"grading_periods": []},
         "/api/v1/users/199014/courses/1088849/assignments": [
             _api_assignment(), _api_assignment(id=2, name="Osmosis Quiz")],
     }

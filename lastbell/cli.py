@@ -395,6 +395,8 @@ def _cmd_canvas(args: argparse.Namespace) -> int:
             for a in course.assignments:
                 counts[a.status.value] = counts.get(a.status.value, 0) + 1
             shape = ", ".join(f"{v} {k}" for k, v in sorted(counts.items())) or "nothing to track"
+            if course.set_aside:
+                shape += f" ({len(course.set_aside)} from other grading periods left out)"
             if target is not None:
                 where = f"= gradebook “{target.title}”"
             elif course.gu in own:

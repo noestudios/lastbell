@@ -23,6 +23,7 @@ link once per poll yields a Canvas session cookie. A personal access token
         ?include[]=submission&include[]=observed_users  the work, with the
                                                        student's own submission
     /api/v1/courses/{course}/assignment_groups         category names
+    /api/v1/courses/{course}/grading_periods           the marking periods
 
 **What we keep.** Published, named assignments that carry a due date, or
 that have no date but have been turned in or scored — the undated, untouched
@@ -30,7 +31,11 @@ items a course shell accumulates (a plugged-in tool's placeholder, a "read
 this page") are noise a parent can't act on, and with no date they would
 sit as "due" for ever. Canvas's own words are trusted (``missing`` →
 MISSING, a posted score → GRADED, a submission → SUBMITTED); everything else
-is DUE and the time rules take it from there.
+is DUE and the time rules take it from there. Only work from the course's
+current grading period is kept: a Canvas class runs all semester, so last
+marking period's missing work would otherwise sit on this one's views (and
+in its count) for good. Canvas files work by due date, undated work in the
+last period; a class with no grading periods keeps everything.
 
 **How it merges.** A Canvas course is matched to the ParentVUE course of the
 same title (period prefixes and the ``-Teacher-S1-2027`` suffix stripped),
@@ -51,7 +56,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from html import unescape
 from collections.abc import Iterable
 from typing import Callable
@@ -449,6 +454,10 @@ class CanvasCourse:
     teacher: str
     term: str
     assignments: list[Assignment] = field(default_factory=list)
+    # Keys of kept work Canvas files under a grading period other than the
+    # current one: left out of ``assignments``, remembered so the store can
+    # drop copies an earlier poll attached to this term's course row.
+    set_aside: list[str] = field(default_factory=list)
 
     @property
     def gu(self) -> str:
@@ -477,9 +486,11 @@ def observees(client: CanvasClient) -> list[Observee]:
 
 
 def collect(client: CanvasClient, observee: Observee, *,
-            courses_cache: list | None = None) -> CanvasCollection:
+            courses_cache: list | None = None,
+            now: datetime | None = None) -> CanvasCollection:
     """Every active course this observer watches for ``observee``, with its
-    kept assignments. One course failing is reported, not fatal."""
+    kept assignments from the current grading period. One course failing is
+    reported, not fatal."""
     out = CanvasCollection(observee=observee)
     if courses_cache is None:
         courses_cache = fetch_courses(client)
@@ -502,10 +513,72 @@ def collect(client: CanvasClient, observee: Observee, *,
         except CanvasError as e:
             out.errors.append(f"{title}: {e}")
             continue
-        course.assignments = [to_assignment(a, course.gu, groups)
-                              for a in rows if keep_assignment(a)]
+        periods = fetch_grading_periods(client, course.id)
+        current = period_of(periods, now or datetime.now(timezone.utc))
+        for a in rows:
+            if not keep_assignment(a):
+                continue
+            work = to_assignment(a, course.gu, groups)
+            if current is not None and period_of(periods, _parse_ts(a.get("due_at"))) != current:
+                course.set_aside.append(work.edupoint_gu)
+            else:
+                course.assignments.append(work)
         out.courses.append(course)
     return out
+
+
+# ── grading periods ───────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class GradingPeriod:
+    title: str
+    start: datetime
+    end: datetime
+
+
+def _parse_ts(iso: str | None) -> datetime | None:
+    """A Canvas UTC timestamp as an aware datetime, or None."""
+    if not iso:
+        return None
+    try:
+        ts = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+
+def fetch_grading_periods(client: CanvasClient, course_id: int) -> list[GradingPeriod]:
+    """The course's grading periods, oldest first — or [] when it has none or
+    Canvas won't say (then nothing is filtered: every period's work shows,
+    as before)."""
+    try:
+        data = client.get(f"/api/v1/courses/{course_id}/grading_periods")
+    except CanvasError:
+        return []
+    rows = data.get("grading_periods") if isinstance(data, dict) else None
+    out = []
+    for g in rows or []:
+        start, end = _parse_ts(g.get("start_date")), _parse_ts(g.get("end_date"))
+        if start and end:
+            out.append(GradingPeriod(title=g.get("title") or "", start=start, end=end))
+    return sorted(out, key=lambda p: p.start)
+
+
+def period_of(periods: list[GradingPeriod], when: datetime | None) -> GradingPeriod | None:
+    """The grading period a due date (or today) belongs to: the first one
+    that hasn't ended by then. So a date in the gap between two periods
+    counts toward the next one — MCPS's MP1 ends a few days before Canvas's
+    MP 2 starts, while the gradebook's MP2 starts straight after. Undated
+    work goes to the last period, which is Canvas's own rule."""
+    if not periods:
+        return None
+    if when is None:
+        return periods[-1]
+    for p in periods:
+        if when <= p.end:
+            return p
+    return periods[-1]
 
 
 # Canvas's own catch-all term — every instance has one, by this name. District
@@ -558,6 +631,7 @@ def merge(snapshot: Snapshot, collection: CanvasCollection, *,
             snapshot.courses.append(Course(
                 edupoint_gu=course_gu, title=cc.title, teacher=cc.teacher,
                 term=snapshot.term, source=SOURCE_CANVAS))
+        snapshot.canvas_set_aside.update(cc.set_aside)
         taken = pv_names.get(course_gu, {})
         for a in cc.assignments:
             a.course_gu = course_gu

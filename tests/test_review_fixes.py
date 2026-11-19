@@ -59,6 +59,7 @@ def test_collect_for_returns_a_collection_and_merge_applies_it():
                              "term": {"name": "S1"},
                              "enrollments": [{"associated_user_id": 7}]}],
         "/api/v1/courses/1/assignment_groups": [],
+        "/api/v1/courses/1/grading_periods": {"grading_periods": []},
         "/api/v1/users/7/courses/1/assignments": [
             {"id": 11, "name": "Osmosis Quiz", "published": True,
              "due_at": "2026-09-10T03:59:59Z", "points_possible": 10, "submission": {}}],

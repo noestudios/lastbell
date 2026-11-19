@@ -161,9 +161,14 @@ class Snapshot:
     pass (e.g. "MP1"). The store remembers it per student; a change between
     the remembered and the collected term is a rollover — the differ answers
     with a one-shot final-grades summary event.
+
+    ``canvas_set_aside`` holds the keys (``canvas:<id>``) of Canvas work this
+    pass read but left out because Canvas files it under another grading
+    period; the store drops any copy of it from this term's course rows.
     """
 
     student_agu: str
     courses: list[Course] = field(default_factory=list)
     assignments: list[Assignment] = field(default_factory=list)
     term: str = ""
+    canvas_set_aside: set[str] = field(default_factory=set)

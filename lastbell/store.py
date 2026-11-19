@@ -336,6 +336,18 @@ def persist_snapshot(conn: sqlite3.Connection, student: Student, snap: Snapshot,
                     and aid not in asserted and old["score"] is None
                     and old["status"] in ("due", "not_due", "ungraded_past_due")):
                 conn.execute("DELETE FROM assignments WHERE id = ?", (aid,))
+        # Work Canvas files under another grading period was attached to
+        # this term's course rows by an earlier poll (a Canvas class runs
+        # all semester; the gradebook's course rows are per marking period).
+        # Drop those copies whatever their status — a missing or zero-scored
+        # one is exactly what kept last period's work on this one's views.
+        # The copy stored while that period was current stays with its own
+        # term's course row.
+        this_term = set(course_ids.values())
+        for aid, old in old_assignments.items():
+            if (old["source"] == "canvas" and old["course_id"] in this_term
+                    and old["edupoint_gu"] in snap.canvas_set_aside):
+                conn.execute("DELETE FROM assignments WHERE id = ?", (aid,))
         keep = list(course_ids.values())
         conn.execute(
             "DELETE FROM courses WHERE student_id = ? AND source = 'canvas' "
